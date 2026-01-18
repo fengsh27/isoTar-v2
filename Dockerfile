@@ -99,10 +99,30 @@ RUN apt-get clean && apt-get update && apt-get install -y --no-install-recommend
 	software-properties-common \
 	supervisor \
 	tk-dev \
+	wget \
+	curl \
+	bzip2 \
+	ca-certificates \
 	&& rm -rf /var/lib/apt/lists/*
 
 # RUN pip install --upgrade pip
 RUN pip install "numpy==1.16.6"
+
+# Setup Miniconda for DMISO (Python 3.6)
+ENV CONDA_DIR=/opt/conda
+RUN curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-4.7.12-Linux-x86_64.sh -o /tmp/miniconda.sh \
+	&& bash /tmp/miniconda.sh -b -p ${CONDA_DIR} \
+	&& rm /tmp/miniconda.sh \
+	&& ${CONDA_DIR}/bin/conda clean -a -y
+ENV PATH="${CONDA_DIR}/bin:${PATH}"
+RUN conda create -y -n dmiso python=3.6 \
+	&& conda run -n dmiso pip install --no-cache-dir "tensorflow==1.15.0" "keras==2.3.1" "numpy" \
+	&& conda run -n dmiso python -c "import tensorflow, keras; print('dmiso env ok')" \
+	&& conda clean -a -y
+ENV DMISO_HOME=/opt/DMISO/DMISO-main
+ENV PATH="${PATH}:${DMISO_HOME}"
+RUN printf '%s\n' "#!/bin/sh" "exec conda run -n dmiso python ${DMISO_HOME}/dmiso.py \"$@\"" > /usr/local/bin/dmiso \
+	&& chmod +x /usr/local/bin/dmiso
 
 #########################
 ## R                   ##
@@ -133,7 +153,7 @@ RUN cd /opt/R \
 
 # Setup flask application
 RUN mkdir -p /app
-RUN pip install -r /opt/requirements.txt
+RUN /usr/bin/pip install -r /opt/requirements.txt
 
 # Setup Vienna-rna
 RUN cd /opt \
@@ -164,10 +184,6 @@ RUN cd /opt/miRanda \
 	&& make install
 
 # Setup miRmap
-RUN cd /opt/miRanda \
-	&& ./configure \
-	&& make \
-	&& make install
 RUN cd /opt/miRmap/libs \
 	&& mv lib-archlinux-x86_64/ default
 	
