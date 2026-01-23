@@ -1,4 +1,5 @@
 import os, re
+import sys
 import argparse
 import multiprocessing
 import subprocess
@@ -9,19 +10,24 @@ from typing import Dict, List
 # Predefined list of tools
 ALLOWED_TOOLS = ["miRanda", "miRmap", "Targetscan", "RNAhybrid", "PITA", "DMISO"]
 # miRanda path
-MIRANDA = 'tools/miRanda/bin/miranda'
+MIRANDA = '/opt/miRanda/bin/miranda'
 # RNAhybrid path
-RNAHYBRID = "tools/RNAhybrid/src/RNAhybrid"
+RNAHYBRID = "/opt/RNAhybrid/src/RNAhybrid"
 # PITA path
-PITA = "tools/PITA64bit/pita_prediction.pl"
+PITA = "/opt/PITA64bit/pita_prediction.pl"
 # TargetScan path
-TARGETSCAN = "tools/TargetScan/"
+TARGETSCAN = "/opt/TargetScan/"
 # DMISO path
-DMISO = "tools/DMISO/bin/dmiso"
+DMISO = "/usr/local/bin/dmiso"
 
 # 3 UTR PATH
-HUMAN_HG19_3UTR = 'opt/human/hg19/3utr.fa'
-HUMAN_HG38_3UTR = 'opt/human/hg38/3utr.fasta'
+HUMAN_HG19_3UTR = '/opt/human/hg19/3utr.fa'
+HUMAN_HG38_3UTR = '/opt/human/hg38/3utr.fasta'
+
+# Ensure miRmap modules can be imported
+MIRMAP_SRC = "/opt/miRmap/src"
+if MIRMAP_SRC not in sys.path:
+    sys.path.append(MIRMAP_SRC)
 
 def parse_fasta(fasta_file: str) -> List[Dict[str, str]]:
     """
@@ -163,14 +169,24 @@ def process_3utr_fasta(utr_file: str, num_cores: int, temp_folder: str):
     subfile.close()
     print("3' UTR FASTA file splitting complete.")
 
+def sanitize_output_path(output_file: str) -> str:
+    """Sanitize output filename to avoid illegal characters."""
+    output_dir, filename = os.path.split(output_file)
+    safe_filename = re.sub(r"[^A-Za-z0-9._-]+", "_", filename)
+    if safe_filename in {"", ".", ".."}:
+        safe_filename = "miranda_output.txt"
+    return os.path.join(output_dir, safe_filename)
+
+
 def run_miranda(mirna_file: str, utr_file: str, output_file: str):
     """Run miRanda on a given miRNA and UTR file."""
+    safe_output_file = sanitize_output_path(output_file)
     cmd = [
         MIRANDA,
         mirna_file,
         utr_file,
         "-en", "-20",
-        "-out", output_file,
+        "-out", safe_output_file,
         "-quiet"
     ]
     subprocess.run(cmd, check=True)
@@ -233,7 +249,7 @@ def run_dmiso(mirna_file: str, utr_file: str, output_file: str):
 def targetscan_prep(sequence: str, header: str, out_dir: str):
     """TargetScan_prep"""
     # load mirR_Family_Info
-    mirna_family_info_path = 'tools/TargetScan/Datasets/miR_Family_Info.json'
+    mirna_family_info_path = '/opt/TargetScan/Datasets/miR_Family_Info.json'
     mirna_family_info = load_json(mirna_family_info_path)
     # Prepare TargetScan miRNA file
     mirna_fasta_path = f"{out_dir}/{header}_targetscan.txt"
@@ -296,7 +312,7 @@ def run_mirmap(mirna_seq: str, mirna_header: str, utr_file: str, output_file: st
                 out_f.write("\n")
                 continue           
             # Initialize Spatt and Calculate scores
-            spatt_path = "tools/miRmap/bin/linux_x86_64/libspatt2.so"  # Adjust path as needed
+            spatt_path = "/opt/miRmap/libs/default/libspatt2.so"  # Adjust path as needed
             if_spatt = mirmap.if_lib_spatt.Spatt(spatt_path)
             scores = mirmap.scores.calc_scores(targets[0], if_spatt=if_spatt)              
             
@@ -452,8 +468,8 @@ def process_tools(sequences: List[Dict[str, str]], tools: List[str], utr_file: s
                 # TargetScan Input File path
                 targetscan_input = f"{targetscan_out_dir}/{seq['header']}_targetscan.txt"
                 # utr path
-                utr_path = "tools/TargetScan/Datasets/3utr"
-                bln_bins_path = "tools/TargetScan/Datasets/bln_bins"
+                utr_path = "/opt/TargetScan/Datasets/3utr"
+                bln_bins_path = "/opt/TargetScan/Datasets/bln_bins"
                 # Process Targetscan
                 for i in range(64):
                     utr_file = os.path.join(utr_path, f'targetscan_utr_part_{i}.txt')

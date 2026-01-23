@@ -12,7 +12,7 @@ import json
 from typing import List, Dict
 
 # Configuration
-TARGETSCAN_DIR = "/fs/ess/PAS2851/Shaopeng/TargetScan"
+TARGETSCAN_DIR = "/opt/TargetScan"
 TARGETSCAN_SCRIPT1 = os.path.join(TARGETSCAN_DIR, "TargetScan_70/targetscan_70.pl")
 TARGETSCAN_SCRIPT2 = os.path.join(TARGETSCAN_DIR, "TargetScan7_BL_PCT/targetscan_70_BL_PCT.pl")
 UTR_PARTS_DIR = os.path.join(TARGETSCAN_DIR, "Datasets/3utr/")

@@ -53,7 +53,9 @@ RUN sed -i 's/^#\s*\(deb.*universe\)$/\1/g' /etc/apt/sources.list
 RUN mkdir -p /run/systemd && echo 'docker' > /run/systemd/container
 
 ADD tools /opt/
-ADD v2 /opt/
+COPY v2/*.py /opt/v2/
+COPY v2/opt/human /opt/human
+COPY v2/opt/resources /opt/resources
 
 RUN apt-get clean && apt-get update && apt-get install -y --no-install-recommends \
 	apt-transport-https \
@@ -106,7 +108,7 @@ RUN apt-get clean && apt-get update && apt-get install -y --no-install-recommend
 	&& rm -rf /var/lib/apt/lists/*
 
 # RUN pip install --upgrade pip
-RUN pip install "numpy==1.16.6"
+RUN pip install "numpy==1.16.6" "dendropy==4.6.1"
 
 # Setup Miniconda for DMISO (Python 3.6)
 ENV CONDA_DIR=/opt/conda

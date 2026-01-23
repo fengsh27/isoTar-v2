@@ -20,7 +20,7 @@ from typing import Tuple, List, Optional, Dict, Union
 __version__ = "0.0.2"
 
 # Constants
-MARUTE_PRE_MIRNA = 'opt/resources/mature_pre_mirna_ext.json'
+MARUTE_PRE_MIRNA = '/opt/resources/mature_pre_mirna_ext.json'
 MIN_LENGTH = 17
 MAX_LENGTH = 30
 VALID_NUCLEOTIDES = {'A', 'T', 'C', 'G', 'U'}
