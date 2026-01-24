@@ -118,7 +118,7 @@ RUN curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-4.7.12-Linux-x86_6
 	&& ${CONDA_DIR}/bin/conda clean -a -y
 ENV PATH="${CONDA_DIR}/bin:${PATH}"
 RUN conda create -y -n dmiso python=3.6 \
-	&& conda run -n dmiso pip install --no-cache-dir "tensorflow==1.15.0" "keras==2.3.1" "numpy" \
+	&& conda run -n dmiso pip install --no-cache-dir "tensorflow==1.15.0" "keras==2.3.1" "numpy" "h5py==2.10.0" \
 	&& conda run -n dmiso python -c "import tensorflow, keras; print('dmiso env ok')" \
 	&& conda clean -a -y
 ENV DMISO_HOME=/opt/DMISO/DMISO-main
