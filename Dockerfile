@@ -1,4 +1,4 @@
-FROM ubuntu:16.04
+FROM ubuntu:22.04
 
 MAINTAINER rosario.distefano.ict@gmail.com
 ENV DEBIAN_FRONTEND noninteractive
@@ -82,7 +82,7 @@ RUN apt-get clean && apt-get update && apt-get install -y --no-install-recommend
 	libgraphviz-dev \
 	libhdf5-serial-dev \
 	libncursesw5-dev \
-	libreadline-gplv2-dev \
+	libreadline-dev \
 	libsqlite3-dev \
 	libssl-dev \
 	libtclap-dev \
@@ -91,12 +91,11 @@ RUN apt-get clean && apt-get update && apt-get install -y --no-install-recommend
 	nano \
 	nginx \
 	pkg-config \
-	python-dev \
-	python-mysqldb \
-	python-pip \
-	python-setuptools \
-	python-virtualenv \
-	python2.7 \
+	python3-dev \
+	python3-mysqldb \
+	python3-pip \
+	python3-setuptools \
+	python3-venv \
 	rabbitmq-server \
 	software-properties-common \
 	supervisor \
@@ -108,18 +107,23 @@ RUN apt-get clean && apt-get update && apt-get install -y --no-install-recommend
 	&& rm -rf /var/lib/apt/lists/*
 
 # RUN pip install --upgrade pip
-RUN pip install "numpy==1.16.6" "dendropy==4.6.1"
+RUN pip install "numpy==1.26.4" "dendropy==4.6.1"
 
 # Setup Miniconda for DMISO (Python 3.6)
 ENV CONDA_DIR=/opt/conda
-RUN curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-4.7.12-Linux-x86_64.sh -o /tmp/miniconda.sh \
+RUN curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-py311_24.5.0-0-Linux-x86_64.sh -o /tmp/miniconda.sh \
 	&& bash /tmp/miniconda.sh -b -p ${CONDA_DIR} \
 	&& rm /tmp/miniconda.sh \
 	&& ${CONDA_DIR}/bin/conda clean -a -y
 ENV PATH="${CONDA_DIR}/bin:${PATH}"
-RUN conda create -y -n dmiso python=3.6 \
+RUN conda create -y -n dmiso python=3.6.13 \
 	&& conda run -n dmiso pip install --no-cache-dir "tensorflow==1.15.0" "keras==2.3.1" "numpy" "h5py==2.10.0" \
 	&& conda run -n dmiso python -c "import tensorflow, keras; print('dmiso env ok')" \
+	&& conda clean -a -y
+
+RUN conda create -y -n mirmap python=3.11 \
+	&& conda run -n mirmap pip install --no-cache-dir "numpy" "dendropy==4.6.1" \
+	&& conda run -n mirmap python -c "import numpy, dendropy; print('mirmap env ok')" \
 	&& conda clean -a -y
 ENV DMISO_HOME=/opt/DMISO/DMISO-main
 ENV PATH="${PATH}:${DMISO_HOME}"
@@ -130,9 +134,15 @@ RUN printf '%s\n' "#!/bin/sh" "exec conda run -n dmiso python ${DMISO_HOME}/dmis
 ## R                   ##
 #########################
 
-RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 51716619E084DAB9 \
-	&& add-apt-repository 'deb [arch=amd64,i386] https://ftp.ussg.iu.edu/CRAN/bin/linux/ubuntu xenial/' \
-	&& apt-get clean \
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends \
+	gnupg \
+	dirmngr \
+	ca-certificates \
+	&& curl -fsSL https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc \
+		| gpg --dearmor -o /usr/share/keyrings/cran.gpg \
+	&& echo "deb [signed-by=/usr/share/keyrings/cran.gpg] https://cloud.r-project.org/bin/linux/ubuntu jammy-cran40/" \
+		> /etc/apt/sources.list.d/cran.list \
 	&& apt-get update \
 	&& apt-get install -y --no-install-recommends \
 	curl \
@@ -140,7 +150,7 @@ RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 51716619E084DAB9 \
 	libcurl4-openssl-dev \
 	librsvg2-dev \
 	libssl-dev \
-	libv8-3.14-dev \
+	libv8-dev \
 	libwebp-dev \
 	r-base \
 	r-base-dev \
@@ -148,7 +158,7 @@ RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 51716619E084DAB9 \
 	r-cran-igraph \
 	r-cran-rcurl \
 	r-cran-xml \
-	r-omegahat-xmlrpc
+	&& rm -rf /var/lib/apt/lists/*
 
 RUN cd /opt/R \
 	&& /usr/bin/Rscript install_r_packages.R 
