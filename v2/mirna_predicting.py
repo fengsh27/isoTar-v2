@@ -5,7 +5,7 @@ import multiprocessing
 import subprocess
 import json
 import shutil
-from typing import Dict, List
+
 
 # Predefined list of tools
 ALLOWED_TOOLS = ["miRanda", "miRmap", "Targetscan", "RNAhybrid", "PITA", "DMISO"]
@@ -29,7 +29,7 @@ MIRMAP_SRC = "/opt/miRmap/src"
 if MIRMAP_SRC not in sys.path:
     sys.path.append(MIRMAP_SRC)
 
-def parse_fasta(fasta_file: str) -> List[Dict[str, str]]:
+def parse_fasta(fasta_file):
     """
     Parse a FASTA file and extract headers, sequences, their lengths, and types.
     Remove sequences with lengths smaller than 17 or greater than 30.
@@ -63,7 +63,7 @@ def parse_fasta(fasta_file: str) -> List[Dict[str, str]]:
                             "type": seq_type
                         })
                     else:
-                        print(f"Removed sequence '{header}' (type: {seq_type}) with length {len(sequence)}.")
+                        print("Removed sequence '{}' (type: {}) with length {}.".format(header, seq_type, len(sequence)))
                 
                 header = line[1:]  # Remove ">" from the header
                 sequence = ""  # Reset sequence
@@ -93,10 +93,10 @@ def parse_fasta(fasta_file: str) -> List[Dict[str, str]]:
                     "type": seq_type
                 })
             else:
-                print(f"Removed sequence '{header}' (type: {seq_type}) with length {len(sequence)}.")
+                print("Removed sequence '{}' (type: {}) with length {}.".format(header, seq_type, len(sequence)))
     return sequences
 
-def load_json(file_path: str) -> Dict:
+def load_json(file_path):
     """Load and validate JSON data from file."""
     try:
         with open(file_path, 'r') as file:
@@ -105,11 +105,11 @@ def load_json(file_path: str) -> Dict:
             raise ValueError("JSON data should be a dictionary")
         return data
     except FileNotFoundError:
-        raise FileNotFoundError(f"The file '{file_path}' was not found.")
+        raise FileNotFoundError("The file '{}' was not found.".format(file_path))
     except json.JSONDecodeError:
-        raise ValueError(f"The file '{file_path}' is not a valid JSON file.")
+        raise ValueError("The file '{}' is not a valid JSON file.".format(file_path))
 
-def save_to_json(data: List[Dict[str, str]], tools: List[str], num_cores: int, output_path: str):
+def save_to_json(data, tools, num_cores, output_path):
     """
     Save the parsed FASTA data and tools list to a JSON file.
     """
@@ -120,17 +120,18 @@ def save_to_json(data: List[Dict[str, str]], tools: List[str], num_cores: int, o
     }
     with open(output_path, 'w') as file:
         json.dump(output_data, file, indent=4)
-    print(f"Input FASTA data and tools saved to: {output_path}")
+    print("Input FASTA data and tools saved to: {}".format(output_path))
 
-def process_3utr_fasta(utr_file: str, num_cores: int, temp_folder: str):
+def process_3utr_fasta(utr_file, num_cores, temp_folder):
     """
     Process a 3' UTR FASTA file by splitting it into multiple subfiles based on the number of cores.
     Count sequences by the number of lines starting with ">".
     """
-    print(f"Processing 3' UTR FASTA file: {utr_file}")
+    print("Processing 3' UTR FASTA file: {}".format(utr_file))
     
     # Create temp directory
-    os.makedirs(temp_folder+"/utr", exist_ok=True)
+    if not os.path.exists(temp_folder + "/utr"):
+        os.makedirs(temp_folder + "/utr")
     
     # Count the number of sequences by counting lines starting with ">"
     total_sequences = 0
@@ -138,19 +139,19 @@ def process_3utr_fasta(utr_file: str, num_cores: int, temp_folder: str):
         for line in file:
             if line.startswith(">"):
                 total_sequences += 1
-    print(f"Total sequences in 3' UTR file: {total_sequences}")
+    print("Total sequences in 3' UTR file: {}".format(total_sequences))
     
     # Calculate the number of sequences per subfile
     sequences_per_file = total_sequences // num_cores
     remainder = total_sequences % num_cores
-    print(f"Splitting into {num_cores} subfiles with {sequences_per_file} sequences each (remainder: {remainder})")
+    print("Splitting into {} subfiles with {} sequences each (remainder: {})".format(num_cores, sequences_per_file, remainder))
     
     # Split sequences into subfiles
     current_sequence_count = 0
     current_file_index = 1
-    subfile_name = f"{temp_folder}/utr/temp_3utr_part{current_file_index}.fasta"
+    subfile_name = "{}/utr/temp_3utr_part{}.fasta".format(temp_folder, current_file_index)
     subfile = open(subfile_name, 'w')
-    print(f"Subfile {current_file_index} created: {subfile_name}")
+    print("Subfile {} created: {}".format(current_file_index, subfile_name))
     
     with open(utr_file, 'r') as file:
         for line in file:
@@ -160,16 +161,16 @@ def process_3utr_fasta(utr_file: str, num_cores: int, temp_folder: str):
                 if current_sequence_count > sequences_per_file + (1 if current_file_index <= remainder else 0):
                     subfile.close()
                     current_file_index += 1
-                    subfile_name = f"{temp_folder}/utr/temp_3utr_part{current_file_index}.fasta"
+                    subfile_name = "{}/utr/temp_3utr_part{}.fasta".format(temp_folder, current_file_index)
                     subfile = open(subfile_name, 'w')
-                    print(f"Subfile {current_file_index} created: {subfile_name}")
+                    print("Subfile {} created: {}".format(current_file_index, subfile_name))
                     current_sequence_count = 1
             subfile.write(line)
     
     subfile.close()
     print("3' UTR FASTA file splitting complete.")
 
-def sanitize_output_path(output_file: str) -> str:
+def sanitize_output_path(output_file):
     """Sanitize output filename to avoid illegal characters."""
     output_dir, filename = os.path.split(output_file)
     safe_filename = re.sub(r"[^A-Za-z0-9._-]+", "_", filename)
@@ -178,7 +179,7 @@ def sanitize_output_path(output_file: str) -> str:
     return os.path.join(output_dir, safe_filename)
 
 
-def run_miranda(mirna_file: str, utr_file: str, output_file: str):
+def run_miranda(mirna_file, utr_file, output_file):
     """Run miRanda on a given miRNA and UTR file."""
     safe_output_file = sanitize_output_path(output_file)
     cmd = [
@@ -191,7 +192,7 @@ def run_miranda(mirna_file: str, utr_file: str, output_file: str):
     ]
     subprocess.run(cmd, check=True)
 
-def run_rnahybrid(mirna_file: str, utr_file: str, output_file: str, mirna_length: int, utr_length: int):
+def run_rnahybrid(mirna_file, utr_file, output_file, mirna_length, utr_length):
     """Run RNAhybrid on a given miRNA and UTR file."""
     cmd = [
         RNAHYBRID,
@@ -206,7 +207,7 @@ def run_rnahybrid(mirna_file: str, utr_file: str, output_file: str, mirna_length
     with open(output_file, 'w') as outfile:
         subprocess.run(cmd, check=True, stdout=outfile)
 
-def run_pita(mirna_file: str, utr_file: str, output_prefix: str):
+def run_pita(mirna_file, utr_file, output_prefix):
     """Run PITA on a given miRNA and UTR file."""
     cmd = [
         "perl",
@@ -223,7 +224,7 @@ def run_pita(mirna_file: str, utr_file: str, output_prefix: str):
     with open('/dev/null', 'w') as devnull:
         subprocess.run(cmd, check=True, stdout=devnull, stderr=devnull)
 
-def run_targetscan(targetscan_input: str, utr_input: str, output_file_1: str, bln_bins_file: str, output_file_2: str):
+def run_targetscan(targetscan_input, utr_input, output_file_1, bln_bins_file, output_file_2):
     """Run TargetScan Script 1"""
     cmd1 = ["perl", TARGETSCAN+"TargetScan_70/targetscan_70.pl", targetscan_input, utr_input, output_file_1]
     subprocess.run(cmd1, check=True)
@@ -233,7 +234,7 @@ def run_targetscan(targetscan_input: str, utr_input: str, output_file_1: str, bl
     with open(output_file_2, 'w') as outfile, open(os.devnull, 'w') as devnull:
         subprocess.run(cmd2, stdout=outfile, stderr=devnull, check=True)
         
-def run_dmiso(mirna_file: str, utr_file: str, output_file: str):
+def run_dmiso(mirna_file, utr_file, output_file):
     """Run DMISO on a given miRNA and UTR file."""
     cmd = [
         "python3",
@@ -246,13 +247,13 @@ def run_dmiso(mirna_file: str, utr_file: str, output_file: str):
     with open('/dev/null', 'w') as devnull:
         subprocess.run(cmd, check=True, stdout=devnull, stderr=devnull)
 
-def targetscan_prep(sequence: str, header: str, out_dir: str):
+def targetscan_prep(sequence, header, out_dir):
     """TargetScan_prep"""
     # load mirR_Family_Info
     mirna_family_info_path = '/opt/TargetScan/Datasets/miR_Family_Info.json'
     mirna_family_info = load_json(mirna_family_info_path)
     # Prepare TargetScan miRNA file
-    mirna_fasta_path = f"{out_dir}/{header}_targetscan.txt"
+    mirna_fasta_path = "{}/{}_targetscan.txt".format(out_dir, header)
     with open(mirna_fasta_path, 'w') as f:
         # seed region
         seed = sequence[1:8]        
@@ -269,10 +270,10 @@ def targetscan_prep(sequence: str, header: str, out_dir: str):
             species_id = ';'.join(mirna_family_info[seed])
         # Format the output line
         identifier_clean = header.split(",")[0].replace('hsa-', '')
-        line = f"{identifier_clean}\t{seed}\t{species_id}\n"  # Added newline character
+        line = "{}\t{}\t{}\n".format(identifier_clean, seed, species_id)
         f.write(line)
 
-def run_mirmap(mirna_seq: str, mirna_header: str, utr_file: str, output_file: str):
+def run_mirmap(mirna_seq, mirna_header, utr_file, output_file):
     """Run miRmap on a given miRNA sequence and UTR file."""
     import mirmap.target
     import mirmap.if_lib_spatt
@@ -311,16 +312,20 @@ def run_mirmap(mirna_seq: str, mirna_header: str, utr_file: str, output_file: st
             if not targets:
                 out_f.write("\n")
                 continue           
-            # Initialize Spatt and Calculate scores
-            spatt_path = "/opt/miRmap/libs/default/libspatt2.so"  # Adjust path as needed
-            if_spatt = mirmap.if_lib_spatt.Spatt(spatt_path)
-            scores = mirmap.scores.calc_scores(targets[0], if_spatt=if_spatt)              
+            # Initialize Spatt and calculate scores (optional)
+            spatt_path = os.environ.get("MIRMAP_SPATT_LIB", "/opt/miRmap/libs/default/libspatt2.so")
+            if os.path.exists(spatt_path):
+                if_spatt = mirmap.if_lib_spatt.Spatt(spatt_path)
+            else:
+                if_spatt = None
+                print("Warning: Spatt library not found at {}. Continuing without Spatt.".format(spatt_path))
+            scores = mirmap.scores.calc_scores(targets[0], if_spatt=if_spatt)
             
             # Write scores
             out_f.write(targets[0].report() + "\n")
             out_f.write(mirmap.scores.report_scores(scores) + "\n\n")
 
-def parse_dmiso_results(dmiso_file: str, output_file: str):
+def parse_dmiso_results(dmiso_file, output_file):
     """Parse DMISO results."""
     filtered_results = []   
     with open(dmiso_file, 'r') as f:
@@ -365,7 +370,7 @@ def parse_dmiso_results(dmiso_file: str, output_file: str):
                 filtered_results.append([enst_id, target_sequence, str(pred_score)])
                 
             except (ValueError, IndexError) as e:
-                print(f"Error processing line: {line}. {e}")
+                print("Error processing line: {}. {}".format(line, e))
                 continue
     
     # Write filtered results to TSV file
@@ -380,7 +385,7 @@ def parse_dmiso_results(dmiso_file: str, output_file: str):
     # Remove the original DMISO file
     os.remove(dmiso_file)
                 
-def get_longest_utr_length(utr_file: str) -> int:
+def get_longest_utr_length(utr_file):
     """Get the length of the longest sequence in a UTR file."""
     max_length = 0
     current_length = 0
@@ -394,50 +399,50 @@ def get_longest_utr_length(utr_file: str) -> int:
                 current_length += len(line.strip())
     return max(max_length, current_length)
     
-def process_tools(sequences: List[Dict[str, str]], tools: List[str], utr_file: str, output_folder: str, temp_folder: str):
+def process_tools(sequences, tools, utr_file, output_folder, temp_folder):
     seq_num = 0
     for seq in sequences:
         # Create a temporary FASTA file for the single sequence
-        temp_fasta = f"{temp_folder}/seq_{seq_num}.fasta"
-        name_fasta = f"{temp_folder}/{seq['sequence']}.fasta"
+        temp_fasta = "{}/seq_{}.fasta".format(temp_folder, seq_num)
+        name_fasta = "{}/{}.fasta".format(temp_folder, seq['sequence'])
         with open(temp_fasta, 'w') as file:
-            file.write(f">{seq['header']}\n{seq['sequence']}\n")
+            file.write(">{}\n{}\n".format(seq['header'], seq['sequence']))
        
         for tool in tools:
             if tool == "miRanda":
                 # Output directory for miRanda
                 miranda_out_dir = os.path.join(output_folder, "miRanda")
                 # Define the output file path
-                output_file = f"{miranda_out_dir}/{seq['header']}_miRanda_results.txt"
+                output_file = "{}/{}_miRanda_results.txt".format(miranda_out_dir, seq['header'])
                 # Run the tool
-                print(f"miRanda is processing {name_fasta}")
+                print("miRanda is processing {}".format(name_fasta))
                 run_miranda(temp_fasta, utr_file, output_file)
             elif tool == "RNAhybrid":
                 # Output directory for miRanda
                 rnahybrid_out_dir = os.path.join(output_folder, "RNAhybrid")
                 # Define the output file path
-                output_file = f"{rnahybrid_out_dir}/{seq['header']}_RNAhybrid_results.txt"
+                output_file = "{}/{}_RNAhybrid_results.txt".format(rnahybrid_out_dir, seq['header'])
                 # Prepare parameters
                 max_utr_length = get_longest_utr_length(utr_file)
                 # Run the tool
-                print(f"RNAhybrid is processing {name_fasta}")
-                run_rnahybrid(temp_fasta, utr_file, output_file, seq['length'], max_utr_length)
+                print("RNAhybrid is processing {}".format(name_fasta))
+                run_rnahybrid(temp_fasta, utr_file, output_file, int(seq['length']), max_utr_length)
             elif tool == "miRmap":
                 # Create output directory for miRmap
                 mirmap_out_dir = os.path.join(output_folder, "miRmap")
                 # Define the output file path
-                output_file = f"{mirmap_out_dir}/{seq['header']}_miRmap_results.txt"
+                output_file = "{}/{}_miRmap_results.txt".format(mirmap_out_dir, seq['header'])
                 # Run the tool
-                print(f"miRmap is processing {name_fasta}")
+                print("miRmap is processing {}".format(name_fasta))
                 run_mirmap(seq['sequence'], seq['header'], utr_file, output_file) 
             elif tool == "DMISO":         
                 # Output directory for DMISO
                 dmiso_out_dir = os.path.join(output_folder, "DMISO")
                 # Define the output file path
-                temp_output_file = f"{dmiso_out_dir}/{seq['header']}_DMISO.txt"
-                output_file = f"{dmiso_out_dir}/{seq['header']}_DMISO_results.txt"
+                temp_output_file = "{}/{}_DMISO.txt".format(dmiso_out_dir, seq['header'])
+                output_file = "{}/{}_DMISO_results.txt".format(dmiso_out_dir, seq['header'])
                 # Run the tool
-                print(f"DMISO is processing {name_fasta}")
+                print("DMISO is processing {}".format(name_fasta))
                 run_dmiso(temp_fasta, utr_file, temp_output_file)
                 # Parse DMISO results
                 parse_dmiso_results(temp_output_file, output_file)
@@ -445,43 +450,43 @@ def process_tools(sequences: List[Dict[str, str]], tools: List[str], utr_file: s
                 # Output directory for PITA
                 pita_out_dir = os.path.join(output_folder, "PITA")
                 # Define the output file path
-                output_file_prefix = f"{pita_out_dir}/{seq['header']}"       
+                output_file_prefix = "{}/{}".format(pita_out_dir, seq['header'])
                 # Run the tool
-                print(f"PITA is processing {name_fasta}")
+                print("PITA is processing {}".format(name_fasta))
                 run_pita(temp_fasta, utr_file, output_file_prefix)
                 # remove temp file
                 if os.path.exists("tmp_seqfile1"):
                     os.remove("tmp_seqfile1")
                 if os.path.exists("tmp_seqfile2"):
                     os.remove("tmp_seqfile2")
-                if os.path.exists(output_file_prefix+"_pita_results.gxp"):
-                    os.remove(output_file_prefix+"_pita_results.gxp")                
+                if os.path.exists(output_file_prefix + "_pita_results.gxp"):
+                    os.remove(output_file_prefix + "_pita_results.gxp")
             elif tool == "Targetscan":
                                 # Output directory for PITA
                 targetscan_out_dir = os.path.join(output_folder, "Targetscan")
                 # Define the output file path
-                output_file1 = f"{targetscan_out_dir}/{seq['header']}_Targetscan_results1.txt"
-                output_file2 = f"{targetscan_out_dir}/{seq['header']}_Targetscan_results2.txt"       
+                output_file1 = "{}/{}_Targetscan_results1.txt".format(targetscan_out_dir, seq['header'])
+                output_file2 = "{}/{}_Targetscan_results2.txt".format(targetscan_out_dir, seq['header'])
                 # Run the tool
-                print(f"Targetscan is processing {name_fasta}")
+                print("Targetscan is processing {}".format(name_fasta))
                 targetscan_prep(seq['sequence'], seq['header'], targetscan_out_dir)
                 # TargetScan Input File path
-                targetscan_input = f"{targetscan_out_dir}/{seq['header']}_targetscan.txt"
+                targetscan_input = "{}/{}_targetscan.txt".format(targetscan_out_dir, seq['header'])
                 # utr path
                 utr_path = "/opt/TargetScan/Datasets/3utr"
                 bln_bins_path = "/opt/TargetScan/Datasets/bln_bins"
                 # Process Targetscan
                 for i in range(64):
-                    utr_file = os.path.join(utr_path, f'targetscan_utr_part_{i}.txt')
-                    output_file_1 = f"{targetscan_out_dir}/{seq['header']}_part_{i}_out1.txt"
-                    bln_bins_file = os.path.join(bln_bins_path, f'targetscan_median_bls_bins_part_{i}.txt')
-                    output_file_2 = f"{targetscan_out_dir}/{seq['header']}_part_{i}_out2.txt"
+                    utr_file = os.path.join(utr_path, 'targetscan_utr_part_{}.txt'.format(i))
+                    output_file_1 = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, seq['header'], i)
+                    bln_bins_file = os.path.join(bln_bins_path, 'targetscan_median_bls_bins_part_{}.txt'.format(i))
+                    output_file_2 = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, seq['header'], i)
                     # Run targetscan
                     run_targetscan(targetscan_input, utr_file, output_file_1, bln_bins_file, output_file_2)
                 # Merge results for first output file
                 with open(output_file1, 'w') as merged:
                     # Write header from first file (assuming all have same header)
-                    first_file = f"{targetscan_out_dir}/{seq['header']}_part_0_out1.txt"
+                    first_file = "{}/{}_part_0_out1.txt".format(targetscan_out_dir, seq['header'])
                     if os.path.exists(first_file):
                         with open(first_file, 'r') as first:
                             header = first.readline()
@@ -489,7 +494,7 @@ def process_tools(sequences: List[Dict[str, str]], tools: List[str], utr_file: s
                     
                     # Apeend content from all files
                     for i in range(64):
-                        part_file = f"{targetscan_out_dir}/{seq['header']}_part_{i}_out1.txt"
+                        part_file = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, seq['header'], i)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
                                 # Skip header for all files
@@ -501,7 +506,7 @@ def process_tools(sequences: List[Dict[str, str]], tools: List[str], utr_file: s
                 # Merge results for second output file
                 with open(output_file2, 'w') as merged:
                     # Write header from first file (assuming all have same header)
-                    first_file = f"{targetscan_out_dir}/{seq['header']}_part_0_out2.txt"
+                    first_file = "{}/{}_part_0_out2.txt".format(targetscan_out_dir, seq['header'])
                     if os.path.exists(first_file):
                         with open(first_file, 'r') as first:
                             header = first.readline()
@@ -509,7 +514,7 @@ def process_tools(sequences: List[Dict[str, str]], tools: List[str], utr_file: s
                     
                     # Apeend content from all files
                     for i in range(64):
-                        part_file = f"{targetscan_out_dir}/{seq['header']}_part_{i}_out2.txt"
+                        part_file = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, seq['header'], i)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
                                 # Skip header for all files
@@ -519,10 +524,10 @@ def process_tools(sequences: List[Dict[str, str]], tools: List[str], utr_file: s
                             os.remove(part_file)               
             else:
                 # Handle other tools
-                print(f"Tool {tool} is processing {name_fasta}")                              
+                print("Tool {} is processing {}".format(tool, name_fasta))
         seq_num += 1
         
-def process_tools_in_parallel(sequences: List[Dict[str, str]], tools: List[str], num_cores: int, output_folder: str, temp_folder: str):
+def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_folder):
     # Get all UTR subfiles
     utr_subfiles = [os.path.join(temp_folder+"/utr", f) for f in os.listdir(temp_folder+"/utr") if f.startswith("temp_3utr_part")]
     
@@ -531,31 +536,31 @@ def process_tools_in_parallel(sequences: List[Dict[str, str]], tools: List[str],
     seq_num = 0
     for seq in sequences:
         # Create a temporary FASTA file for the single sequence
-        temp_fasta = f"{temp_folder}/seq_{seq_num}.fasta"
-        name_fasta = f"{temp_folder}/{seq['sequence']}.fasta"
+        temp_fasta = "{}/seq_{}.fasta".format(temp_folder, seq_num)
+        name_fasta = "{}/{}.fasta".format(temp_folder, seq['sequence'])
         with open(temp_fasta, 'w') as file:
-            file.write(f">{seq['header']}\n{seq['sequence']}\n")
+            file.write(">{}\n{}\n".format(seq['header'], seq['sequence']))
 
         for tool in tools:
             if tool == "miRanda":
                 # Create output directory for miRanda
                 miranda_out_dir = os.path.join(output_folder, "miRanda")
                 # Define the output file path
-                output_file = f"{miranda_out_dir}/{seq['header']}_miRanda_results.txt"
+                output_file = "{}/{}_miRanda_results.txt".format(miranda_out_dir, seq['header'])
                 # Prepare arguments for each parallel run
                 args = []
                 for utr_file in utr_subfiles:
-                    temp_output_file = os.path.join(miranda_out_dir, f"Seq_{seq_num}_miRanda_results_{os.path.basename(utr_file).replace('.fasta', '')}.out")
+                    temp_output_file = os.path.join(miranda_out_dir, "Seq_{}_miRanda_results_{}.out".format(seq_num, os.path.basename(utr_file).replace('.fasta', '')))
                     args.append((temp_fasta, utr_file, temp_output_file))
                 
                 # Run in parallel
-                print(f"miRanda is processing {name_fasta}")
+                print("miRanda is processing {}".format(name_fasta))
                 pool.starmap(run_miranda, args)
                 
                 # Merge results
                 with open(output_file, 'w') as merged_file:
                     for utr_file in utr_subfiles:
-                        part_file = os.path.join(miranda_out_dir, f"Seq_{seq_num}_miRanda_results_{os.path.basename(utr_file).replace('.fasta', '')}.out")
+                        part_file = os.path.join(miranda_out_dir, "Seq_{}_miRanda_results_{}.out".format(seq_num, os.path.basename(utr_file).replace('.fasta', '')))
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
                                 merged_file.write(pf.read())
@@ -565,22 +570,22 @@ def process_tools_in_parallel(sequences: List[Dict[str, str]], tools: List[str],
                 # Create output directory for miRanda
                 rnahybrid_out_dir = os.path.join(output_folder, "RNAhybrid")
                 # Define the output file path
-                output_file = f"{rnahybrid_out_dir}/{seq['header']}_RNAhybrid_results.txt"
+                output_file = "{}/{}_RNAhybrid_results.txt".format(rnahybrid_out_dir, seq['header'])
                 # Prepare arguments for each parallel run
                 args = []
                 for utr_file in utr_subfiles:
-                    temp_output_file = os.path.join(rnahybrid_out_dir, f"Seq_{seq_num}_RNAhybrid_results_{os.path.basename(utr_file).replace('.fasta', '')}.out")
+                    temp_output_file = os.path.join(rnahybrid_out_dir, "Seq_{}_RNAhybrid_results_{}.out".format(seq_num, os.path.basename(utr_file).replace('.fasta', '')))
                     max_utr_length = get_longest_utr_length(utr_file)
                     args.append((temp_fasta, utr_file, temp_output_file, seq['length'], max_utr_length))
                 
                 # Run in parallel
-                print(f"RNAhybrid is processing {name_fasta}")
+                print("RNAhybrid is processing {}".format(name_fasta))
                 pool.starmap(run_rnahybrid, args)
                 
                 # Merge results
                 with open(output_file, 'w') as merged_file:
                     for utr_file in utr_subfiles:
-                        part_file = os.path.join(rnahybrid_out_dir, f"Seq_{seq_num}_RNAhybrid_results_{os.path.basename(utr_file).replace('.fasta', '')}.out")
+                        part_file = os.path.join(rnahybrid_out_dir, "Seq_{}_RNAhybrid_results_{}.out".format(seq_num, os.path.basename(utr_file).replace('.fasta', '')))
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
                                 merged_file.write(pf.read())
@@ -590,22 +595,22 @@ def process_tools_in_parallel(sequences: List[Dict[str, str]], tools: List[str],
                 # Create output directory for miRmap
                 mirmap_out_dir = os.path.join(output_folder, "miRmap")
                 # Define the output file path
-                output_file = f"{mirmap_out_dir}/{seq['header']}_miRmap_results.txt"
+                output_file = "{}/{}_miRmap_results.txt".format(mirmap_out_dir, seq['header'])
     
                 # Prepare arguments for parallel processing
                 args = []
                 for utr_file in utr_subfiles:
-                    temp_output_file = os.path.join(mirmap_out_dir, f"Seq_{seq_num}_miRmap_results_{os.path.basename(utr_file).replace('.fasta', '')}.out")
+                    temp_output_file = os.path.join(mirmap_out_dir, "Seq_{}_miRmap_results_{}.out".format(seq_num, os.path.basename(utr_file).replace('.fasta', '')))
                     args.append((seq['sequence'], seq['header'], utr_file, temp_output_file))
     
                 # Run in parallel
-                print(f"miRmap is processing {name_fasta}")
+                print("miRmap is processing {}".format(name_fasta))
                 pool.starmap(run_mirmap, args)
     
                 # Merge results
                 with open(output_file, 'w') as merged_file:
                     for utr_file in utr_subfiles:
-                        part_file = os.path.join(mirmap_out_dir, f"Seq_{seq_num}_miRmap_results_{os.path.basename(utr_file).replace('.fasta', '')}.out")
+                        part_file = os.path.join(mirmap_out_dir, "Seq_{}_miRmap_results_{}.out".format(seq_num, os.path.basename(utr_file).replace('.fasta', '')))
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
                                 merged_file.write(pf.read())
@@ -615,22 +620,22 @@ def process_tools_in_parallel(sequences: List[Dict[str, str]], tools: List[str],
                 # Create output directory for DMISO
                 dmiso_out_dir = os.path.join(output_folder, "DMISO")
                 # Define the output file path
-                output_file_before = f"{dmiso_out_dir}/{seq['header']}_DMISO.txt"
-                output_file = f"{dmiso_out_dir}/{seq['header']}_DMISO_results.txt"
+                output_file_before = "{}/{}_DMISO.txt".format(dmiso_out_dir, seq['header'])
+                output_file = "{}/{}_DMISO_results.txt".format(dmiso_out_dir, seq['header'])
                 # Prepare arguments for each parallel run
                 args = []
                 for utr_file in utr_subfiles:
-                    temp_output_file = os.path.join(dmiso_out_dir, f"Seq_{seq_num}_DMISO_results_{os.path.basename(utr_file).replace('.fasta', '')}.out")
+                    temp_output_file = os.path.join(dmiso_out_dir, "Seq_{}_DMISO_results_{}.out".format(seq_num, os.path.basename(utr_file).replace('.fasta', '')))
                     args.append((temp_fasta, utr_file, temp_output_file))
                 
                 # Run in parallel
-                print(f"DMISO is processing {name_fasta}")
+                print("DMISO is processing {}".format(name_fasta))
                 pool.starmap(run_dmiso, args)
                 
                 # Merge results
                 with open(output_file_before, 'w') as merged_file:
                     for utr_file in utr_subfiles:
-                        part_file = os.path.join(dmiso_out_dir, f"Seq_{seq_num}_DMISO_results_{os.path.basename(utr_file).replace('.fasta', '')}.out")
+                        part_file = os.path.join(dmiso_out_dir, "Seq_{}_DMISO_results_{}.out".format(seq_num, os.path.basename(utr_file).replace('.fasta', '')))
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
                                 merged_file.write(pf.read())
@@ -642,27 +647,27 @@ def process_tools_in_parallel(sequences: List[Dict[str, str]], tools: List[str],
                 # Create output directory for PITA
                 pita_out_dir = os.path.join(output_folder, "PITA")
                 # Define the output file path
-                output_file_prefix = f"{pita_out_dir}/{seq['header']}_PITA_results"
+                output_file_prefix = "{}/{}_PITA_results".format(pita_out_dir, seq['header'])
                 # Prepare arguments for each parallel run
                 args = []
                 for utr_file in utr_subfiles:
-                    temp_output_file = os.path.join(pita_out_dir, f"Seq_{seq_num}_{os.path.basename(utr_file).replace('.fasta', '')}")
+                    temp_output_file = os.path.join(pita_out_dir, "Seq_{}_{}".format(seq_num, os.path.basename(utr_file).replace('.fasta', '')))
                     args.append((temp_fasta, utr_file, temp_output_file))
                 
                 # Run in parallel
-                print(f"PITA is processing {name_fasta}")
+                print("PITA is processing {}".format(name_fasta))
                 pool.starmap(run_pita, args)
                 
                 # Merge results
                 with open(output_file_prefix+".tab", 'w') as merged_file:
-                    first_file = f"{pita_out_dir}/Seq_{seq_num}_temp_3utr_part1_pita_results.tab"
+                    first_file = "{}/Seq_{}_temp_3utr_part1_pita_results.tab".format(pita_out_dir, seq_num)
                     if os.path.exists(first_file):
                         with open(first_file, 'r') as first:
                             header = first.readline()
                             merged_file.write(header)
                     # Apeend content from all files
                     for i in range(num_cores):
-                        part_file = f"{pita_out_dir}/Seq_{seq_num}_temp_3utr_part{i+1}_pita_results.tab"
+                        part_file = "{}/Seq_{}_temp_3utr_part{}_pita_results.tab".format(pita_out_dir, seq_num, i + 1)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
                                 # Skip header for all files
@@ -670,20 +675,20 @@ def process_tools_in_parallel(sequences: List[Dict[str, str]], tools: List[str],
                                 merged_file.write(pf.read())
                             # Remove the part file after merging
                             os.remove(part_file)
-                        part_file = f"{pita_out_dir}/Seq_{seq_num}_temp_3utr_part{i+1}_pita_results.gxp"
+                        part_file = "{}/Seq_{}_temp_3utr_part{}_pita_results.gxp".format(pita_out_dir, seq_num, i + 1)
                         if os.path.exists(part_file):
                             os.remove(part_file)
        
                 # Merge results
                 with open(output_file_prefix+"_targets.tab", 'w') as merged_file:
-                    first_file = f"{pita_out_dir}/Seq_{seq_num}_temp_3utr_part1_pita_results_targets.tab"
+                    first_file = "{}/Seq_{}_temp_3utr_part1_pita_results_targets.tab".format(pita_out_dir, seq_num)
                     if os.path.exists(first_file):
                         with open(first_file, 'r') as first:
                             header = first.readline()
                             merged_file.write(header)
                     # Apeend content from all files
                     for i in range(num_cores):
-                        part_file = f"{pita_out_dir}/Seq_{seq_num}_temp_3utr_part{i+1}_pita_results_targets.tab"
+                        part_file = "{}/Seq_{}_temp_3utr_part{}_pita_results_targets.tab".format(pita_out_dir, seq_num, i + 1)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
                                 # Skip header for all files
@@ -699,10 +704,10 @@ def process_tools_in_parallel(sequences: List[Dict[str, str]], tools: List[str],
                     os.remove("tmp_seqfile2")           
             elif tool == "Targetscan":         
                 # Run the tool
-                print(f"Targetscan is processing {name_fasta}")                
+                print("Targetscan is processing {}".format(name_fasta))
             else:
                 # Handle other tools
-                print(f"Tool {tool} is processing {name_fasta}")                
+                print("Tool {} is processing {}".format(tool, name_fasta))
     seq_num += 1
     pool.close()
     pool.join()
@@ -725,7 +730,7 @@ def main():
     parser.add_argument("-c", "--cores", type=int, required=True, help="number of CPU cores")
     parser.add_argument("-i", "--input", type=str, required=True, help="path to mirna sequence input file")
     parser.add_argument("-t", "--tools", type=str, nargs="+", required=True, 
-                        help=f"List of tools to run. Choose from: {', '.join(ALLOWED_TOOLS)}")
+                        help="List of tools to run. Choose from: {}".format(', '.join(ALLOWED_TOOLS)))
     parser.add_argument("-g", "--genome", type=str, choices=["hg19", "hg38"], help="Reference genome (hg19 or hg38)", required=True)
     parser.add_argument("-o", "--output", type=str, required=True, help="output folder name")
 
@@ -740,23 +745,24 @@ def main():
     # Validate number of cores
     available_cores = multiprocessing.cpu_count()
     if num_cores > available_cores:
-        print(f"Warning: Requested {num_cores} cores, but only {available_cores} are available.")
+        print("Warning: Requested {} cores, but only {} are available.".format(num_cores, available_cores))
         num_cores = available_cores
 
     # Validate tools
     invalid_tools = [tool for tool in tools if tool not in ALLOWED_TOOLS]
     if invalid_tools:
-        raise ValueError(f"Invalid tools selected: {', '.join(invalid_tools)}. Allowed tools are: {', '.join(ALLOWED_TOOLS)}")
+        raise ValueError("Invalid tools selected: {}. Allowed tools are: {}".format(', '.join(invalid_tools), ', '.join(ALLOWED_TOOLS)))
 
     # Create output folder if it doesn't exist
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
-    temp_folder = output_folder+"/temp"
-    os.makedirs(temp_folder, exist_ok=True)
+    temp_folder = output_folder + "/temp"
+    if not os.path.exists(temp_folder):
+        os.makedirs(temp_folder)
 
     # Parse FASTA files
     sequences = parse_fasta(mirna)
-    save_to_json(sequences, tools, num_cores, f"{output_folder}/mirna_prediction_parameters.json")  # Save JSON to output folder
+    save_to_json(sequences, tools, num_cores, "{}/mirna_prediction_parameters.json".format(output_folder))
     
     # Determine the 3' UTR file based on the genome
     utr_file = HUMAN_HG19_3UTR if genome == "hg19" else HUMAN_HG38_3UTR
@@ -765,25 +771,32 @@ def main():
     for tool in tools:
         if tool == "miRanda":
             miranda_out_dir = os.path.join(output_folder, "miRanda")
-            os.makedirs(miranda_out_dir, exist_ok=True)
+            if not os.path.exists(miranda_out_dir):
+                os.makedirs(miranda_out_dir)
         elif tool == "RNAhybrid":
             rnahybrid_out_dir = os.path.join(output_folder, "RNAhybrid")
-            os.makedirs(rnahybrid_out_dir, exist_ok=True)
+            if not os.path.exists(rnahybrid_out_dir):
+                os.makedirs(rnahybrid_out_dir)
         elif tool == "miRmap":
             mirmap_out_dir = os.path.join(output_folder, "miRmap")
-            os.makedirs(mirmap_out_dir, exist_ok=True)
+            if not os.path.exists(mirmap_out_dir):
+                os.makedirs(mirmap_out_dir)
         elif tool == "DMISO":
             dmiso_out_dir = os.path.join(output_folder, "DMISO")
-            os.makedirs(dmiso_out_dir, exist_ok=True)
+            if not os.path.exists(dmiso_out_dir):
+                os.makedirs(dmiso_out_dir)
         elif tool == "PITA":
             pita_out_dir = os.path.join(output_folder, "PITA")
-            os.makedirs(pita_out_dir, exist_ok=True)
+            if not os.path.exists(pita_out_dir):
+                os.makedirs(pita_out_dir)
         elif tool == "Targetscan":
             targetscan_out_dir = os.path.join(output_folder, "Targetscan")
-            os.makedirs(targetscan_out_dir, exist_ok=True)
+            if not os.path.exists(targetscan_out_dir):
+                os.makedirs(targetscan_out_dir)
         else:
             other_out_dir = os.path.join(output_folder, "Other")
-            os.makedirs(other_out_dir, exist_ok=True)
+            if not os.path.exists(other_out_dir):
+                os.makedirs(other_out_dir)
               
     # Run Prediction for single or mutiple cores
     if num_cores == 1:

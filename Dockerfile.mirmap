@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY v2/*.py /opt/v2/
+RUN mkdir -p /opt/miRmap/libs/default
+COPY tools/miRmap/libs/lib-archlinux-x86_64/libspatt2.so /opt/miRmap/libs/default/libspatt2.so
 
 RUN python3.11 -m venv /opt/venv \
 	&& /opt/venv/bin/pip install --no-cache-dir --upgrade pip \

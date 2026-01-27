@@ -6,7 +6,7 @@ python /opt/v2/mirna_processing.py hsa-miR-495-3p -o /work/mirna_test.fa
 python /opt/v2/mirna_predicting.py \
   -c 4 \
   -i /work/mirna_test.fa \
-  -t miRmap \
+  -t RNAhybrid \
   -g hg38 \
   -o /work/mirna_predict_test
 

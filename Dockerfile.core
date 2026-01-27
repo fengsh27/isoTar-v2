@@ -31,6 +31,8 @@ RUN mkdir -p /run/systemd && echo 'docker' > /run/systemd/container
 
 ADD tools /opt/
 COPY v2/*.py /opt/v2/
+RUN mkdir -p /opt/TargetScan/Datasets
+COPY v2/opt/tools/TargetScan/Datasets/miR_Family_Info.json /opt/TargetScan/Datasets/miR_Family_Info.json
 
 RUN apt-get clean && apt-get update && apt-get install -y --no-install-recommends \
 	apt-transport-https \
@@ -84,7 +86,10 @@ RUN apt-get clean && apt-get update && apt-get install -y --no-install-recommend
 
 RUN pip install "numpy==1.16.6"
 
-RUN apt-get update \
+RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 51716619E084DAB9 \
+	&& add-apt-repository 'deb [arch=amd64,i386] https://ftp.ussg.iu.edu/CRAN/bin/linux/ubuntu xenial/' \
+	&& apt-get clean \
+	&& apt-get update \
 	&& apt-get install -y --no-install-recommends \
 	curl \
 	libcairo2-dev \
@@ -94,10 +99,15 @@ RUN apt-get update \
 	libv8-3.14-dev \
 	libwebp-dev \
 	r-base \
-	&& rm -rf /var/lib/apt/lists/*
+	r-base-dev \
+	r-cran-bitops \
+	r-cran-igraph \
+	r-cran-rcurl \
+	r-cran-xml \
+	r-omegahat-xmlrpc
 
 RUN cd /opt/R \
-	&& /usr/bin/Rscript -e "options(repos='https://cloud.r-project.org'); source('install_r_packages.R')"
+	&& /usr/bin/Rscript install_r_packages.R
 
 RUN mkdir -p /app
 RUN /usr/bin/pip install -r /opt/requirements.txt

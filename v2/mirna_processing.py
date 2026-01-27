@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import print_function
 """
 MicroRNA Sequence Manipulation Tool
 ===================================
@@ -14,7 +15,7 @@ import argparse
 import json
 import os
 import sys
-from typing import Tuple, List, Optional, Dict, Union
+
 
 # Version information
 __version__ = "0.0.2"
@@ -25,7 +26,7 @@ MIN_LENGTH = 17
 MAX_LENGTH = 30
 VALID_NUCLEOTIDES = {'A', 'T', 'C', 'G', 'U'}
 
-def load_json(file_path: str) -> Dict:
+def load_json(file_path):
     """Load and validate JSON data from file."""
     try:
         with open(file_path, 'r') as file:
@@ -34,11 +35,11 @@ def load_json(file_path: str) -> Dict:
             raise ValueError("JSON data should be a dictionary")
         return data
     except FileNotFoundError:
-        raise FileNotFoundError(f"The file '{file_path}' was not found.")
+        raise FileNotFoundError("The file '{}' was not found.".format(file_path))
     except json.JSONDecodeError:
-        raise ValueError(f"The file '{file_path}' is not a valid JSON file.")
+        raise ValueError("The file '{}' is not a valid JSON file.".format(file_path))
 
-def find_mirna_sequence(data: Dict, mirna_id: str, pre_id: Optional[str] = None) -> Tuple[Optional[str], Optional[str], Optional[int], Optional[int], List[str]]:
+def find_mirna_sequence(data, mirna_id, pre_id=None):
     """Retrieve mature and precursor sequences with validation.
     Returns: (mature_seq, pre_seq, start, end, available_pre_ids)
     """
@@ -46,7 +47,7 @@ def find_mirna_sequence(data: Dict, mirna_id: str, pre_id: Optional[str] = None)
         return None, None, None, None, []
     
     entries = data[mirna_id]
-    available_pre_ids = [entry.get('pre_id', f"precursor_{i+1}") for i, entry in enumerate(entries)]
+    available_pre_ids = [entry.get('pre_id', "precursor_{}".format(i + 1)) for i, entry in enumerate(entries)]
     
     # If no pre_id specified and multiple options exist, return available pre_ids
     if not pre_id and len(entries) > 1:
@@ -60,7 +61,7 @@ def find_mirna_sequence(data: Dict, mirna_id: str, pre_id: Optional[str] = None)
                 selected_entry = entry
                 break
         if not selected_entry:
-            raise ValueError(f"Precursor ID '{pre_id}' not found for {mirna_id}")
+            raise ValueError("Precursor ID '{}' not found for {}".format(pre_id, mirna_id))
     else:
         selected_entry = entries[0]
     
@@ -68,7 +69,7 @@ def find_mirna_sequence(data: Dict, mirna_id: str, pre_id: Optional[str] = None)
     required_fields = ['mature_seq', 'ext_pre_seq', 'ext_mature_loc_start', 'ext_mature_loc_end']
     
     if not all(field in selected_entry for field in required_fields):
-        raise ValueError(f"Missing required fields in data for {mirna_id}")
+        raise ValueError("Missing required fields in data for {}".format(mirna_id))
     
     mature_seq = selected_entry['mature_seq'].upper()
     pre_seq = selected_entry['ext_pre_seq'].upper()
@@ -78,15 +79,15 @@ def find_mirna_sequence(data: Dict, mirna_id: str, pre_id: Optional[str] = None)
     # Validate sequences
     for seq, name in [(mature_seq, 'mature'), (pre_seq, 'precursor')]:
         if not all(nuc in VALID_NUCLEOTIDES for nuc in seq):
-            raise ValueError(f"Invalid nucleotides found in {name} sequence for {mirna_id}")
+            raise ValueError("Invalid nucleotides found in {} sequence for {}".format(name, mirna_id))
     
     return mature_seq, pre_seq, start, end, available_pre_ids
 
-def prompt_pre_id_selection(available_pre_ids: List[str]) -> str:
+def prompt_pre_id_selection(available_pre_ids):
     """Prompt user to select a precursor ID from available options."""
-    print(f"Multiple precursor sequences available for this miRNA:")
+    print("Multiple precursor sequences available for this miRNA:")
     for i, pre_id in enumerate(available_pre_ids, 1):
-        print(f"{i}. {pre_id}")
+        print("{}. {}".format(i, pre_id))
     
     while True:
         try:
@@ -94,11 +95,11 @@ def prompt_pre_id_selection(available_pre_ids: List[str]) -> str:
             idx = int(selection) - 1
             if 0 <= idx < len(available_pre_ids):
                 return available_pre_ids[idx]
-            print(f"Please enter a number between 1 and {len(available_pre_ids)}")
+            print("Please enter a number between 1 and {}".format(len(available_pre_ids)))
         except ValueError:
             print("Please enter a valid number")
 
-def validate_modification(mod: str, max_pos: int) -> Tuple[int, str, str]:
+def validate_modification(mod, max_pos):
     """Validate and parse a modification string."""
     try:
         position_str, change = mod.split(':')
@@ -106,15 +107,15 @@ def validate_modification(mod: str, max_pos: int) -> Tuple[int, str, str]:
         position = int(position_str)
         
         if position < 1 or position > max_pos:
-            raise ValueError(f"Position {position} is out of range (1-{max_pos})")
+            raise ValueError("Position {} is out of range (1-{})".format(position, max_pos))
         if original.upper() not in VALID_NUCLEOTIDES or new.upper() not in VALID_NUCLEOTIDES:
             raise ValueError("Nucleotides must be A, T, C, G, or U")
             
         return position - 1, original.upper(), new.upper()  # Convert to 0-based index
     except ValueError as e:
-        raise ValueError(f"Invalid modification '{mod}': {str(e)}")
+        raise ValueError("Invalid modification '{}': {}".format(mod, str(e)))
 
-def apply_modifications(sequence: str, modifications: List[str]) -> Tuple[str, List[str]]:
+def apply_modifications(sequence, modifications):
     """Apply multiple nucleotide modifications to a sequence."""
     modified_seq = sequence
     successful_mods = []
@@ -123,16 +124,16 @@ def apply_modifications(sequence: str, modifications: List[str]) -> Tuple[str, L
         try:
             pos, original, new = validate_modification(mod, len(sequence))
             if modified_seq[pos] != original:
-                    raise ValueError(f"Expected '{original}' at position {pos + 1}, found '{modified_seq[pos]}'")
-                
+                raise ValueError("Expected '{}' at position {}, found '{}'".format(original, pos + 1, modified_seq[pos]))
+
             modified_seq = modified_seq[:pos] + new + modified_seq[pos + 1:]
             successful_mods.append(mod)
         except ValueError as e:
-            print(f"Warning: {str(e)}. Skipping modification.")
+            print("Warning: {}. Skipping modification.".format(str(e)))
     
     return modified_seq, successful_mods
 
-def apply_shift(pre_seq: str, mature_seq: str, start: int, end: int, shift: str) -> Tuple[str, str]:
+def apply_shift(pre_seq, mature_seq, start, end, shift):
     """Apply sequence shift based on precursor coordinates."""
     try:
         left_shift, right_shift = map(int, shift.split('|'))
@@ -143,12 +144,11 @@ def apply_shift(pre_seq: str, mature_seq: str, start: int, end: int, shift: str)
             raise ValueError("Shift would result in invalid sequence coordinates")
             
         shifted_seq = pre_seq[new_start:new_end]
-        return shifted_seq, f"{left_shift}|{right_shift}"
+        return shifted_seq, "{}|{}".format(left_shift, right_shift)
     except ValueError as e:
-        raise ValueError(f"Invalid shift '{shift}': {str(e)}")
+        raise ValueError("Invalid shift '{}': {}".format(shift, str(e)))
 
-def handle_combined_operation(pre_seq: str, mature_seq: str, start: int, end: int,
-                            modifications: List[str], shift: str) -> Tuple[str, str]:
+def handle_combined_operation(pre_seq, mature_seq, start, end, modifications, shift):
     """Handle combined shift and modification with position adjustment."""
     # First apply shift
     shifted_seq, shift_info = apply_shift(pre_seq, mature_seq, start, end, shift)
@@ -165,42 +165,42 @@ def handle_combined_operation(pre_seq: str, mature_seq: str, start: int, end: in
             adjusted_pos = original_pos  - 1 #- left_shift  # Adjust for shift
             
             if adjusted_pos < 0 or adjusted_pos >= len(shifted_seq):
-                raise ValueError(f"Adjusted position {adjusted_pos + 1} out of bounds")
+                raise ValueError("Adjusted position {} out of bounds".format(adjusted_pos + 1))
             # Handle T/U conversion case
             current_base = modified_seq[adjusted_pos]
             expected_base = original.upper()
             if current_base == "U" and expected_base == "T":
                 pass
             elif current_base != expected_base:          
-                raise ValueError(f"Expected '{expected_base}' at position {original_pos}, found '{current_base}'")
+                raise ValueError("Expected '{}' at position {}, found '{}'".format(expected_base, original_pos, current_base))
             # Apply modification    
             modified_seq = modified_seq[:adjusted_pos] + new.upper() + modified_seq[adjusted_pos + 1:]
             successful_mods.append(mod)
         except ValueError as e:
-            print(f"Warning: {str(e)}. Skipping modification: {mod}")
+            print("Warning: {}. Skipping modification: {}".format(str(e), mod))
     
     if successful_mods:
-        return modified_seq, f"{'&'.join(successful_mods)},{shift_info}"
+        return modified_seq, "{},{}".format('&'.join(successful_mods), shift_info)
     return shifted_seq, shift_info
 
-def validate_sequence_length(sequence: str, name: str) -> bool:
+def validate_sequence_length(sequence, name):
     """Check if sequence length is within recommended range."""
     length = len(sequence)
     if length < MIN_LENGTH or length > MAX_LENGTH:
-        print(f"Warning: {name} sequence length {length} is outside recommended range ({MIN_LENGTH}-{MAX_LENGTH})")
+        print("Warning: {} sequence length {} is outside recommended range ({}-{})".format(name, length, MIN_LENGTH, MAX_LENGTH))
         return False
     return True
 
-def write_fasta(output_path: str, sequences: List[Tuple[str, str]]) -> None:
+def write_fasta(output_path, sequences):
     """Write sequences to FASTA file with validation."""
     try:
         with open(output_path, 'w') as f:
             for header, seq in sequences:
                 if not header.startswith('>'):
-                    header = f">{header}"
-                f.write(f"{header}\n{seq}\n")
+                    header = ">{}".format(header)
+                f.write("{}\n{}\n".format(header, seq))
     except IOError as e:
-        raise IOError(f"Failed to write output file: {str(e)}")
+        raise IOError("Failed to write output file: {}".format(str(e)))
 
 def main():
     parser = argparse.ArgumentParser(
@@ -235,21 +235,21 @@ def main():
         # Handle case where multiple precursors exist
         if mature_seq is None and available_pre_ids:
             if args.pre_id:
-                raise ValueError(f"Specified precursor ID '{args.pre_id}' not found. Available options: {', '.join(available_pre_ids)}")
+                raise ValueError("Specified precursor ID '{}' not found. Available options: {}".format(args.pre_id, ', '.join(available_pre_ids)))
             
             if not sys.stdin.isatty():
-                raise ValueError(f"Multiple precursor sequences available for {args.mirna_id}. Please specify one with --pre-id: {', '.join(available_pre_ids)}")
+                raise ValueError("Multiple precursor sequences available for {}. Please specify one with --pre-id: {}".format(args.mirna_id, ', '.join(available_pre_ids)))
             
             selected_pre_id = prompt_pre_id_selection(available_pre_ids)
             mature_seq, pre_seq, start, end, _ = find_mirna_sequence(data, args.mirna_id, selected_pre_id)
         
-        if not mature_seq:
-            raise ValueError(f"No sequence found for {args.mirna_id}")
+        if not mature_seq or pre_seq is None or start is None or end is None:
+            raise ValueError("No sequence found for {}".format(args.mirna_id))
         
         validate_sequence_length(mature_seq, "Mature")
         
         # Prepare sequences
-        sequences = [(f"{args.mirna_id},WT", mature_seq)]
+        sequences = [("{},WT".format(args.mirna_id), mature_seq)]
         
         # Handle operations based on arguments
         if args.both:
@@ -257,24 +257,24 @@ def main():
                 pre_seq, mature_seq, start, end, args.modification, args.shift
             )
             if validate_sequence_length(mod_shift_seq, "Modified-shifted"):
-                sequences.append((f"{args.mirna_id},{info},modified_shifted", mod_shift_seq))
+                sequences.append(("{},{},modified_shifted".format(args.mirna_id, info), mod_shift_seq))
         else:
             if args.modification:
                 mod_seq, mods = apply_modifications(mature_seq, args.modification)
                 if mods and validate_sequence_length(mod_seq, "Modified"):
-                    sequences.append((f"{args.mirna_id},{'&'.join(mods)},modified", mod_seq))
+                    sequences.append(("{},{},modified".format(args.mirna_id, '&'.join(mods)), mod_seq))
             
             if args.shift:
                 shifted_seq, shift_info = apply_shift(pre_seq, mature_seq, start, end, args.shift)
                 if validate_sequence_length(shifted_seq, "Shifted"):
-                    sequences.append((f"{args.mirna_id},{shift_info},shifted", shifted_seq))
+                    sequences.append(("{},{},shifted".format(args.mirna_id, shift_info), shifted_seq))
         
         # Write output
         write_fasta(args.output, sequences)
-        print(f"Successfully wrote {len(sequences)} sequences to {args.output}")
+        print("Successfully wrote {} sequences to {}".format(len(sequences), args.output))
         
     except Exception as e:
-        print(f"Error: {str(e)}", file=sys.stderr)
+        print("Error: {}".format(str(e)), file=sys.stderr)
         sys.exit(1)
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ def read_sequences_from_json(json_file):
     # Read sequences from a JSON file.
 
     if not os.path.exists(json_file):
-        raise FileNotFoundError(f"JSON file not found: {json_file}")
+        raise FileNotFoundError("JSON file not found: {}".format(json_file))
         
     try:
         with open(json_file, 'r') as f:
@@ -23,10 +23,10 @@ def read_sequences_from_json(json_file):
         elif isinstance(data, list):
             sequences = data
         else:
-            raise ValueError(f"Invalid JSON structure. Expected a dictionary with 'sequences' key or a list of sequences")
+            raise ValueError("Invalid JSON structure. Expected a dictionary with 'sequences' key or a list of sequences")
             
         if not isinstance(sequences, list):
-            raise ValueError(f"Sequences must be a list")
+            raise ValueError("Sequences must be a list")
             
         # Validate each sequence
         valid_sequences = []
@@ -39,9 +39,9 @@ def read_sequences_from_json(json_file):
         return valid_sequences
         
     except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON file: {str(e)}")
+        raise ValueError("Invalid JSON file: {}".format(str(e)))
     except Exception as e:
-        raise Exception(f"Error reading JSON file: {str(e)}")
+        raise Exception("Error reading JSON file: {}".format(str(e)))
 
 def parseTargetScanResults(output_f_path, result_dict):
     results = []
@@ -182,15 +182,15 @@ def parseMirandaResults(output_f_path, result_dict):
     return result_dict
 
 def parseDMISOResults(output_f_path, result_dict):
-         
+    return result_dict
 def process_sequence(sequence, result_dir):
     # Process a single sequence and generate prediction results. 
     try:
-        output_f_path_miRanda = os.path.join(result_dir, "miRanda", f"{sequence['header']}_miRanda_results.txt")
-        output_f_path_miRmap = os.path.join(result_dir, "miRmap", f"{sequence['header']}_miRmap_results.txt")
-        output_f_path_RNAhybrid = os.path.join(result_dir, "RNAhybrid", f"{sequence['header']}_RNAhybrid_results.txt")
-        output_f_path_PITA = os.path.join(result_dir, "PITA", f"{sequence['header']}_PITA_results.tab")
-        output_f_path_TargetScan = os.path.join(result_dir, "TargetScan", f"{sequence['header']}_Targetscan_output_sort.txt")
+        output_f_path_miRanda = os.path.join(result_dir, "miRanda", "{}_miRanda_results.txt".format(sequence['header']))
+        output_f_path_miRmap = os.path.join(result_dir, "miRmap", "{}_miRmap_results.txt".format(sequence['header']))
+        output_f_path_RNAhybrid = os.path.join(result_dir, "RNAhybrid", "{}_RNAhybrid_results.txt".format(sequence['header']))
+        output_f_path_PITA = os.path.join(result_dir, "PITA", "{}_PITA_results.tab".format(sequence['header']))
+        output_f_path_TargetScan = os.path.join(result_dir, "TargetScan", "{}_Targetscan_output_sort.txt".format(sequence['header']))
 
         prediction_results = sequence.copy()
         if os.path.exists(output_f_path_miRanda):
@@ -214,7 +214,7 @@ def process_sequence(sequence, result_dir):
             'error_type': type(e).__name__,
             'error_message': str(e)
         }
-        raise Exception(f"Error processing sequence: {json.dumps(error_context, indent=2)}")
+        raise Exception("Error processing sequence: {}".format(json.dumps(error_context, indent=2)))
 
 def main():
     import argparse
@@ -227,13 +227,14 @@ def main():
     output_dir = os.path.join(result_dir, "miRNA_prediction_results")
     try:
         # Create output directory if it doesn't exist
-        os.makedirs(output_dir, exist_ok=True)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
         
         # Read sequences from JSON file
-        print(f"Reading sequences from {result_dir}...")
+        print("Reading sequences from {}...".format(result_dir))
         json_file = os.path.join(result_dir, "mirna_prediction_parameters.json")
         sequences = read_sequences_from_json(json_file)
-        print(f"Found {len(sequences)} valid sequences")
+        print("Found {} valid sequences".format(len(sequences)))
         
         # Process each sequence
         successful = 0
@@ -244,37 +245,37 @@ def main():
                 prediction_results = process_sequence(sequence, result_dir)
                 
                 # Generate output filename
-                output_filename = f"{sequence['header']}_results.json"
+                output_filename = "{}_results.json".format(sequence['header'])
                 output_path = os.path.join(output_dir, output_filename)
                 
                 # Write results to file
                 with open(output_path, 'w') as file:
                     json.dump(prediction_results, file, indent=4)
-                    
-                print(f"✓ Processed sequence {sequence['header']} - Results saved to {output_path}")
+
+                print("Processed sequence {} - Results saved to {}".format(sequence['header'], output_path))
                 successful += 1
                 
             except Exception as e:
                 failed += 1
-                print(f"✗ Error processing sequence {sequence['header']}:")
+                print("Error processing sequence {}:".format(sequence['header']))
                 if args.verbose:
-                    print(f"Error details:\n{str(e)}")
-                    print(f"Sequence data: {json.dumps(sequence, indent=2)}")
+                    print("Error details:\n{}".format(str(e)))
+                    print("Sequence data: {}".format(json.dumps(sequence, indent=2)))
                 else:
-                    print(f"Error: {str(e)}")
+                    print("Error: {}".format(str(e)))
                 print()
         
         # Print summary
         print("\nProcessing Summary:")
-        print(f"Total sequences: {len(sequences)}")
-        print(f"Successfully processed: {successful}")
-        print(f"Failed to process: {failed}")
+        print("Total sequences: {}".format(len(sequences)))
+        print("Successfully processed: {}".format(successful))
+        print("Failed to process: {}".format(failed))
         
         if failed > 0:
             sys.exit(1)
             
     except Exception as e:
-        print(f"Fatal error: {str(e)}")
+        print("Fatal error: {}".format(str(e)))
         sys.exit(1)
 
 if __name__ == "__main__":

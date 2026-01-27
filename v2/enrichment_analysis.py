@@ -22,7 +22,7 @@ def perform_enrichment_analysis(gene_list):
         print("The gene list is empty. Please provide a list of genes.")
         return
 
-    print(f"Starting enrichment analysis for {len(gene_list)} genes...")
+    print("Starting enrichment analysis for {} genes...".format(len(gene_list)))
 
     # Define the databases you want to query.
     # You can find more libraries using: gp.get_library_name()
@@ -51,7 +51,7 @@ def perform_enrichment_analysis(gene_list):
         # The result object `enr` has an attribute `results` which is a pandas DataFrame.
         # Let's inspect the results for one of the databases.
         for db in gene_sets:
-            print(f"\n--- Top 10 results for {db} ---")
+            print("\n--- Top 10 results for {} ---".format(db))
             
             # Access results for each database by its name
             db_results_df = enr.results[enr.results['Gene_set'] == db]
@@ -63,10 +63,10 @@ def perform_enrichment_analysis(gene_list):
                 # You can save the full results for each database to a separate CSV
                 # The files are already saved by gseapy in the 'enrichment_results' folder,
                 # but this shows how you could do it manually if needed.
-                # db_results_df.to_csv(f'{db}_results.csv', index=False)
+                # db_results_df.to_csv('{}_results.csv'.format(db), index=False)
 
             else:
-                print(f"No significant terms found for {db} with the current settings.")
+                print("No significant terms found for {} with the current settings.".format(db))
 
 
         # --- Visualization ---
@@ -95,7 +95,7 @@ def perform_enrichment_analysis(gene_list):
                 print("No significant GO Biological Process terms to plot.")
 
     except Exception as e:
-        print(f"An error occurred during the analysis: {e}")
+        print("An error occurred during the analysis: {}".format(e))
         print("This may be due to an issue with the gene list or connection to the Enrichr servers.")
 
 
@@ -109,4 +109,3 @@ if __name__ == '__main__':
     ]
 
     perform_enrichment_analysis(my_gene_list)
-
