@@ -1,12 +1,91 @@
-FROM ubuntu:16.04
+FROM ubuntu:16.04 AS builder
 
 MAINTAINER rosario.distefano.ict@gmail.com
-ENV DEBIAN_FRONTEND noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
-LABEl edu.osumc.dept="Department of Cancer Biology and Genetics - The Ohio State University" \
-      edu.osumc.version="1.2" \
-      edu.osumc.is-final="" \
-      edu.osumc.released="March 27, 2020"
+RUN set -xe \
+	&& echo '#!/bin/sh' > /usr/sbin/policy-rc.d \
+	&& echo 'exit 101' >> /usr/sbin/policy-rc.d \
+	&& chmod +x /usr/sbin/policy-rc.d \
+	&& dpkg-divert --local --rename --add /sbin/initctl \
+	&& cp -a /usr/sbin/policy-rc.d /sbin/initctl \
+	&& sed -i 's/^exit.*/exit 0/' /sbin/initctl
+
+ADD tools /opt/
+
+RUN apt-get clean && apt-get update && apt-get install -y --no-install-recommends \
+	autoconf \
+	automake \
+	autotools-dev \
+	build-essential \
+	checkinstall \
+	cmake \
+	dh-autoreconf \
+	g++ \
+	gcc \
+	libbz2-dev \
+	libc6-dev \
+	libg2-dev \
+	libgdbm-dev \
+	libgraphviz-dev \
+	libhdf5-serial-dev \
+	libncursesw5-dev \
+	libreadline-gplv2-dev \
+	libsqlite3-dev \
+	libssl-dev \
+	libtclap-dev \
+	libxml2-dev \
+	python-dev \
+	python-pip \
+	python-setuptools \
+	wget \
+	curl \
+	bzip2 \
+	ca-certificates \
+	&& rm -rf /var/lib/apt/lists/*
+
+RUN pip install "numpy==1.16.6" \
+	&& rm -rf /root/.cache
+
+RUN cd /opt/spatt \
+	&& mkdir build \
+	&& cd build \
+	&& cmake .. \
+	&& make \
+	&& make install
+
+RUN cd /opt/CLAPACK-3.2.1 && cp make.inc.example make.inc \
+	&& cd /opt/CLAPACK-3.2.1 && make f2clib \
+	&& cd /opt/CLAPACK-3.2.1 && make blaslib \
+	&& cd /opt/CLAPACK-3.2.1 && make lib
+
+RUN cd /opt/miRanda \
+	&& ./configure \
+	&& make \
+	&& make install
+
+RUN cd /opt/miRmap/libs \
+	&& mv lib-archlinux-x86_64/ default
+
+RUN cd /opt/RNAhybrid \
+	&& make clean \
+	&& ./configure \
+	&& make \
+	&& make install
+
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends libgsl2 libmpfr4 \
+	&& rm -rf /var/lib/apt/lists/* \
+	&& cd /opt \
+	&& dpkg -i viennarna_2.4.11-1_amd64.deb
+
+RUN cd /opt \
+	&& dpkg -i phast.v1_4.x86_64.deb
+
+FROM ubuntu:16.04 AS runtime
+
+MAINTAINER rosario.distefano.ict@gmail.com
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN set -xe \
 	&& echo '#!/bin/sh' > /usr/sbin/policy-rc.d \
@@ -34,19 +113,18 @@ COPY v2/*.py /opt/v2/
 RUN mkdir -p /opt/TargetScan/Datasets
 COPY v2/opt/tools/TargetScan/Datasets/miR_Family_Info.json /opt/TargetScan/Datasets/miR_Family_Info.json
 
+COPY --from=builder /opt/spatt/build/src /opt/spatt/build/src
+COPY --from=builder /opt/miRanda/bin /opt/miRanda/bin
+COPY --from=builder /opt/miRmap/libs/default /opt/miRmap/libs/default
+COPY --from=builder /opt/RNAhybrid/src /opt/RNAhybrid/src
+
+COPY --from=builder /opt/viennarna_2.4.11-1_amd64.deb /opt/viennarna_2.4.11-1_amd64.deb
+COPY --from=builder /opt/phast.v1_4.x86_64.deb /opt/phast.v1_4.x86_64.deb
+
 RUN apt-get clean && apt-get update && apt-get install -y --no-install-recommends \
 	apt-transport-https \
 	apt-utils \
-	autoconf \
-	automake \
-	autotools-dev \
 	bioperl \
-	build-essential \
-	checkinstall \
-	cmake \
-	dh-autoreconf \
-	g++ \
-	gcc \
 	graphviz \
 	gridengine-drmaa1.0 \
 	gsl-bin \
@@ -84,7 +162,8 @@ RUN apt-get clean && apt-get update && apt-get install -y --no-install-recommend
 	ca-certificates \
 	&& rm -rf /var/lib/apt/lists/*
 
-RUN pip install "numpy==1.16.6"
+RUN pip install "numpy==1.16.6" \
+	&& rm -rf /root/.cache
 
 RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 51716619E084DAB9 \
 	&& add-apt-repository 'deb [arch=amd64,i386] https://ftp.ussg.iu.edu/CRAN/bin/linux/ubuntu xenial/' \
@@ -110,39 +189,14 @@ RUN cd /opt/R \
 	&& /usr/bin/Rscript install_r_packages.R
 
 RUN mkdir -p /app
-RUN /usr/bin/pip install -r /opt/requirements.txt
+RUN /usr/bin/pip install -r /opt/requirements.txt \
+	&& rm -rf /root/.cache
 
 RUN cd /opt \
 	&& dpkg -i viennarna_2.4.11-1_amd64.deb
 
-RUN cd /opt/spatt \
-	&& mkdir build \
-	&& cd build \
-	&& cmake .. \
-	&& make \
-	&& make install
-
-RUN cd /opt/CLAPACK-3.2.1 && cp make.inc.example make.inc \
-	&& cd /opt/CLAPACK-3.2.1 && make f2clib \
-	&& cd /opt/CLAPACK-3.2.1 && make blaslib \
-	&& cd /opt/CLAPACK-3.2.1 && make lib
-	
-RUN cd /opt/ \
+RUN cd /opt \
 	&& dpkg -i phast.v1_4.x86_64.deb
-
-RUN cd /opt/miRanda \
-	&& ./configure \
-	&& make \
-	&& make install
-
-RUN cd /opt/miRmap/libs \
-	&& mv lib-archlinux-x86_64/ default
-	
-RUN cd /opt/RNAhybrid \
-	&& make clean \
-	&& ./configure \
-        && make \
-        && make install
 
 ENV PATH="${PATH}:/opt/miRanda/bin"
 ENV PATH="${PATH}:/opt/miRmap/scripts"

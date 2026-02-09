@@ -19,7 +19,10 @@ COPY v2/*.py /opt/v2/
 RUN python3.6 -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
     && /opt/venv/bin/pip install --no-cache-dir "tensorflow==1.15.0" "keras==2.3.1" "numpy" "h5py==2.10.0" \
-    && /opt/venv/bin/python -c "import tensorflow, keras; print('dmiso env ok')"
+    && /opt/venv/bin/python -c "import tensorflow, keras; print('dmiso env ok')" \
+    && apt-get purge -y python3.6-dev python3-venv python3-distutils \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* /root/.cache
 
 ENV DMISO_HOME=/opt/DMISO/DMISO-main
 ENV PATH="${PATH}:${DMISO_HOME}"
