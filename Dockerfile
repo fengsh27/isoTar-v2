@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM frankfeng78/isotar-v2-base:0.2.2
 
 MAINTAINER rosario.distefano.ict@gmail.com
 ENV DEBIAN_FRONTEND noninteractive
@@ -8,169 +8,45 @@ LABEl edu.osumc.dept="Department of Cancer Biology and Genetics - The Ohio State
       edu.osumc.is-final="" \
       edu.osumc.released="March 27, 2020"
 
-# a few minor docker-specific tweaks
-# see https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap
-RUN set -xe \
-	\
-# https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap#L40-L48
-	&& echo '#!/bin/sh' > /usr/sbin/policy-rc.d \
-	&& echo 'exit 101' >> /usr/sbin/policy-rc.d \
-	&& chmod +x /usr/sbin/policy-rc.d \
-	\
-# https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap#L54-L56
-	&& dpkg-divert --local --rename --add /sbin/initctl \
-	&& cp -a /usr/sbin/policy-rc.d /sbin/initctl \
-	&& sed -i 's/^exit.*/exit 0/' /sbin/initctl \
-	\
-# https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap#L71-L78
-	&& echo 'force-unsafe-io' > /etc/dpkg/dpkg.cfg.d/docker-apt-speedup \
-	\
-# https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap#L85-L105
-	&& echo 'DPkg::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*.deb /var/cache/apt/*.bin || true"; };' > /etc/apt/apt.conf.d/docker-clean \
-	&& echo 'APT::Update::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*.deb /var/cache/apt/*.bin || true"; };' >> /etc/apt/apt.conf.d/docker-clean \
-	&& echo 'Dir::Cache::pkgcache ""; Dir::Cache::srcpkgcache "";' >> /etc/apt/apt.conf.d/docker-clean \
-	\
-# https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap#L109-L115
-	&& echo 'Acquire::Languages "none";' > /etc/apt/apt.conf.d/docker-no-languages \
-	\
-# https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap#L118-L130
-	&& echo 'Acquire::GzipIndexes "true"; Acquire::CompressionTypes::Order:: "gz";' > /etc/apt/apt.conf.d/docker-gzip-indexes \
-	\
-# https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap#L134-L151
-	&& echo 'Apt::AutoRemove::SuggestsImportant "false";' > /etc/apt/apt.conf.d/docker-autoremove-suggests 
-
-
-# delete all the apt list files since they're big and get stale quickly
-RUN rm -rf /var/lib/apt/lists/*
-# this forces "apt-get update" in dependent images, which is also good
-# (see also https://bugs.launchpad.net/cloud-images/+bug/1699913)
-
-# enable the universe
-RUN sed -i 's/^#\s*\(deb.*universe\)$/\1/g' /etc/apt/sources.list
-
-# make systemd-detect-virt return "docker"
-# See: https://github.com/systemd/systemd/blob/aa0c34279ee40bce2f9681b496922dedbadfca19/src/basic/virt.c#L434
-RUN mkdir -p /run/systemd && echo 'docker' > /run/systemd/container
-
 ADD tools /opt/
 COPY v2/*.py /opt/v2/
 COPY v2/opt/human /opt/human
 COPY v2/opt/resources /opt/resources
 
-RUN apt-get clean && apt-get update && apt-get install -y --no-install-recommends \
-	apt-transport-https \
-	apt-utils \
-	autoconf \
-	automake \
-	autotools-dev \
-	bioperl \
-	build-essential \
-	checkinstall \
-	cmake \
-	dh-autoreconf \
-	g++ \
-	gcc \
-	graphviz \
-	gridengine-drmaa1.0 \
-	gsl-bin \
-	gunicorn \
-	hdf5-tools \
-	libbz2-dev \
-	libc6-dev \
-	libg2-dev \
-	libgdbm-dev \
-	libgraphviz-dev \
-	libhdf5-serial-dev \
-	libncursesw5-dev \
-	libreadline-dev \
-	libsqlite3-dev \
-	libssl-dev \
-	libtclap-dev \
-	libxml2 \
-	libxml2-dev \
-	nano \
-	nginx \
-	pkg-config \
-	python3-dev \
-	python3-mysqldb \
-	python3-pip \
-	python3-setuptools \
-	python3-venv \
-	rabbitmq-server \
-	software-properties-common \
-	supervisor \
-	tk-dev \
-	wget \
-	curl \
-	bzip2 \
-	ca-certificates \
-	&& rm -rf /var/lib/apt/lists/*
 
-# RUN pip install --upgrade pip
-RUN pip install "numpy==1.26.4" "dendropy==4.6.1"
+RUN python3.6 -m pip install --no-cache-dir --upgrade "pip==21.3.1" \
+	&& python3.6 -m pip install --no-cache-dir "numpy==1.16.6" "dendropy==4.3.0"
 
-# Setup Miniconda for DMISO (Python 3.6)
-ENV CONDA_DIR=/opt/conda
-RUN curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-py311_24.5.0-0-Linux-x86_64.sh -o /tmp/miniconda.sh \
-	&& bash /tmp/miniconda.sh -b -p ${CONDA_DIR} \
-	&& rm /tmp/miniconda.sh \
-	&& ${CONDA_DIR}/bin/conda clean -a -y
-ENV PATH="${CONDA_DIR}/bin:${PATH}"
-RUN conda create -y -n dmiso python=3.6.13 \
-	&& conda run -n dmiso pip install --no-cache-dir "tensorflow==1.15.0" "keras==2.3.1" "numpy" "h5py==2.10.0" \
-	&& conda run -n dmiso python -c "import tensorflow, keras; print('dmiso env ok')" \
-	&& conda clean -a -y
-
-RUN conda create -y -n mirmap python=3.11 \
-	&& conda run -n mirmap pip install --no-cache-dir "numpy" "dendropy==4.6.1" \
-	&& conda run -n mirmap python -c "import numpy, dendropy; print('mirmap env ok')" \
-	&& conda clean -a -y
 ENV DMISO_HOME=/opt/DMISO/DMISO-main
 ENV PATH="${PATH}:${DMISO_HOME}"
-RUN printf '%s\n' "#!/bin/sh" "exec conda run -n dmiso python ${DMISO_HOME}/dmiso.py \"$@\"" > /usr/local/bin/dmiso \
+RUN python3.6 -m pip install --no-cache-dir "tensorflow==1.15.0" "keras==2.3.1" "numpy" "h5py==2.10.0" \
+	&& python3.6 -c "import tensorflow, keras; print('dmiso env ok')" \
+	&& printf '%s\n' "#!/bin/sh" "exec python3.6 ${DMISO_HOME}/dmiso.py \"$@\"" > /usr/local/bin/dmiso \
 	&& chmod +x /usr/local/bin/dmiso
 
 #########################
 ## R                   ##
 #########################
 
-RUN apt-get update \
-	&& apt-get install -y --no-install-recommends \
-	gnupg \
-	dirmngr \
-	ca-certificates \
-	&& curl -fsSL https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc \
-		| gpg --dearmor -o /usr/share/keyrings/cran.gpg \
-	&& echo "deb [signed-by=/usr/share/keyrings/cran.gpg] https://cloud.r-project.org/bin/linux/ubuntu jammy-cran40/" \
-		> /etc/apt/sources.list.d/cran.list \
-	&& apt-get update \
-	&& apt-get install -y --no-install-recommends \
-	curl \
-	libcairo2-dev \
-	libcurl4-openssl-dev \
-	librsvg2-dev \
-	libssl-dev \
-	libv8-dev \
-	libwebp-dev \
-	r-base \
-	r-base-dev \
-	r-cran-bitops \
-	r-cran-igraph \
-	r-cran-rcurl \
-	r-cran-xml \
-	&& rm -rf /var/lib/apt/lists/*
+RUN printf '%s\n' \
+	"CXX=g++ -std=gnu++11" \
+	"CXXFLAGS=-std=gnu++11" \
+	"CXX11=g++ -std=gnu++11" \
+	"CXX11FLAGS=-std=gnu++11" \
+	> /etc/R/Makevars
 
 RUN cd /opt/R \
-	&& /usr/bin/Rscript install_r_packages.R 
+	&& /usr/bin/Rscript -e "options(repos='https://cloud.r-project.org'); source('install_r_packages.R')" 
 
 # Setup flask application
 RUN mkdir -p /app
-RUN /usr/bin/pip install -r /opt/requirements.txt
+RUN python2.7 -m pip install --no-cache-dir --upgrade "pip==20.3.4" "setuptools==44.1.1" \
+	&& python2.7 -m pip install --no-cache-dir "numpy==1.16.6" \
+	&& python2.7 -m pip install --no-cache-dir -r /opt/requirements.txt
 
 # Setup Vienna-rna
 RUN cd /opt \
 	&& dpkg -i viennarna_2.4.11-1_amd64.deb
-
 
 # Setup Spatt
 RUN cd /opt/spatt \
@@ -219,13 +95,13 @@ ENV PATH="${PATH}:/opt/miRanda/bin"
 ## miRmap v1.1         ##
 #########################
 ENV PATH="${PATH}:/opt/miRmap/scripts"
-ENV PYTHONPATH="${PYTHONPATH}:/opt/miRmap/src/"
-ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/opt/miRmap/libs/default"
+ENV PYTHONPATH="${PYTHONPATH:-}:/opt/miRmap/src/"
+ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:/opt/miRmap/libs/default"
 
 ###############################
 ## Setting PERL5LIB for PITA ##
 ###############################
-ENV PERL5LIB="${PERL5LIB}:/opt/PITA64bit/lib"
+ENV PERL5LIB="${PERL5LIB:-}:/opt/PITA64bit/lib"
 
 #########################
 ## RNAhybrid 2.1.2     ##

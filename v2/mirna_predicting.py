@@ -3,6 +3,15 @@ import sys
 import argparse
 import multiprocessing
 import subprocess
+
+if not hasattr(subprocess, "run"):
+    def _run(cmd, check=False, stdout=None, stderr=None):
+        result = subprocess.call(cmd, stdout=stdout, stderr=stderr)
+        if check and result != 0:
+            raise RuntimeError("Command failed with exit status {}: {}".format(result, cmd))
+        return result
+
+    subprocess.run = _run
 import json
 import shutil
 
@@ -10,9 +19,9 @@ import shutil
 # Predefined list of tools
 ALLOWED_TOOLS = ["miRanda", "miRmap", "Targetscan", "RNAhybrid", "PITA", "DMISO"]
 # miRanda path
-MIRANDA = '/opt/miRanda/bin/miranda'
+MIRANDA = '/usr/local/bin/miranda'
 # RNAhybrid path
-RNAHYBRID = "/opt/RNAhybrid/src/RNAhybrid"
+RNAHYBRID = "/usr/local/bin/RNAhybrid"
 # PITA path
 PITA = "/opt/PITA64bit/pita_prediction.pl"
 # TargetScan path
@@ -246,6 +255,26 @@ def run_dmiso(mirna_file, utr_file, output_file):
     # Run DMISO and redirect output to /dev/null
     with open('/dev/null', 'w') as devnull:
         subprocess.run(cmd, check=True, stdout=devnull, stderr=devnull)
+
+
+def run_miranda_with_params(params):
+    return run_miranda(*params)
+
+
+def run_rnahybrid_with_params(params):
+    return run_rnahybrid(*params)
+
+
+def run_mirmap_with_params(params):
+    return run_mirmap(*params)
+
+
+def run_dmiso_with_params(params):
+    return run_dmiso(*params)
+
+
+def run_pita_with_params(params):
+    return run_pita(*params)
 
 def targetscan_prep(sequence, header, out_dir):
     """TargetScan_prep"""
@@ -555,7 +584,7 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 
                 # Run in parallel
                 print("miRanda is processing {}".format(name_fasta))
-                pool.starmap(run_miranda, args)
+                pool.map(run_miranda_with_params, args)
                 
                 # Merge results
                 with open(output_file, 'w') as merged_file:
@@ -580,7 +609,7 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 
                 # Run in parallel
                 print("RNAhybrid is processing {}".format(name_fasta))
-                pool.starmap(run_rnahybrid, args)
+                pool.map(run_rnahybrid_with_params, args)
                 
                 # Merge results
                 with open(output_file, 'w') as merged_file:
@@ -605,7 +634,7 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
     
                 # Run in parallel
                 print("miRmap is processing {}".format(name_fasta))
-                pool.starmap(run_mirmap, args)
+                pool.map(run_mirmap_with_params, args)
     
                 # Merge results
                 with open(output_file, 'w') as merged_file:
@@ -630,7 +659,7 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 
                 # Run in parallel
                 print("DMISO is processing {}".format(name_fasta))
-                pool.starmap(run_dmiso, args)
+                pool.map(run_dmiso_with_params, args)
                 
                 # Merge results
                 with open(output_file_before, 'w') as merged_file:
@@ -656,7 +685,7 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 
                 # Run in parallel
                 print("PITA is processing {}".format(name_fasta))
-                pool.starmap(run_pita, args)
+                pool.map(run_pita_with_params, args)
                 
                 # Merge results
                 with open(output_file_prefix+".tab", 'w') as merged_file:
