@@ -14,14 +14,15 @@ COPY v2/opt/human /opt/human
 COPY v2/opt/resources /opt/resources
 
 
-RUN python3.6 -m pip install --no-cache-dir --upgrade "pip==21.3.1" \
-	&& python3.6 -m pip install --no-cache-dir "numpy==1.16.6" "dendropy==4.3.0"
+RUN python3.6 -m pip install --no-cache-dir --upgrade "pip==21.3.1"
+
+RUN ln -sf /usr/local/bin/python3.6 /usr/local/bin/python3
 
 ENV DMISO_HOME=/opt/DMISO/DMISO-main
 ENV PATH="${PATH}:${DMISO_HOME}"
 RUN python3.6 -m pip install --no-cache-dir "tensorflow==1.15.0" "keras==2.3.1" "numpy" "h5py==2.10.0" \
 	&& python3.6 -c "import tensorflow, keras; print('dmiso env ok')" \
-	&& printf '%s\n' "#!/bin/sh" "exec python3.6 ${DMISO_HOME}/dmiso.py \"$@\"" > /usr/local/bin/dmiso \
+	&& printf '%s\n' "#!/bin/sh" "exec /usr/local/bin/python3.6 ${DMISO_HOME}/dmiso.py \"$@\"" > /usr/local/bin/dmiso \
 	&& chmod +x /usr/local/bin/dmiso
 
 #########################
@@ -42,6 +43,7 @@ RUN cd /opt/R \
 RUN mkdir -p /app
 RUN python2.7 -m pip install --no-cache-dir --upgrade "pip==20.3.4" "setuptools==44.1.1" \
 	&& python2.7 -m pip install --no-cache-dir "numpy==1.16.6" \
+	&& python2.7 -m pip install --no-cache-dir "dendropy==4.3.0" \
 	&& python2.7 -m pip install --no-cache-dir -r /opt/requirements.txt
 
 # Setup Vienna-rna

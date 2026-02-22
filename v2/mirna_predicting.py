@@ -246,8 +246,8 @@ def run_targetscan(targetscan_input, utr_input, output_file_1, bln_bins_file, ou
 def run_dmiso(mirna_file, utr_file, output_file):
     """Run DMISO on a given miRNA and UTR file."""
     cmd = [
-        "python3",
-        DMISO,
+        "python3.6",
+        "/opt/DMISO/DMISO-main/dmiso.py",
         "-m",mirna_file,
         "-t",utr_file,
         "-o", output_file
@@ -304,9 +304,8 @@ def targetscan_prep(sequence, header, out_dir):
 
 def run_mirmap(mirna_seq, mirna_header, utr_file, output_file):
     """Run miRmap on a given miRNA sequence and UTR file."""
-    import mirmap.target
-    import mirmap.if_lib_spatt
-    import mirmap.scores
+    import mirmap
+    import mirmap.library_link
     
     # Read UTR sequences from file
     utr_sequences = []
@@ -336,23 +335,36 @@ def run_mirmap(mirna_seq, mirna_header, utr_file, output_file):
             # Convert miRNA sequence (U to T)
             mirna_seq_t = mirna_seq.replace("U", "T")
                 
-            # Find targets
-            targets = mirmap.target.find_targets_with_seed(utr_sequences[i], mirna_seq_t)
-            if not targets:
-                out_f.write("\n")
-                continue           
-            # Initialize Spatt and calculate scores (optional)
+            # Initialize miRmap object
+            mm_obj = mirmap.mm(utr_sequences[i], mirna_seq_t)
             spatt_path = os.environ.get("MIRMAP_SPATT_LIB", "/opt/miRmap/libs/default/libspatt2.so")
             if os.path.exists(spatt_path):
-                if_spatt = mirmap.if_lib_spatt.Spatt(spatt_path)
+                mm_obj.libs = mirmap.library_link.LibraryLink(os.path.dirname(spatt_path))
             else:
-                if_spatt = None
                 print("Warning: Spatt library not found at {}. Continuing without Spatt.".format(spatt_path))
-            scores = mirmap.scores.calc_scores(targets[0], if_spatt=if_spatt)
-            
-            # Write scores
-            out_f.write(targets[0].report() + "\n")
-            out_f.write(mirmap.scores.report_scores(scores) + "\n\n")
+
+            # Find targets with seed
+            mm_obj.find_potential_targets_with_seed()
+            if len(mm_obj.end_sites) == 0:
+                out_f.write("\n")
+                continue
+
+            # Evaluate scores (best effort)
+            mm_obj.eval_tgs_au()
+            mm_obj.eval_tgs_position()
+            mm_obj.eval_tgs_pairing3p()
+            mm_obj.eval_tgs_score()
+            mm_obj.eval_dg_duplex()
+            mm_obj.eval_dg_open()
+            mm_obj.eval_dg_total()
+            mm_obj.eval_prob_exact()
+            mm_obj.eval_prob_binomial()
+            mm_obj.cons_blss = [0.0] * len(mm_obj.end_sites)
+            mm_obj.selec_phylops = [1.0] * len(mm_obj.end_sites)
+            mm_obj.eval_score()
+
+            # Write report
+            out_f.write(mm_obj.report() + "\n\n")
 
 def parse_dmiso_results(dmiso_file, output_file):
     """Parse DMISO results."""
