@@ -1,0 +1,18 @@
+* General:
+  - add Markov estimation support
+  - add lapack/arpack code and interface
+  - import some gsl source code (Brent, Chebyshev)
+  - import some R source code (pnorm, ppois, etc ...)
+  - add large deviation support
+  - add binomial support
+  - add compound Poisson support
+
+* Class dfa:
+  - build a minimal dfa from a simple word
+  - build a non-ambiguous dfa from a simple word (non renewal only)
+
+* Class xstat/xwaiting:
+  - improve notations
+  - avoid clumsy structures
+  - use map instead of vector in xwaiting to lower memory complexity
+  - improve outputs

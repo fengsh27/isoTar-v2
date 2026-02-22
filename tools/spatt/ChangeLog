@@ -1,0 +1,137 @@
+2011-12-05 Charles E. Vejnar <charles.vejnar@unige.ch>
+
+	* Spatt release 2.0
+
+	* New C layer included in the spatt shared library
+
+	* libspatt2/markov.cc: added a method accepting transitions matrix
+	as an array
+
+	* libspatt2/xstat.cc: added a method accepting the sequence length
+	instead of the sequence it-self
+
+	* libspatt2/stat.cc: added a method accepting the sequence length
+	instead of the sequence it-self
+
+	* Compatibility with Tclap >1.2.0
+
+	* Change the building system from autoconf/automake to CMake
+
+2008-05-23  Gregory Nuel  <nuel@turing.math-info.univ-paris5.fr>
+
+	* Spatt release 2.0-pre7
+	
+	* libspatt2/markov.cc: added support for Markov model with no
+	stationary distribution
+
+	* libspatt/gstat.cc: added support for Markov model with no
+	stationary distribution
+	
+
+2008-02-05  Gregory Nuel  <nuel@turing.math-info.univ-paris5.fr>
+
+	* SPatt release 2.0-pre6
+	
+	* libspatt2/xstat.cc: changed the presence/abscence code to avoid
+	redondant computations
+
+2007-12-03  Gregory Nuel  <nuel@turing.math-info.univ-paris5.fr>
+
+	* SPatt release 2.0-pre5
+
+	* Corrected a rare bug with pmc state recoding for order 2 or more
+	Markov chains
+
+	* Added an indexed output useful for thrid party programs
+
+	* Added default markov constructor without file parameter
+
+2007-06-28  Gregory Nuel  <nuel@genopole.cnrs.fr>
+
+	* SPatt release 2.0-pre4
+
+	* Changed code in xstat.cc and gstat.cc in order to avoid
+	redondance between stationary and non stationary computations
+
+	* Added a "presence" option to compute presence/absence statistics
+	in a set of sequences
+
+2007-06-27  Gregory Nuel  <nuel@genopole.cnrs.fr>
+
+	* Added a "--offset" option to specify an offset in conjunction
+	with the ignore-interrupt option
+
+2007-01-25  Gregory Nuel  <nuel@genopole.cnrs.fr>
+
+	* SPatt release 2.0-pre3
+
+	* Fixed segfault when encountring a sequence shorter than model
+	order
+	
+	* Added a "--ignore-interrupt" option to force spatt to ignore
+	sequence interruptions. This option is yet only implemented for
+	Gaussian approximations.
+
+2007-01-18  Gregory Nuel  <nuel@genopole.cnrs.fr>
+
+	* SPatt release 2.0-pre2
+	
+	* Changed option "-nocc" in "-nobs". All "nocc"
+	occurrences in sourcecode have been changed accordingly.
+
+	* Added a "--stationary" option to force spatt to assume that all
+	Markov chains are stationary.
+
+2006-11-20  Gregory Nuel  <nuel@genopole.cnrs.fr>
+
+	* SPatt release 2.0-pre1
+	
+	* Added a class alphabet:
+	- char to code
+	- code to char
+	- includes both pattern and sequence char syntax
+
+	* Added a class sequence
+	- easy interface to one or more sequence files
+
+	* Added a class nfa:
+	- build a nfa from a pattern
+
+	* Added a class dfa:
+	- build a dfa from a nfa (subset construction)
+	- minimize a dfa (Hopcroft algorithm)
+	- switch to renewal counting
+	- remove ambiguity
+
+	* Added a class pmc:
+	- build a pmc from a dfa and Markov parameter
+	- vector matrix product
+	- scalar vector matrix product
+
+	* Added a class markov:
+        - build a markov from a file
+	- build a markov in the m=0 uniform case
+        - normalize
+
+	* Added a class vmarkov:
+	- compute mean and covariance matrix of (N_m,N_{m+1})
+
+	* Added class stat:
+	- from which all *stat are derived
+
+	* Added a class xstat:
+	- compute exact pvalue for nocc
+
+	* Added a class gstat:
+	- compute gaussian z-score
+
+	* Added a class xwaiting
+	- compute exact pvalue for waiting times
+	
+2006-11-13  Mark Hoebeke  <mhoebeke@localhost.localdomain>
+
+	* Added license info to *.cc and *.h files.
+
+	* Added namespace declaration to avoid name collisions (e.g. stat on Win32/MinGW platforms).
+	
+

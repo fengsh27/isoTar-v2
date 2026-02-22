@@ -1,0 +1,48 @@
+Spatt Installation
+==================
+
+Spatt is distributed with *CMakeLists.txt* files for CMake_, the cross-platform, open-source build system.
+
+For example, to compile and install **Spatt** on a Unix system:
+
+1. To create the *Makefiles* do:
+
+ ::
+
+  cd spatt-<version>
+  mkdir build
+  cd build
+  cmake ..
+
+ .. note::
+
+    **Spatt** requires the **Tclap** headers. If they are not installed in your system, you can specify the path where you have a local copy of them:
+
+    ::
+
+     cmake -DTCLAP_INCLUDEDIR=<path>/tclap-1.2.1/include ..
+
+ .. note::
+
+    To compile the shared library together with **spatt** executable:
+
+    ::
+
+     cmake -DWITH_SHARED_LIB=ON ..
+
+2. To compile do:
+
+ ::
+
+  make
+
+ Or to have a more verbose output (every compiling line):
+
+ ::
+
+  VERBOSE=1 make
+
+3. To install the library and the executable, do ``make install``.
+
+.. _CMake: http://www.cmake.org
+

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<GeneXPress>
+
+<TSCRawData>
+UID	NAME	GWEIGHT	E1
+G2	G2	1	1
+</TSCRawData>
+
+<GeneXPressAttributes>
+<Attributes Id="0">
+<Attribute Name="g_module" Id="0" Value="1 2">
+</Attribute>
+</Attributes>
+</GeneXPressAttributes>
+
+<GeneXPressObjects>
+<Objects Type="Genes" URLPrefix="genome-www4.stanford.edu/cgi-bin/SGD/locus.pl?locus=">
+<Gene Id="0" ORF="G2" Desc="G2">
+<Attributes AttributesGroupId="0" Type="Full" Value="1">
+</Attributes>
+</Gene>
+</Objects>
+<Objects Type="Experiments">
+<Experiment Id="0" name="E1">
+</Experiment>
+</Objects>
+</GeneXPressObjects>
+<TSCHierarchyClusterData NumClusters="1">
+<Root ClusterNum="0" NumChildren="0">
+</Root>
+</TSCHierarchyClusterData>
+<GeneXPressChromosomeTrack Type="ChromosomeFeatureTrack" Name="UTR Sequences" Organism="" GenomeVersion="NA" Description="" DisplayMode="By Types" LocationDisplayMode="Color gradient" LocationHeight="10" FooterPixels="5"  NumLocations="1" FeatureTypes="0" ColorGradientMaxPositiveColor_0="255,0,0,1" ColorGradientMinNegativeColor_0="0,255,0,1" ColorGradientMinNegativeValue_0="-10" >
+NM_001285	1	0	210	0	1
+</GeneXPressChromosomeTrack>
+<GeneXPressChromosomeTrack Type="ChromosomeFeatureTrack" Name="PITA Predictions" Organism="" GenomeVersion="NA" Description="" DisplayMode="By Types" LocationDisplayMode="Filled box" LocationHeight="50" FooterPixels="5"  NumLocations="21" FeatureTypes="hsa-miR-145;hsa-miR-493-5p;hsa-miR-586;hsa-miR-583;hsa-miR-561;hsa-miR-374;hsa-miR-600;hsa-miR-139" ColorGradientMaxPositiveColor_0="0,0,255,1" ColorGradientMinNegativeColor_0="0,255,0,1" ColorGradientMinNegativeValue_0="0" ColorGradientMaxPositiveValue_0="25" ColorGradientMaxPositiveColor_1="0,0,255,1" ColorGradientMinNegativeColor_1="0,255,0,1" ColorGradientMinNegativeValue_1="0" ColorGradientMaxPositiveValue_1="25" ColorGradientMaxPositiveColor_2="0,0,255,1" ColorGradientMinNegativeColor_2="0,255,0,1" ColorGradientMinNegativeValue_2="0" ColorGradientMaxPositiveValue_2="25" ColorGradientMaxPositiveColor_3="0,0,255,1" ColorGradientMinNegativeColor_3="0,255,0,1" ColorGradientMinNegativeValue_3="0" ColorGradientMaxPositiveValue_3="25" ColorGradientMaxPositiveColor_4="0,0,255,1" ColorGradientMinNegativeColor_4="0,255,0,1" ColorGradientMinNegativeValue_4="0" ColorGradientMaxPositiveValue_4="25" ColorGradientMaxPositiveColor_5="0,0,255,1" ColorGradientMinNegativeColor_5="0,255,0,1" ColorGradientMinNegativeValue_5="0" ColorGradientMaxPositiveValue_5="25" ColorGradientMaxPositiveColor_6="0,0,255,1" ColorGradientMinNegativeColor_6="0,255,0,1" ColorGradientMinNegativeValue_6="0" ColorGradientMaxPositiveValue_6="25" ColorGradientMaxPositiveColor_7="0,0,255,1" ColorGradientMinNegativeColor_7="0,255,0,1" ColorGradientMinNegativeValue_7="0" ColorGradientMaxPositiveValue_7="25" >
+NM_001285	hsa-miR-145	210	203	0	
+NM_001285	hsa-miR-493-5p	110	103	1	
+NM_001285	hsa-miR-586	162	155	2	
+NM_001285	hsa-miR-583	44	36	3	
+NM_001285	hsa-miR-586-1	72	65	2	
+NM_001285	hsa-miR-561	172	164	4	
+NM_001285	hsa-miR-374	76	68	5	
+NM_001285	hsa-miR-586-2	109	102	2	
+NM_001285	hsa-miR-600	179	172	6	
+NM_001285	hsa-miR-139	141	135	7	
+NM_001285	hsa-miR-600-1	142	135	6	
+NM_001285	hsa-miR-374-1	166	158	5	
+NM_001285	hsa-miR-561-1	61	54	4	
+NM_001285	hsa-miR-561-2	60	52	4	
+NM_001285	hsa-miR-374-2	54	48	5	
+NM_001285	hsa-miR-586-3	133	126	2	
+NM_001285	hsa-miR-493-5p-1	123	115	1	
+NM_001285	hsa-miR-139-1	178	172	7	
+NM_001285	hsa-miR-139-2	88	82	7	
+NM_001285	hsa-miR-600-2	89	82	6	
+NM_001285	hsa-miR-561-3	82	74	4	
+</GeneXPressChromosomeTrack>
+<GeneXPressTable Type="ChromosomeTrack" Name="UTR Sequences Track" TrackNames="UTR Sequences">
+</GeneXPressTable>
+<GeneXPressTable Type="ChromosomeTrack" Name="PITA Predictions Track" TrackNames="PITA Predictions">
+</GeneXPressTable>
+<TableDisplay TableDataModel="PITA Predictions Track">
+</TableDisplay>
+<TableDisplay TableDataModel="UTR Sequences Track">
+</TableDisplay>
+<GeneXPressClusterLists>
+</GeneXPressClusterLists>
+</GeneXPress>
