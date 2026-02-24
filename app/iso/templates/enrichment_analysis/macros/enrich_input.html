@@ -1,0 +1,3422 @@
+{% macro render_system_details(sys_cores) %}
+<center>
+	<table cellpadding="10">
+	<tbody>
+	<tr>
+		<td>
+			<center>
+				<img src="{{ url_for('static', filename='public/images/vendor/host.png') }}" alt="">
+			</center>
+		</td>
+		<td>
+			<center>
+				<p><span class="lead" style="font-size: 3em">{{ sys_cores|safe }}</span></p>
+			</center>
+		</td>	
+		<td>
+			<p>CPU {% if sys_cores == 1 -%}core{% else %}cores{% endif %} available in your system</p>
+		</td>	
+	</tr>	
+	</tbody>	
+	</table>
+</center>
+{% endmacro %}
+
+
+{% macro render_enrich_comp_js() %}
+<script>
+	$(function() {
+	
+		$('a#enrich_analysis_response_close_btn').on('click', function (e) {
+			e.preventDefault();
+			// Prevent event triggering more then once
+			if(e.handled !== true) {
+				$('div#enrich_analysis_processing_content').css('display', 'none');			
+				e.handled = true;
+			}
+		});
+		
+		
+		$('a#enrich_show_setup').click(function() {
+  			$('div#enrich_setup_content').fadeToggle('slow', 'linear');
+		});
+		
+		
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Textarea deactivation handling
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$('input#enrich_checkbox_list1').change(function() {
+	   	if($(this).is(":checked")) {
+	        	$('textarea#enrich_list2').removeAttr('disabled');
+	        	$('input#enrich_name_list2').removeAttr('disabled');
+	      }
+	   });
+	   
+		$('input#enrich_checkbox_list2').change(function() {
+	   	if($(this).is(":checked")) {
+	      	$('textarea#enrich_list2').val('');
+	         $('textarea#enrich_list2').attr('disabled', 'disabled');
+				$('input#enrich_name_list2').val('');
+				$('input#enrich_name_list2').attr('disabled', 'disabled');
+				$('textarea#enrich_list2').removeClass('is-invalid');
+				$('input#enrich_name_list2').removeClass('is-invalid');
+	      }
+	   });
+	    
+	   ///////////////////////////////////////////////////////////////////////////////////////////
+		// Functional Enrichment Analysis
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$('form#enrich_analysis_form').validate({
+			showErrors: function(errorMap, errorList) {
+				
+				// Checkbox
+				$.each($('input[name^=enrich_type]'), function(idx, elm) {
+					$(elm).removeClass('is-invalid');
+				});
+				
+				// Textarea
+				$.each($('textarea[name^=enrich_list]'), function(idx, elm) {
+					$(elm).removeClass('is-invalid');
+				});
+				
+				$.each($('input[name^=enrich_name_list]'), function(idx, elm) {
+					$(elm).removeClass('is-invalid');
+				});
+					
+				if (errorList.length > 0) {
+					var msg = "Your setup contains errors, see details below:<br><br>";
+	        		
+	        		$.each(errorList, function(key, element){ 
+	        			msg += element.message + '<br>';	 
+	        			
+	        			if (element.element.type === 'checkbox') {
+							$.each($('input[name^=enrich_type]'), function(idx, elm) {
+								$(elm).addClass('is-invalid');
+							});
+		        		} else {
+		        			$(element.element).addClass('is-invalid'); 	
+		        		}      		
+					});
+					
+					modal_error_notification(msg);
+				}
+				
+				return false;
+    		},
+			onkeyup: false,
+			onkeydown: false,
+   		onclick: false,
+   		onfocusout: false,
+			rules: 
+			{
+				'enrich_type[]': 
+				{ 
+					required: true,
+					minlength: 1
+				},
+				enrich_list1: 
+				{ 
+					required: true,
+					minlength: 2
+				},
+				enrich_name_list1:
+				{
+					required: true,
+					maxlength: 15,
+					minlength: 4			
+				},
+            enrich_list2:
+            {
+            	//required: '#enrich_name_list2',
+            	//notEqual: '#enrich_list1',
+            	minlength: 2
+            },
+            enrich_name_list2:
+				{
+					//required: '#enrich_list2',
+					//notEqual: '#enrich_name_list1',
+					maxlength: 15,
+					minlength: 4
+				}
+			},
+			messages: {
+				'enrich_type[]':
+            {
+                required: '* No enrichment option has been specified'
+            },
+            enrich_list1:
+            {
+               required: '* No target has been specified in list n&deg; 1'
+            },
+				enrich_name_list1:
+				{
+					required: '* No name has been specified for list n&deg; 1'			
+				},
+            enrich_list2:
+            {
+            	required: '* No target has been specified in list n&deg; 2'
+            },
+				enrich_name_list2:
+				{
+					required: '* No name has been specified for list n&deg; 2'			
+				}
+        	},
+    		errorPlacement: function (error, element) {
+    			return true;
+    		},    		
+			submitHandler: function(form) {
+			
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+				var cores = parseInt($('select#enrich_no_cores').val(), 10);
+				var l1 = $('textarea#enrich_list1').val();
+				var l2 = $('textarea#enrich_list2').val();
+				var name_l1 = $('input#enrich_name_list1').val();
+				var name_l2 = $('input#enrich_name_list2').val();
+				var p1 = parseFloat($('input#enrich_pvalue_p1').val());
+				var p2 = parseFloat($('input#enrich_pvalue_p2').val());
+				var pvalue = p1 / Math.pow(10, p2);
+				var pvalue_type = $('select#enrich_pvalue_type').val();
+				
+				var enrich_opts = new Array();
+				$.each($('input[name^=enrich_type]:checked'), function() {
+					enrich_opts.push($(this).val());
+				});
+				
+				
+				if (checkVariableExistance(csrf_token) && 
+					 checkVariableExistance(name_l1) && 
+					 checkVariableExistance(l1) && 
+					 checkVariableExistance(pvalue) && 
+					 checkVariableExistance(pvalue_type) &&
+					 enrich_opts.length > 0) {
+        			$.ajax({
+            		url: '/exec_functional_enrichment_comp_analysis',
+            		beforeSend: function(xhr, settings) {
+            			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+                			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+            			}
+        				},
+         			data: { 
+         				cores: cores, 
+         				l1: l1,
+         				l2: l2,
+         				name_l1: name_l1,
+         				name_l2: name_l2,
+         				pvalue: pvalue,
+         				pvalue_type: pvalue_type,
+         				enrich_opts: enrich_opts
+         			},
+         			type: 'POST',
+         			dataType: 'json',
+         			success: function(data) {
+         				if (data !== null) {
+								render_enrich_comp_analysis_exec_content();
+         					$('div#enrich_analysis_processing_content').css('display', 'block');
+         					$('a#enrich_analysis_response_close_btn').css('display', 'none');
+         					
+         					var content = '<center>\
+														<a href="#" id="enrich_stop_btn">\
+															<span class="badge badge-pill badge-danger"><i class="fas fa-times" aria-hidden="true"></i> Stop</span>\
+														</a> \
+														<i class="fas fa-cog fa-spin"></i> Under processing...\
+													</center>';
+													
+								$('div#enrich_analysis_status_update_content').html(content);
+         				}
+         			},
+         			error: function(error) {
+         				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+		       			$('div#enrich_analysis_processing_content').css('display', 'none');
+         			}
+        			});
+        		}
+        		
+        		return false;
+  			}	
+		});
+
+	});
+	
+	
+	///////////////////////////////////////////////////////////////////////////////////////////
+	// Functional Enrichment Analysis error modal 
+	///////////////////////////////////////////////////////////////////////////////////////////
+		
+	function modal_error_notification(msg) {
+		// Update and show the modal
+		$('p#enrich_form_check_error_content').html(msg);
+		$('div#enrich_modal').modal('show');
+	}
+	
+	
+	function render_enrich_comp_analysis_exec_content() {	
+	
+		var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		
+		if (checkVariableExistance(csrf_token)){
+			 
+			$('div#enrich_setup_content').fadeToggle('slow', 'linear');
+			$('button#exec_enrich_analysis_btn').attr('disabled', true);
+			$('a#enrich_show_setup').addClass('disabled');
+			
+			$.ajax({
+      		url: '/get_functional_enrichment_analysis_content',
+      		beforeSend: function(xhr, settings) {
+      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+      			}
+  				},
+  				data:{
+					analysis_type: 'comparison'  				
+  				},
+  				type: 'POST',
+   			dataType: 'html',
+   			success: function(data) {
+   				if (data !== null) {
+   					$('div#enrich_analysis_content').html(data);
+   				}
+   			},
+   			error: function(error) {
+   				var res = $.parseJSON(error.responseText);
+   				var error_code = parseInt(error.status, 10);
+   				var msg = '';
+
+   				if(error_code === 400)
+   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+   				else if( error_code === 405) {
+   					msg = ': <i>' + res.error_msg + '</i>.';
+   				}		       			
+
+       			modal_error_notification('An error occurred' + msg);
+   			}
+  			});
+		}
+		
+		return false;
+	}
+</script>
+{% endmacro %}
+
+
+
+
+{% macro render_enrich_comp_results_table(entities_list, resource) %}
+	{% if entities_list|length > 0 %}
+		<div class="card">
+  			<div class="card-header">
+    			<b>Comparison</b>
+  			</div>
+  			<div class="card-block">
+  				<p></p>
+				<table id="{{resource|e}}_enrich_comp_results_table" class="display responsive nowrap" width="100%" cellspacing="0" style="font-size: 12px">
+				<thead>
+				<tr>
+               <th colspan="6"></th>
+               <th colspan="3" style="background-color: #1e90ff;">
+               	<center>List n&deg;1 only</center>
+               </th>
+               <th colspan="3" style="background-color: #3cb371;">
+               	<center>Intersection</center>
+               </th>
+               <th colspan="3" style="background-color: #ff6347;">
+               	<center>List n&deg;2 only</center>
+               </th>
+               <th></th>
+            </tr>
+				<tr>
+					<th>List n&deg;</th>
+               <th>List name</th>
+					<th><center>BP</center></th>
+					<th><center>CC</center></th>
+					<th><center>MF</center></th>
+					<th></th>
+					<th style="background-color: #1e90ff;"><center>BP</center></th>
+					<th style="background-color: #1e90ff;"><center>CC</center></th>
+					<th style="background-color: #1e90ff;"><center>MF</center></th>
+					<th style="background-color: #3cb371;"><center>BP</center></th>
+					<th style="background-color: #3cb371;"><center>CC</center></th>
+					<th style="background-color: #3cb371;"><center>MF</center></th>
+					<th style="background-color: #ff6347;"><center>BP</center></th>
+					<th style="background-color: #ff6347;"><center>CC</center></th>
+					<th style="background-color: #ff6347;"><center>MF</center></th>
+					<th></th>
+				</tr>
+				</thead>
+				<tbody>
+				{% set entity_info = entities_list['list1'] %}
+				<tr>
+					<td align="center">
+						<span class="enrich_row_type">
+							1
+						</span>
+						<span style="display: none;" class="enrich_row_list_id">list1</span>
+					</td>
+					<td>
+						{{ entity_info['entity']|e }}
+					</td>
+					<td align="center">
+						{% if entity_info['bp']|length > 0 %}
+						<a href="#" class="enrich_get_go_term_table">
+							<span class="enrich_row_bp">
+								{{ entity_info['bp']|length }}
+							</span>
+						</a>
+						{% else %}
+						0
+						{% endif %}
+						
+						{% if entity_info['bp_tree'] != '' %}
+						<a href="{{ url_for('static', filename=entity_info['bp_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+							<i class="fas fa-sitemap" aria-hidden="true"></i>
+						</a>
+						{% endif %}
+					</td>
+					<td align="center">
+						{% if entity_info['cc']|length > 0 %}
+						<a href="#" class="enrich_get_go_term_table">
+							<span class="enrich_row_cc">
+								{{ entity_info['cc']|length }}
+							</span>
+						</a>
+						{% else %}
+						0
+						{% endif %}
+						
+						{% if entity_info['cc_tree'] != '' %}
+						<a href="{{ url_for('static', filename=entity_info['cc_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+							<i class="fas fa-sitemap" aria-hidden="true"></i>
+						</a>
+						{% endif %}
+					</td>
+					<td align="center">
+						{% if entity_info['mf']|length > 0 %}
+						<a href="#" class="enrich_get_go_term_table">
+							<span class="enrich_row_mf">
+								{{ entity_info['mf']|length }}
+							</span>
+						</a>
+						{% else %}
+						0
+						{% endif %}
+						
+						{% if entity_info['mf_tree'] != '' %}
+						<a href="{{ url_for('static', filename=entity_info['mf_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+							<i class="fas fa-sitemap" aria-hidden="true"></i>
+						</a>
+						{% endif %}
+					</td>
+					<td></td>
+					<td align="center">
+						<span class="">
+							-
+						</span>
+					</td>
+					<td align="center">
+						<span class="">
+							-
+						</span>
+					</td>
+					<td align="center">
+						<span class="">
+							-
+						</span>
+					</td>
+					<td align="center">
+						<span class="">
+							-
+						</span>
+					</td>
+					<td align="center">
+						<span class="">
+							-
+						</span>
+					</td>
+					<td align="center">
+						<span class="">
+							-
+						</span>
+					</td>
+					<td align="center">
+						<span class="">
+							-
+						</span>
+					</td>
+					<td align="center">
+						<span class="">
+							-
+						</span>
+					</td>
+					<td align="center">
+						<span class="">
+							-
+						</span>
+					</td>
+					<td></td>
+				</tr>
+				{% if 'list2' in entities_list %}
+					{% set entity_info = entities_list['list2'] %}
+					<tr>
+						<td align="center">
+							<span class="enrich_row_type">
+								2
+							</span>
+							<span style="display: none;" class="enrich_row_list_id">list2</span>
+						</td>
+						<td>
+							{{ entity_info['entity']|e }}
+						</td>
+						<td align="center">
+							{% if entity_info['bp']|length > 0 %}
+							<a href="#" class="enrich_get_go_term_table">
+								<span class="enrich_row_bp">
+									{{ entity_info['bp']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+							
+							{% if entity_info['bp_tree'] != '' %}
+							<a href="{{ url_for('static', filename=entity_info['bp_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+								<i class="fas fa-sitemap" aria-hidden="true"></i>
+							</a>
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['cc']|length > 0 %}
+							<a href="#" class="enrich_get_go_term_table">
+								<span class="enrich_row_cc">
+									{{ entity_info['cc']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+							
+							{% if entity_info['cc_tree'] != '' %}
+							<a href="{{ url_for('static', filename=entity_info['cc_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+								<i class="fas fa-sitemap" aria-hidden="true"></i>
+							</a>
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['mf']|length > 0 %}
+							<a href="#" class="enrich_get_go_term_table">
+								<span class="enrich_row_mf">
+									{{ entity_info['mf']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+							
+							{% if entity_info['mf_tree'] != '' %}
+							<a href="{{ url_for('static', filename=entity_info['mf_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+								<i class="fas fa-sitemap" aria-hidden="true"></i>
+							</a>
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['bp']|length > 0 or entity_info['cc']|length > 0 or entity_info['mf']|length > 0 %}
+							<a href="#" class="btn btn-sm enrich_comp_wt_var_stats_btn" id="{{resource|e}}">
+								<i class="fas fa-chart-area" aria-hidden="true"></i>
+							</a>
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['wt_only']['bp']|length > 0 %}
+							<a href="#" class="enrich_get_go_term_table">
+								<span class="enrich_row_bp_wt_o">
+									{{ entity_info['wt_only']['bp']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['wt_only']['cc']|length > 0 %}
+							<a href="#" class="enrich_get_go_term_table">
+								<span class="enrich_row_cc_wt_o">
+									{{ entity_info['wt_only']['cc']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['wt_only']['mf']|length > 0 %}
+							<a href="#" class="enrich_get_go_term_table">
+								<span class="enrich_row_mf_wt_o">
+									{{ entity_info['wt_only']['mf']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['intersection']['bp']|length > 0 %}
+							<a href="#" class="enrich_get_go_term_table">
+								<span class="enrich_row_bp_ins">
+									{{ entity_info['intersection']['bp']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['intersection']['cc']|length > 0 %}
+							<a href="#" class="enrich_get_go_term_table">
+								<span class="enrich_row_cc_ins">
+									{{ entity_info['intersection']['cc']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['intersection']['mf']|length > 0 %}
+							<a href="#" class="enrich_get_go_term_table">
+								<span class="enrich_row_mf_ins">
+									{{ entity_info['intersection']['mf']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['variation_only']['bp']|length > 0 %}
+							<a href="#" class="enrich_get_go_term_table">
+								<span class="enrich_row_bp_var_o">
+									{{ entity_info['variation_only']['bp']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['variation_only']['cc']|length > 0 %}
+							<a href="#" class="enrich_get_go_term_table">
+								<span class="enrich_row_cc_var_o">
+									{{ entity_info['variation_only']['cc']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['variation_only']['mf']|length > 0 %}
+							<a href="#" class="enrich_get_go_term_table">
+								<span class="enrich_row_mf_var_o">
+									{{ entity_info['variation_only']['mf']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['bp']|length > 0 or entity_info['cc']|length > 0 or entity_info['mf']|length > 0 %}
+							<a href="#" class="btn btn-sm enrich_comp_comp_stats_btn" id="{{resource|e}}">
+								<i class="fas fa-chart-area" aria-hidden="true"></i>
+							</a>
+							{% endif %}
+							{% if entity_info['bp_wt_vs_variation_tree'] != '' %}
+							<a class="btn btn-warning btn-sm" href="{{ url_for('static', filename=entity_info['bp_wt_vs_variation_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank" role="button">
+								<i class="fas fa-sitemap" aria-hidden="true"></i> BF
+							</a>
+							{% endif %}
+							{% if entity_info['cc_wt_vs_variation_tree'] != '' %}
+							<a class="btn btn-warning btn-sm" href="{{ url_for('static', filename=entity_info['cc_wt_vs_variation_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank" role="button">
+								<i class="fas fa-sitemap" aria-hidden="true"></i> CC
+							</a>
+							{% endif %}
+							{% if entity_info['mf_wt_vs_variation_tree'] != '' %}
+							<a class="btn btn-warning btn-sm" href="{{ url_for('static', filename=entity_info['mf_wt_vs_variation_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank" role="button">
+								<i class="fas fa-sitemap" aria-hidden="true"></i> MF
+							</a>
+							{% endif %}
+							<a href="#" class="btn btn-success btn-sm go_tree_colors_legend_btn"><i class="far fa-question-circle" aria-hidden="true"></i></a>
+						</td>
+					</tr>
+				{% endif %}
+				</tbody>
+				</table>
+				<p></p>
+				<script type="text/javascript">
+					$(function() {
+						$('table#{{resource|e}}_enrich_comp_results_table').DataTable({
+							order: [[ 5, 'asc' ]]
+						});
+					});
+				</script>
+				<div id="{{resource|e}}_enrich_comp_hist_container" style="display: none; padding: 10px">
+					<hr>
+					<div id="{{resource|e}}_comp_hist_loading_status" style="display: none;">
+						<center><p class="lead"><i class="fas fa-cog fa-spin"></i> Loading...</p></center>
+					</div>
+					<a href="#" id="{{resource|e}}" class="badge badge-pill badge-info enrich_comp_hist_close_btn">
+						<i class="fas fa-eye-slash" aria-hidden="true"></i> Close
+					</a>
+					<br><br>
+					<div id="{{resource|e}}_enrich_comp_hist_content"></div>
+				</div>
+  			</div>
+		</div>
+		<br>		
+	{% endif %}
+{% endmacro %}
+
+
+
+
+
+
+{% macro render_enrich_pathway_comp_results_table(entities_list, resource) %}
+	{% if entities_list|length > 0 %}
+		<div class="card">
+  			<div class="card-header">
+    			<b>Comparison</b>
+  			</div>
+  			<div class="card-block">
+  				<p></p>
+				<table id="{{resource|e}}_enrich_comp_results_table" class="display responsive nowrap" width="100%" cellspacing="0" style="font-size: 12px">
+				<thead>
+				<tr>
+               <th colspan="4"></th>
+               <th style="background-color: #1e90ff;">
+               	<center>List n&deg;1 only</center>
+               </th>
+               <th style="background-color: #3cb371;">
+               	<center>Intersection</center>
+               </th>
+               <th style="background-color: #ff6347;">
+               	<center>List n&deg;2 only</center>
+               </th>
+               <th></th>
+            </tr>
+				<tr>
+					<th>List n&deg;</th>
+               <th>List name</th>
+					<th><center>No. of pathways</center></th>
+					<th></th>
+					<th style="background-color: #1e90ff;"><center>No. of pathways</center></th>
+					<th style="background-color: #3cb371;"><center>No. of pathways</center></th>
+					<th style="background-color: #ff6347;"><center>No. of pathways</center></th>
+					<th></th>
+				</tr>
+				</thead>
+				<tbody>
+				{% set entity_info = entities_list['list1'] %}
+				<tr>
+					<td align="center">
+						<span class="enrich_row_type">
+							1
+						</span>
+						<span style="display: none;" class="enrich_row_list_id">list1</span>
+					</td>
+					<td>
+						{{ entity_info['entity']|e }}
+					</td>
+					<td align="center">
+						{% if entity_info['pathways']|length > 0 %}
+						<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+							<span class="enrich_row_pathway">
+								{{ entity_info['pathways']|length }}
+							</span>
+						</a>
+						{% else %}
+						0
+						{% endif %}
+					</td>
+					<td></td>
+					<td align="center">
+						<span class="">
+							-
+						</span>
+					</td>
+					<td align="center">
+						<span class="">
+							-
+						</span>
+					</td>
+					<td align="center">
+						<span class="">
+							-
+						</span>
+					</td>
+					<td></td>
+				</tr>
+				{% if 'list2' in entities_list %}
+					{% set entity_info = entities_list['list2'] %}
+					<tr>
+						<td align="center">
+							<span class="enrich_row_type">
+								2
+							</span>
+							<span style="display: none;" class="enrich_row_list_id">list2</span>
+						</td>
+						<td>
+							{{ entity_info['entity']|e }}
+						</td>
+						<td align="center">
+							{% if entity_info['pathways']|length > 0 %}
+							<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+								<span class="enrich_row_pathway">
+									{{ entity_info['pathways']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['pathways']|length > 0 %}
+							<a href="#" class="btn btn-sm enrich_pathway_comp_wt_var_stats_btn" id="{{resource|e}}">
+								<i class="fas fa-chart-area" aria-hidden="true"></i>
+							</a>
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['wt_only']|length > 0 %}
+							<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+								<span class="enrich_row_pathway_wt_o">
+									{{ entity_info['wt_only']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['intersection']|length > 0 %}
+							<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+								<span class="enrich_row_pathway_ins">
+									{{ entity_info['intersection']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['variation_only']|length > 0 %}
+							<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+								<span class="enrich_row_pathway_var_o">
+									{{ entity_info['variation_only']|length }}
+								</span>
+							</a>
+							{% else %}
+							0
+							{% endif %}
+						</td>
+						<td align="center">
+							{% if entity_info['pathways']|length > 0 %}
+							<a href="#" class="btn btn-sm enrich_pathway_comp_comp_stats_btn" id="{{resource|e}}">
+								<i class="fas fa-chart-area" aria-hidden="true"></i>
+							</a>
+							{% endif %}
+						</td>
+					</tr>
+				{% endif %}
+				</tbody>
+				</table>
+				<p></p>
+				<script type="text/javascript">
+					$(function() {
+						$('table#{{resource|e}}_enrich_comp_results_table').DataTable({
+							order: [[ 5, 'asc' ]]
+						});
+					});
+				</script>
+				<div id="{{resource|e}}_enrich_comp_hist_container" style="display: none; padding: 10px">
+					<hr>
+					<div id="{{resource|e}}_comp_hist_loading_status" style="display: none;">
+						<center><p class="lead"><i class="fas fa-cog fa-spin"></i> Loading...</p></center>
+					</div>
+					<a href="#" id="{{resource|e}}" class="badge badge-pill badge-info enrich_comp_hist_close_btn">
+						<i class="fas fa-eye-slash" aria-hidden="true"></i> Close
+					</a>
+					<br><br>
+					<div id="{{resource|e}}_enrich_comp_hist_content"></div>
+				</div>
+  			</div>
+		</div>
+		<br>		
+	{% endif %}
+{% endmacro %}
+
+
+
+
+{% macro render_pred_enrichment_form(sys_cores) %}
+<div class="row">
+	
+	<div class="col-xs-12 col-sm-12 col-md-12 col-lg-7">
+		<div class="card">
+			<h4 class="card-header">
+				<a class="btn btn-dark btn-sm" href="#" role="button" id="enrich_show_setup">
+					<i class="fas fa-plus"></i> Setup
+				</a>
+			</h4>
+		  	<div class="card-body" id="enrich_setup_content">  		
+		  		
+				<form action="" method="post" role="form" id="enrich_analysis_form">
+					<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+					
+					<div class="bd-callout bd-callout-primary">
+					
+			  			<h4>1. Set the P-value specifics</h4>
+						<hr>
+						<div class="row">	
+							
+							<div class="col-xs-12 col-sm-12 col-md-5 col-lg-5">
+								<b>Filter type</b>
+								<div class="form-group">
+									<select class="form-control" name="enrich_pvalue_type" id="enrich_pvalue_type" style="width: 100%">
+										<option value="raw">Raw P-value</option>
+										<option value="adj">Adjusted P-value (BH - Benjamini and Hochberg)</option>
+									</select>
+								</div><!-- /.form-group row -->
+							</div><!-- /.col-xs-12 col-sm-12 col-md-5 col-lg-5 -->
+							
+							<div class="col-xs-12 col-sm-12 col-md-7 col-lg-7">
+								<b>Threshold (e.g., <span style="color: green;">5e-2</span>)</b>
+								<table>
+								<tbody>
+								<tr>
+									<td width="40%">
+										<div class="form-group">
+											<input class="form-control" type="number" min="1" max="9" id="enrich_pvalue_p1" name="enrich_pvalue_p1" value="5" style="width: 100%"/>
+										</div>						
+									</td>
+									<td width="20%">
+										<center><h2 class="lead">e-</h2></center>					
+									</td>
+									<td width="40%">
+										<div class="form-group">
+											<input class="form-control" type="number" min="2" id="enrich_pvalue_p2" name="enrich_pvalue_p2" value="2" style="width: 100%"/>
+										</div>						
+									</td>					
+								</tr>					
+								</tbody>					
+								</table>
+							</div><!-- /.col-xs-12 col-sm-12 col-md-8 col-lg-8 -->
+							
+						</div><!-- /.row -->
+						
+					</div><!-- /.bd-callout bd-callout-primary -->	
+					
+					<div class="bd-callout bd-callout-success">
+			  			<h4>2. Select which resource to use</h4>
+						<hr>
+						<p>Check the corresponding option(s).</p>
+						<div class="row">	
+							<div class="col-xs-12 col-sm-12 col-md-6 col-lg-6">
+								<center>							
+									<span class="lead" style="font-size: 2em"><i class="fas fa-flask"></i> GO term</span><br>
+									<label class="custom-control custom-checkbox">
+							    		<input class="custom-control-input" type="checkbox" name="enrich_type[]" id="enrich_type1" value="go">
+							    		<span class="custom-control-indicator"></span>
+							    		<span class="custom-control-description"> <i>Amigo 2</i></span>
+							  		</label>
+								</center>
+							</div><!-- /.col-xs-12 col-sm-12 col-md-6 col-lg-6 -->
+							<div class="col-xs-12 col-sm-12 col-md-6 col-lg-6">
+								<center>							
+									<span class="lead" style="font-size: 2em"><i class="fab fa-hubspot"></i> Pathway</span><br>
+							  		<label class="custom-control custom-checkbox">
+							    		<input class="custom-control-input" type="checkbox" name="enrich_type[]" id="enrich_type2" value="kegg">
+							    		<span class="custom-control-indicator"></span>
+							    		<span class="custom-control-description"> <i>KEGG</i></span>
+							  		</label>
+							  		<label class="custom-control custom-checkbox">
+							    		<input class="custom-control-input" type="checkbox" name="enrich_type[]" id="enrich_type3" value="reactome">
+							    		<span class="custom-control-indicator"></span>
+							    		<span class="custom-control-description"> <i>Reactome</i></span>
+							  		</label>
+								</center>
+							</div><!-- /.col-xs-12 col-sm-12 col-md-6 col-lg-6 -->
+						</div><!-- /.row -->
+					</div><!-- /.bd-callout bd-callout-success -->		
+					
+					<div class="bd-callout bd-callout-warning">
+					
+			  			<h4>3. Select the number of CPU cores</h4>
+						<hr>
+						<div class="row">
+						
+							<div class="col-xs-12 col-sm-12 col-md-7 col-lg-7">
+								{{ render_system_details(sys_cores) }}
+							</div><!-- /.col-xs-12 col-sm-12 col-md-7 col-lg-7 -->
+							
+							<div class="col-xs-12 col-sm-12 col-md-5 col-lg-5 form-group">
+								<p><b>How many cores you would like to use?</b></p>
+								<select class="form-control" name="enrich_no_cores" id="enrich_no_cores" style="width: 100%">
+								{% for i in range(sys_cores) %}  												
+									{% set count = i + 1 %}
+									<option value="{{count|safe}}">{{count|safe}} {% if count == 1 %}core{% else %}cores{% endif %}</option>
+								{% endfor %}
+								</select>
+							</div><!-- /.col-xs-12 col-sm-12 col-md-5 col-lg-5 -->
+							
+						</div><!-- /.row -->
+						
+					</div><!-- /.bd-callout bd-callout-warning -->		
+					
+					<hr>
+					<div class="form-group" align="right">
+						<button type="submit" class="btn btn-warning" id="exec_enrich_analysis_btn"><i class="fas fa-cogs" aria-hidden="true"></i> Run</button>
+					</div>
+				</form>
+		  	</div>
+		</div>
+	</div><!-- /.col-xs-12 col-sm-12 col-md-12 col-lg-7 -->
+	
+	<div class="col-xs-12 col-sm-12 col-md-12 col-lg-5">
+		<div id="enrich_analysis_processing_content" style="display: none;">
+			<div class="card">
+				<p class="card-header">
+					<a href="#" id="enrich_analysis_response_close_btn" style="display: none;">
+						<i class="fas fa-times" aria-hidden="true"></i>
+					</a> Analysis response
+				</p>
+			  	<div class="card-body">
+			  		<div class="row">
+						<div class="col-xs-12 col-sm-12 col-md-12 col-lg-12" id="enrich_analysis_status_update_content">
+						</div><!-- /.col-xs-12 col-sm-12 col-md-12 col-lg-12 -->
+					</div><!-- /.row -->
+			  	</div>
+			</div>
+		</div>
+	</div><!-- /.col-xs-12 col-sm-12 col-md-12 col-lg-5 -->
+
+</div><!-- /.row -->
+<br>
+{% endmacro %}
+
+
+
+
+{% macro render_mirna_enrich_js() %}
+<script>
+	
+	$(function() {
+		
+		$('a#enrich_analysis_response_close_btn').on('click', function (e) {
+			e.preventDefault();
+			// Prevent event triggering more then once
+			if(e.handled !== true) {
+				$('div#enrich_analysis_processing_content').css('display', 'none');			
+				e.handled = true;
+			}
+		});
+		
+		
+		$('a#enrich_show_setup').click(function(e) {
+			// Prevent event triggering more then once
+			if(e.handled !== true) {
+  				$('div#enrich_setup_content').fadeToggle('slow', 'linear');
+				e.handled = true;  			
+  			}
+		});
+		
+		
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Functional Enrichment Analysis
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$('form#enrich_analysis_form').validate({
+			showErrors: function(errorMap, errorList) {
+				
+				// Checkbox
+				$.each($('input[name^=enrich_type]'), function(idx, elm) {
+					$(elm).removeClass('is-invalid');
+				});
+				
+				if (errorList.length > 0) {
+					var msg = "Your setup contains errors, see details below:<br><br>";
+	        		
+	        		$.each(errorList, function(key, element){ 
+	        			msg += element.message + '<br>';
+	        			
+	        			if (element.element.type === 'checkbox') {
+							$.each($('input[name^=enrich_type]'), function(idx, elm) {
+								$(elm).addClass('is-invalid');
+							});
+		        		} else {
+		        			$(element.element).addClass('is-invalid'); 	
+		        		}      		
+					});
+					
+					modal_error_notification(msg);
+				}
+				
+				return false;
+    		},
+			onkeyup: false,
+			onkeydown: false,
+   		onclick: false,
+   		onfocusout: false,
+			rules: 
+			{
+				'enrich_type[]': 
+				{ 
+					required: true,
+					minlength: 1
+				},
+				enrich_pvalue_p1: 
+				{ 
+					required: true,
+					min: 1,
+      			max: 9
+				},
+				enrich_pvalue_p2: 
+				{ 
+					required: true,
+					min: 2
+				}
+			},
+			messages: {
+				'enrich_type[]':
+            {
+                required: '* No enrichment option has been specified'
+            },
+            enrich_pvalue_p1:
+            {
+                required: '* A wrong number has been specified'
+            },
+            penrich_pvalue_p2:
+            {
+                required: '* A wrong number has been specified'
+            }
+        	},
+    		errorPlacement: function (error, element) {
+    			return true;
+    		},    		
+			submitHandler: function(form) {
+			
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+				var cores = parseInt($('select#enrich_no_cores').val(), 10);
+				var p1 = parseFloat($('input#enrich_pvalue_p1').val());
+				var p2 = parseFloat($('input#enrich_pvalue_p2').val());
+				var pvalue = p1 / Math.pow(10, p2);
+				var pvalue_type = $('select#enrich_pvalue_type').val();
+				
+				var enrich_opts = new Array();
+				$.each($('input[name^=enrich_type]:checked'), function() {
+					enrich_opts.push($(this).val());
+				});
+				
+				if (checkVariableExistance(csrf_token) && 
+					 checkVariableExistance(cores) &&
+					 checkVariableExistance(pvalue) && 
+					 checkVariableExistance(pvalue_type) &&
+					 enrich_opts.length > 0) {
+        			$.ajax({
+            		url: '/exec_functional_enrichment_analysis',
+            		beforeSend: function(xhr, settings) {
+            			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+                			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+            			}
+        				},
+         			data: { 
+         				cores: cores, 
+         				pvalue: pvalue,
+         				pvalue_type: pvalue_type,
+         				enrich_opts: enrich_opts
+         			},
+         			type: 'POST',
+         			dataType: 'json',
+         			success: function(data) {
+         				if (data !== null) {
+         					render_enrich_analysis_exec_content();
+         					$('div#enrich_analysis_processing_content').css('display', 'block');
+         					$('a#enrich_analysis_response_close_btn').css('display', 'none');
+         					
+         					var content = '<center>\
+														<a href="#" id="enrich_stop_btn">\
+															<span class="badge badge-pill badge-danger"><i class="fas fa-times" aria-hidden="true"></i> Stop</span>\
+														</a> \
+														<i class="fas fa-cog fa-spin"></i> Under processing...\
+													</center>';
+													
+								$('div#enrich_analysis_status_update_content').html(content);
+         				}
+         			},
+         			error: function(error) {
+         				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+		       			$('div#enrich_analysis_processing_content').css('display', 'none');
+         			}
+        			});
+        		}
+        	
+        		return false;	
+  			}	
+		});
+	   
+	});
+	
+	
+	function render_enrich_analysis_exec_content() {	
+	
+		var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		
+		if (checkVariableExistance(csrf_token)){
+			 
+			$('div#enrich_setup_content').fadeToggle('slow', 'linear');
+			$('button#exec_enrich_analysis_btn').attr('disabled', true);
+			$('a#enrich_show_setup').addClass('disabled');
+			$('button#exec_pred_analysis_btn').attr('disabled', true);
+			$('a#pred_show_setup').addClass('disabled');
+			
+			$.ajax({
+      		url: '/get_functional_enrichment_analysis_content',
+      		beforeSend: function(xhr, settings) {
+      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+      			}
+  				},
+  				data:{
+					analysis_type: 'single'  				
+  				},
+  				type: 'POST',
+   			dataType: 'html',
+   			success: function(data) {
+   				if (data !== null) {
+   					$('div#enrich_analysis_content').html(data);
+   				}
+   				$('button#exec_pred_analysis_btn').attr('disabled', false);
+					$('a#pred_show_setup').removeClass('disabled');
+   			},
+   			error: function(error) {
+   				var res = $.parseJSON(error.responseText);
+   				var error_code = parseInt(error.status, 10);
+   				var msg = '';
+
+   				if(error_code === 400)
+   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+   				else if( error_code === 405) {
+   					msg = ': <i>' + res.error_msg + '</i>.';
+   				}		       			
+
+       			modal_error_notification('An error occurred' + msg);
+       			$('button#exec_pred_analysis_btn').attr('disabled', false);
+					$('a#pred_show_setup').removeClass('disabled');
+   			}
+  			});
+		}
+		
+		return false;
+	}
+</script>
+{% endmacro %}
+
+
+
+{% macro render_mirna_enrich_results_nt_variation_table(mirnas_list, resource) %}
+	{% if mirnas_list|length > 0 %}
+		<div class="card">
+  			<div class="card-header">
+    			<b>Single nucleotide variation</b>
+  			</div>
+  			<div class="card-block">
+  				<p></p>
+				<table id="{{resource|e}}_enrich_nt_results_table" class="display responsive nowrap" width="100%" cellspacing="0" style="font-size: 12px">
+				<thead>
+				<tr>
+                <th rowspan="2">miRNA</th>
+                <th colspan="8"></th>
+                <th colspan="3" style="background-color: #1e90ff;">
+                	<center>Wild type only</center>
+                </th>
+                <th colspan="3" style="background-color: #3cb371;">
+                	<center>Intersection</center>
+                </th>
+                <th colspan="3" style="background-color: #ff6347;">
+                	<center>Variation only</center>
+                </th>
+                <th></th>
+            </tr>
+				<tr>
+					<th>Type</th>
+					<th><center>Position</center></th>
+					<th><center>Ref</center></th>
+					<th><center>Mod</center></th>
+					<th><center>BP</center></th>
+					<th><center>CC</center></th>
+					<th><center>MF</center></th>
+					<th></th>
+					<th style="background-color: #1e90ff;"><center>BP</center></th>
+					<th style="background-color: #1e90ff;"><center>CC</center></th>
+					<th style="background-color: #1e90ff;"><center>MF</center></th>
+					<th style="background-color: #3cb371;"><center>BP</center></th>
+					<th style="background-color: #3cb371;"><center>CC</center></th>
+					<th style="background-color: #3cb371;"><center>MF</center></th>
+					<th style="background-color: #ff6347;"><center>BP</center></th>
+					<th style="background-color: #ff6347;"><center>CC</center></th>
+					<th style="background-color: #ff6347;"><center>MF</center></th>
+					<th></th>
+				</tr>
+				</thead>
+				<tbody>
+				{% for mir, value in mirnas_list.items() %}	
+					{% if value['variations']['substitution']|length > 0 %}
+						{% set mat_mirna_id = mir %}
+						<tr>
+							<td>
+									{{ mat_mirna_id|safe }}
+							</td>
+							<td>
+								<span class="enrich_row_type">
+									Wild Type
+								</span>
+								<span style="display: none;" class="enrich_row_mirna_id">{{ mat_mirna_id|safe }}</span>
+							</td>
+							<td align="center">
+								<span class="enrich_row_pos">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="enrich_row_ref">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="enrich_row_mod">
+									-
+								</span>
+							</td>
+							<td align="center">
+								{% if value['bp']|length > 0 %}
+								<a href="#" class="enrich_get_go_term_table">
+									<span class="enrich_row_bp">
+										{{ value['bp']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+								
+								{% if value['bp_tree'] != '' %}
+								<a href="{{ url_for('static', filename=value['bp_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+									<i class="fas fa-sitemap" aria-hidden="true"></i>
+								</a>
+								{% endif %}
+								
+							</td>
+							<td align="center">
+								{% if value['cc']|length > 0 %}
+								<a href="#" class="enrich_get_go_term_table">
+									<span class="enrich_row_cc">
+										{{ value['cc']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+								
+								{% if value['cc_tree'] != '' %}
+								<a href="{{ url_for('static', filename=value['cc_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+									<i class="fas fa-sitemap" aria-hidden="true"></i>
+								</a>
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['mf']|length > 0 %}
+								<a href="#" class="enrich_get_go_term_table">
+									<span class="enrich_row_mf">
+										{{ value['mf']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+								
+								{% if value['mf_tree'] != '' %}
+								<a href="{{ url_for('static', filename=value['mf_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+									<i class="fas fa-sitemap" aria-hidden="true"></i>
+								</a>
+								{% endif %}
+							</td>
+							<td></td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td></td>
+						</tr>
+						{% for s in value['variations']['substitution'] %}
+							<tr>
+								<td>
+										{{ mat_mirna_id|safe }}
+								</td>
+								<td>
+									<span class="enrich_row_type">
+										Substitution
+									</span>
+									<span style="display: none;" class="enrich_row_mirna_id">{{ mat_mirna_id|safe }}</span>
+								</td>
+								<td align="center">
+									<span class="enrich_row_pos">
+										{{ s['position']|safe }}
+									</span>
+								</td>
+								<td align="center">
+									<span class="enrich_row_ref">
+										{{ s['ref']|safe }}
+									</span>
+								</td>
+								<td align="center">
+									<span class="enrich_row_mod">
+										{{ s['mod']|safe }}
+									</span>
+								</td>
+								<td align="center">
+									{% if s['bp']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_bp">
+											{{ s['bp']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+									
+									{% if s['bp_tree'] != '' %}
+									<a href="{{ url_for('static', filename=s['bp_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+										<i class="fas fa-sitemap" aria-hidden="true"></i>
+									</a>
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['cc']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_cc">
+											{{ s['cc']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+									
+									{% if s['cc_tree'] != '' %}
+									<a href="{{ url_for('static', filename=s['cc_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+										<i class="fas fa-sitemap" aria-hidden="true"></i>
+									</a>
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['mf']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_mf">
+											{{ s['mf']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+									
+									{% if s['mf_tree'] != '' %}
+									<a href="{{ url_for('static', filename=s['mf_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+										<i class="fas fa-sitemap" aria-hidden="true"></i>
+									</a>
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['bp']|length > 0 or s['cc']|length > 0 or s['mf']|length > 0 %}
+									<a href="#" class="btn btn-sm enrich_nt_var_wt_var_stats_btn" id="{{resource|e}}">
+										<i class="fas fa-chart-area" aria-hidden="true"></i>
+									</a>
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['wt_only']['bp']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_bp_wt_o">
+											{{ s['wt_only']['bp']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['wt_only']['cc']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_cc_wt_o">
+											{{ s['wt_only']['cc']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['wt_only']['mf']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_mf_wt_o">
+											{{ s['wt_only']['mf']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['intersection']['bp']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_bp_ins">
+											{{ s['intersection']['bp']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['intersection']['cc']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_cc_ins">
+											{{ s['intersection']['cc']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['intersection']['mf']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_mf_ins">
+											{{ s['intersection']['mf']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['variation_only']['bp']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_bp_var_o">
+											{{ s['variation_only']['bp']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['variation_only']['cc']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_cc_var_o">
+											{{ s['variation_only']['cc']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['variation_only']['mf']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_mf_var_o">
+											{{ s['variation_only']['mf']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['bp']|length > 0 or s['cc']|length > 0 or s['mf']|length > 0 %}
+									<a href="#" class="btn btn-sm enrich_nt_var_comp_stats_btn" id="{{resource|e}}">
+										<i class="fas fa-chart-area" aria-hidden="true"></i>
+									</a>
+									{% endif %}
+									{% if s['bp_wt_vs_variation_tree'] != '' %}
+									<a class="btn btn-warning btn-sm" href="{{ url_for('static', filename=s['bp_wt_vs_variation_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank" role="button">
+										<i class="fas fa-sitemap" aria-hidden="true"></i> BF
+									</a>
+									{% endif %}
+									{% if s['cc_wt_vs_variation_tree'] != '' %}
+									<a class="btn btn-warning btn-sm" href="{{ url_for('static', filename=s['cc_wt_vs_variation_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank" role="button">
+										<i class="fas fa-sitemap" aria-hidden="true"></i> CC
+									</a>
+									{% endif %}
+									{% if s['mf_wt_vs_variation_tree'] != '' %}
+									<a class="btn btn-warning btn-sm" href="{{ url_for('static', filename=s['mf_wt_vs_variation_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank" role="button">
+										<i class="fas fa-sitemap" aria-hidden="true"></i> MF
+									</a>
+									{% endif %}
+									<a href="#" class="btn btn-success btn-sm go_tree_colors_legend_btn"><i class="far fa-question-circle" aria-hidden="true"></i></a>
+								</td>
+							</tr>
+						{% endfor %}
+					{% endif %}
+				{% endfor %}	
+				</tbody>
+				</table>
+				<p></p>
+				<script type="text/javascript" >
+					$(function() {
+						var table = $('table#{{resource|e}}_enrich_nt_results_table').DataTable({
+					   	columnDefs: [
+					      	{ 'visible': false, 'targets': 0 }
+					      ],
+					      order: [[ 0, 'asc' ]],
+					      displayLength: 10,
+					      drawCallback: function ( settings ) {
+					      	var api = this.api();
+					         var rows = api.rows( {page:'current'} ).nodes();
+					         var last=null;
+					 
+					         api.column(0, {page:'current'} ).data().each( function ( group, i ) {
+					         	if ( last !== group ) {
+					            	$(rows).eq( i ).before(
+					               	'<tr class="group"><td colspan="18">'+group+'</td></tr>'
+					               );
+					 
+					               last = group;
+					           	}
+					         });
+					      }
+						});
+					 
+					 
+					   // Order by the grouping
+					   $('table#{{resource|e}}_enrich_nt_results_table tbody').on( 'click', 'tr.group', function () {
+					   	var currentOrder = table.order()[0];
+					      if ( currentOrder[0] === 1 && currentOrder[1] === 'asc' ) {
+					      	table.order( [ 0, 'desc' ] ).draw();
+					      }
+					      else {
+					      	table.order( [ 0, 'asc' ] ).draw();
+					      }
+					   });
+					   
+					});
+				</script>
+  				<div id="{{resource|e}}_enrich_nt_var_hist_container" style="display: none; padding: 10px">
+					<hr>
+					<div id="{{resource|e}}_nt_var_hist_loading_status" style="display: none;">
+						<center><p class="lead"><i class="fas fa-cog fa-spin"></i> Loading...</p></center>
+					</div>
+					<a href="#" id="{{resource|e}}" class="badge badge-pill badge-info enrich_nt_var_hist_close_btn">
+						<i class="fas fa-eye-slash" aria-hidden="true"></i> Close
+					</a>
+					<br><br>
+					<div id="{{resource|e}}_enrich_nt_var_hist_content"></div>
+				</div>
+  			</div>
+		</div>
+		<br>		
+	{% endif %}
+{% endmacro %}
+
+
+
+
+
+{% macro render_mirna_enrich_results_isomir_table(mirnas_list, resource) %}
+	{% if mirnas_list|length > 0 %}
+		<div class="card">
+  			<div class="card-header">
+    			<b>isomiR</b>
+  			</div>
+  			<div class="card-block">
+  				<p></p>
+				<table id="{{resource|e}}_enrich_isomir_results_table" class="display responsive nowrap" width="100%" cellspacing="0" style="font-size: 12px">
+				<thead>
+				<tr>
+                <th rowspan="2">miRNA</th>
+                <th colspan="7"></th>
+                <th colspan="3" style="background-color: #1e90ff;">
+                	<center>Wild type only</center>
+                </th>
+                <th colspan="3" style="background-color: #3cb371;">
+                	<center>Intersection</center>
+                </th>
+                <th colspan="3" style="background-color: #ff6347;">
+                	<center>Variation only</center>
+                </th>
+                <th></th>
+            </tr>
+				<tr>
+					<th>Type</th>
+					<th><center>5p</center></th>
+					<th><center>3p</center></th>
+					<th><center>BP</center></th>
+					<th><center>CC</center></th>
+					<th><center>MF</center></th>
+					<th></th>
+					<th style="background-color: #1e90ff;"><center>BP</center></th>
+					<th style="background-color: #1e90ff;"><center>CC</center></th>
+					<th style="background-color: #1e90ff;"><center>MF</center></th>
+					<th style="background-color: #3cb371;"><center>BP</center></th>
+					<th style="background-color: #3cb371;"><center>CC</center></th>
+					<th style="background-color: #3cb371;"><center>MF</center></th>
+					<th style="background-color: #ff6347;"><center>BP</center></th>
+					<th style="background-color: #ff6347;"><center>CC</center></th>
+					<th style="background-color: #ff6347;"><center>MF</center></th>
+					<th></th>
+				</tr>
+				</thead>
+				<tbody>
+				{% for mir, value in mirnas_list.items() %}	
+					{% if value['variations']['isomir']|length > 0 %}
+						{% set mat_mirna_id = mir %}
+						<tr>
+							<td>
+									{{ mat_mirna_id|e }}
+							</td>
+							<td>
+								<span class="enrich_row_type">
+									Wild Type
+								</span>
+								<span style="display: none;" class="enrich_row_mirna_id">{{ mat_mirna_id|safe }}</span>
+							</td>
+							<td align="center">
+								<span class="enrich_row_5p">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="enrich_row_3p">
+									-
+								</span>
+							</td>
+							<td align="center">
+								{% if value['bp']|length > 0 %}
+								<a href="#" class="enrich_get_go_term_table">
+									<span class="enrich_row_bp">
+										{{ value['bp']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+								
+								{% if value['bp_tree'] != '' %}
+								<a href="{{ url_for('static', filename=value['bp_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+									<i class="fas fa-sitemap" aria-hidden="true"></i>
+								</a>
+								{% endif %}
+								
+							</td>
+							<td align="center">
+								{% if value['cc']|length > 0 %}
+								<a href="#" class="enrich_get_go_term_table">
+									<span class="enrich_row_cc">
+										{{ value['cc']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+								
+								{% if value['cc_tree'] != '' %}
+								<a href="{{ url_for('static', filename=value['cc_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+									<i class="fas fa-sitemap" aria-hidden="true"></i>
+								</a>
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['mf']|length > 0 %}
+								<a href="#" class="enrich_get_go_term_table">
+									<span class="enrich_row_mf">
+										{{ value['mf']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+								
+								{% if value['mf_tree'] != '' %}
+								<a href="{{ url_for('static', filename=value['mf_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+									<i class="fas fa-sitemap" aria-hidden="true"></i>
+								</a>
+								{% endif %}
+							</td>
+							<td></td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td></td>
+						</tr>
+						{% for s in value['variations']['isomir'] %}
+							<tr>
+								<td>
+										{{ mat_mirna_id|e }}
+								</td>
+								<td>
+									<span class="enrich_row_type">
+										isomiR
+									</span>
+									<span style="display: none;" class="enrich_row_mirna_id">{{ mat_mirna_id|safe }}</span>
+								</td>
+								<td align="center">
+									<span class="enrich_row_5p">
+										{{ s['5p']|safe }}
+									</span>
+								</td>
+								<td align="center">
+									<span class="enrich_row_3p">
+										{{ s['3p']|safe }}
+									</span>
+								</td>
+								<td align="center">
+									{% if s['bp']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_bp">
+											{{ s['bp']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+									
+									{% if s['bp_tree'] != '' %}
+									<a href="{{ url_for('static', filename=s['bp_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+										<i class="fas fa-sitemap" aria-hidden="true"></i>
+									</a>
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['cc']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_cc">
+											{{ s['cc']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+									
+									{% if s['cc_tree'] != '' %}
+									<a href="{{ url_for('static', filename=s['cc_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+										<i class="fas fa-sitemap" aria-hidden="true"></i>
+									</a>
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['mf']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_mf">
+											{{ s['mf']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+									
+									{% if s['mf_tree'] != '' %}
+									<a href="{{ url_for('static', filename=s['mf_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+										<i class="fas fa-sitemap" aria-hidden="true"></i>
+									</a>
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['bp']|length > 0 or s['cc']|length > 0 or s['mf']|length > 0 %}
+									<a href="#" class="btn btn-sm enrich_isomir_wt_var_stats_btn" id="{{resource|e}}">
+										<i class="fas fa-chart-area" aria-hidden="true"></i>
+									</a>
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['wt_only']['bp']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_bp_wt_o">
+											{{ s['wt_only']['bp']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['wt_only']['cc']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_cc_wt_o">
+											{{ s['wt_only']['cc']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['wt_only']['mf']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_mf_wt_o">
+											{{ s['wt_only']['mf']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['intersection']['bp']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_bp_ins">
+											{{ s['intersection']['bp']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['intersection']['cc']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_cc_ins">
+											{{ s['intersection']['cc']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['intersection']['mf']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_mf_ins">
+											{{ s['intersection']['mf']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['variation_only']['bp']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_bp_var_o">
+											{{ s['variation_only']['bp']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['variation_only']['cc']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_cc_var_o">
+											{{ s['variation_only']['cc']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['variation_only']['mf']|length > 0 %}
+									<a href="#" class="enrich_get_go_term_table">
+										<span class="enrich_row_mf_var_o">
+											{{ s['variation_only']['mf']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['bp']|length > 0 or s['cc']|length > 0 or s['mf']|length > 0 %}
+									<a href="#" class="btn btn-sm enrich_isomir_comp_stats_btn" id="{{resource|e}}">
+										<i class="fas fa-chart-area" aria-hidden="true"></i>
+									</a>
+									{% endif %}
+									{% if s['bp_wt_vs_variation_tree'] != '' %}
+									<a class="btn btn-warning btn-sm" href="{{ url_for('static', filename=s['bp_wt_vs_variation_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank" role="button">
+										<i class="fas fa-sitemap" aria-hidden="true"></i> BF
+									</a>
+									{% endif %}
+									{% if s['cc_wt_vs_variation_tree'] != '' %}
+									<a class="btn btn-warning btn-sm" href="{{ url_for('static', filename=s['cc_wt_vs_variation_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank" role="button">
+										<i class="fas fa-sitemap" aria-hidden="true"></i> CC
+									</a>
+									{% endif %}
+									{% if s['mf_wt_vs_variation_tree'] != '' %}
+									<a class="btn btn-warning btn-sm" href="{{ url_for('static', filename=s['mf_wt_vs_variation_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank" role="button">
+										<i class="fas fa-sitemap" aria-hidden="true"></i> MF
+									</a>
+									{% endif %}
+									<a href="#" class="btn btn-success btn-sm go_tree_colors_legend_btn"><i class="far fa-question-circle" aria-hidden="true"></i></a>
+								</td>
+							</tr>
+						{% endfor %}
+					{% endif %}
+				{% endfor %}	
+				</tbody>
+				</table>
+				<p></p>
+				<script type="text/javascript">
+					$(function() {
+						var table = $('table#{{resource|e}}_enrich_isomir_results_table').DataTable({
+					   	columnDefs: [
+					      	{ 'visible': false, 'targets': 0 }
+					      ],
+					      order: [[ 0, 'asc' ]],
+					      displayLength: 10,
+					      drawCallback: function ( settings ) {
+					      	var api = this.api();
+					         var rows = api.rows( {page:'current'} ).nodes();
+					         var last=null;
+					 
+					         api.column(0, {page:'current'} ).data().each( function ( group, i ) {
+					         	if ( last !== group ) {
+					            	$(rows).eq( i ).before(
+					               	'<tr class="group"><td colspan="17">'+group+'</td></tr>'
+					               );
+					 
+					               last = group;
+					            }
+					        	});
+					      }
+						});
+					 
+					   // Order by the grouping
+					   $('table#{{resource|e}}_enrich_isomir_results_table tbody').on( 'click', 'tr.group', function () {
+					   	var currentOrder = table.order()[0];
+					      if ( currentOrder[0] === 1 && currentOrder[1] === 'asc' ) {
+					      	table.order( [ 0, 'desc' ] ).draw();
+					      }
+					      else {
+					      	table.order( [ 0, 'asc' ] ).draw();
+					   	}
+					   });
+					  
+					});
+				</script>
+				<div id="{{resource|e}}_enrich_isomir_hist_container" style="display: none; padding: 10px">
+					<hr>
+					<div id="{{resource|e}}_isomir_hist_loading_status" style="display: none;">
+						<center><p class="lead"><i class="fas fa-cog fa-spin"></i> Loading...</p></center>
+					</div>
+					<a href="#" id="{{resource|e}}" class="badge badge-pill badge-info enrich_isomir_hist_close_btn">
+						<i class="fas fa-eye-slash" aria-hidden="true"></i> Close
+					</a>
+					<br><br>
+					<div id="{{resource|e}}_enrich_isomir_hist_content"></div>
+				</div>
+  			</div>
+		</div>
+		<br>		
+	{% endif %}
+{% endmacro %}
+
+
+
+{% macro render_mirna_enrich_results_wt_table(mirnas_list, resource) %}
+	{% if mirnas_list|length > 0 %}
+		<div class="card">
+  			<div class="card-header">
+    			<b>Wild Type</b>
+  			</div>
+  			<div class="card-block">
+  				<p></p>
+				<table id="{{resource|e}}_enrich_wt_results_table" class="display responsive nowrap" width="400" cellspacing="0" style="font-size: 12px">
+				<thead>
+				<tr>
+					<th>miRNA</th>
+					<th>Type</th>
+					<th><center>BP</center></th>
+					<th><center>CC</center></th>
+					<th><center>MF</center></th>
+					<th></th>
+				</tr>
+				</thead>
+				<tbody>
+				{% for mir, value in mirnas_list.items() %}	
+					{% if value['variations']['isomir']|length == 0 and value['variations']['substitution']|length == 0 %}
+						{% set mat_mirna_id = mir %}
+						<tr>
+							<td>
+									{{ mat_mirna_id|safe }}
+							</td>
+							<td>
+								<span class="enrich_row_type">
+									Wild Type
+								</span>
+								<span style="display: none;" class="enrich_row_mirna_id">{{ mat_mirna_id|safe }}</span>
+							</td>
+							<td align="center">
+								{% if value['bp']|length > 0 %}
+								<a href="#" class="enrich_get_go_term_table">
+									<span class="enrich_row_bp">
+										{{ value['bp']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+								
+								{% if value['bp_tree'] != '' %}
+								<a href="{{ url_for('static', filename=value['bp_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+									<i class="fas fa-sitemap" aria-hidden="true"></i>
+								</a>
+								{% endif %}
+								
+							</td>
+							<td align="center">
+								{% if value['cc']|length > 0 %}
+								<a href="#" class="enrich_get_go_term_table">
+									<span class="enrich_row_cc">
+										{{ value['cc']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+								
+								{% if value['cc_tree'] != '' %}
+								<a href="{{ url_for('static', filename=value['cc_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+									<i class="fas fa-sitemap" aria-hidden="true"></i>
+								</a>
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['mf']|length > 0 %}
+								<a href="#" class="enrich_get_go_term_table">
+									<span class="enrich_row_mf">
+										{{ value['mf']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+								
+								{% if value['mf_tree'] != '' %}
+								<a href="{{ url_for('static', filename=value['mf_tree']) }}" title="Click to visualize the GO terms Tree" target="_blank">
+									<i class="fas fa-sitemap" aria-hidden="true"></i>
+								</a>
+								{% endif %}
+							</td>
+							<td>
+								{% if value['bp']|length > 0 or value['cc']|length > 0 or value['mf']|length > 0 %}
+									<a href="#" class="btn btn-sm enrich_wt_stats_btn" id="{{resource|e}}">
+										<i class="fas fa-chart-area" aria-hidden="true"></i>
+									</a>
+								{% endif %}
+							</td>
+						</tr>
+					{% endif %}
+				{% endfor %}	
+				</tbody>
+				</table>
+				<p></p>
+				<script type="text/javascript" >
+					$(function() {
+						var table = $('table#{{resource|e}}_enrich_wt_results_table').DataTable({
+					      order: [[ 0, 'asc' ]],
+					      displayLength: 10
+						});
+					});
+				</script>
+				<div id="{{resource|e}}_enrich_wt_hist_container" style="display: none; padding: 10px">
+					<hr>
+					<div id="{{resource|e}}_wt_hist_loading_status" style="display: none;">
+						<center><p class="lead"><i class="fas fa-cog fa-spin"></i> Loading...</p></center>
+					</div>
+					<a href="#" id="{{resource|e}}" class="badge badge-pill badge-info enrich_wt_hist_close_btn">
+						<i class="fas fa-eye-slash" aria-hidden="true"></i> Close
+					</a>
+					<br><br>
+					<div id="{{resource|e}}_enrich_wt_hist_content"></div>
+				</div>
+  			</div>
+		</div>
+		<br>		
+	{% endif %}
+{% endmacro %}
+
+
+
+{% macro render_go_enrich_stats_table(data, filename) %}
+	{% if data|length > 0 %}
+		<table id="go_stats_table" class="table table-striped table-bordered" style="font-size: 12px">
+		<thead>
+			<th>GO term</th>
+			<th>GO name</th>
+			<th>P-value</th>
+			<th>Adj P-value (BH)</th>
+			<th>Ratio in study</th>
+			<th>Genes</th>
+		</thead>
+		<tbody>
+		{% for go,details in data.iteritems() %}	
+			{% set l = details['ratio_in_study'].split('/') %}
+			{% if l[0] != '0' %}
+				<tr>
+					<td>
+						<a href="http://amigo.geneontology.org/amigo/search/ontology?q={{ go|e }}" target="_blank">{{ go|e }}</a>
+					</td>
+					<td>
+						{{ details['go_name']|e }}
+					</td>
+					<td>
+						{{ details['pvalue']|e }}
+					</td>
+					<td>
+						{{ details['adj_pvalue']|e }}
+					</td>
+					<td>
+						{{ details['ratio_in_study']|e }}
+					</td>
+					<td>
+						{% for gene_name in details['targets_list'] %}<a href="http://www.genecards.org/cgi-bin/carddisp.pl?gene={{ gene_name|e }}" target="_blank">{{ gene_name|e }}</a>{{', ' if not loop.last}}{% endfor %}
+					</td>
+				</tr>
+			{% endif %}
+		{% endfor %}	
+		</tbody>
+		</table>
+		
+		<script type="text/javascript">
+			$(function() {
+			    $('table#go_stats_table').DataTable({
+			        order: [[ 0, 'asc' ]],
+			        displayLength: 5,
+			        lengthMenu: [[5, 10, 25, 50, -1], [5, 10, 25, 50, "All"]],
+			        dom: 'Bfrtip',
+					  buttons: [{
+							extend: 'copy',
+							title : '{{filename|e}}' 					  
+					  },{
+							extend: 'csv',
+							text: 'TSV',
+							title : '{{filename|e}}',
+							fieldSeparator: '\t', 
+							extension: '.tsv'					  
+					  },{
+							extend: 'excel',
+							title : '{{filename|e}}' 					  
+					  },{
+							extend: 'pdf',
+							title : '{{filename|e}}',
+							orientation: 'landscape',
+               		pageSize: 'LEGAL'								  
+					  },{
+							extend: 'print',
+							title : '{{filename|e}}' 					  
+					  }]
+			    });
+			});
+		</script>
+	{% endif %}
+{% endmacro %}
+
+
+
+
+{% macro render_pathway_enrich_stats_table(data, filename, resource) %}
+	{% if data|length > 0 %}
+		<table id="pathway_stats_table" class="table table-striped table-bordered" style="font-size: 12px">
+		<thead>
+			<th>Pathway ID</th>
+			<th>Pathway name</th>
+			<th>P-value</th>
+			<th>Adj P-value (BH)</th>
+			<th>Genes</th>
+		</thead>
+		<tbody>
+		{% for pathway_id,details in data.iteritems() %}
+			{% if resource == 'kegg' %}
+				{% set url = 'http://www.genome.jp/dbget-bin/www_bget?pathway+' + pathway_id %}
+			{% elif resource == 'reactome'%}			
+				{% set url = 'https://reactome.org/content/schema/instance/browser/' + pathway_id %}
+			{% endif %}
+			<tr>
+				<td>
+					<a href="{{ url|safe }}" target="_blank">{{ pathway_id|e }}</a>
+				</td>
+				<td>
+					{{ details['pathway_name']|e }}
+				</td>
+				<td>
+					{{ details['pvalue']|e }}
+				</td>
+				<td>
+					{{ details['adj_pvalue']|e }}
+				</td>
+				<td>
+					{% for gene_name in details['targets_list'].split(';') %}<a href="http://www.genecards.org/cgi-bin/carddisp.pl?gene={{ gene_name|e }}" target="_blank">{{ gene_name|e }}</a>{{', ' if not loop.last}}{% endfor %}
+				</td>
+			</tr>
+		{% endfor %}	
+		</tbody>
+		</table>
+		
+		<script type="text/javascript">
+			$(function() {
+			    $('table#pathway_stats_table').DataTable({
+			        order: [[ 0, 'asc' ]],
+			        displayLength: 5,
+			        lengthMenu: [[5, 10, 25, 50, -1], [5, 10, 25, 50, "All"]],
+			        dom: 'Bfrtip',
+					  buttons: [{
+							extend: 'copy',
+							title : '{{filename|e}}' 					  
+					  },{
+							extend: 'csv',
+							text: 'TSV',
+							title : '{{filename|e}}',
+							fieldSeparator: '\t', 
+							extension: '.tsv'					  
+					  },{
+							extend: 'excel',
+							title : '{{filename|e}}' 					  
+					  },{
+							extend: 'pdf',
+							title : '{{filename|e}}',
+							orientation: 'landscape',
+               		pageSize: 'LEGAL'								  
+					  },{
+							extend: 'print',
+							title : '{{filename|e}}' 					  
+					  }]
+			    });
+			});
+		</script>
+	{% endif %}
+{% endmacro %}
+
+
+{% macro render_go_tree_legend(entity_1, entity_2) %}
+
+	<p>Node coloring valid only for {{entity_1|safe}} and {{entity_2|safe}} comparison.</p> 
+	<table class="table-bordered" cellpadding="5" style="font-size: 12px" width="400">
+	<thead>
+		<td></td>
+		<td align="center"><span class="badge badge-pill badge-secondary" style="background-color: #1e90ff">&nbsp;</span></td>
+		<td align="center"><span class="badge badge-pill badge-secondary" style="background-color: #3cb371">&nbsp;</span></td>
+		<td align="center"><span class="badge badge-pill badge-secondary" style="background-color: #ff6347">&nbsp;</span></td>
+		<td align="center"><span class="badge badge-pill badge-secondary" style="background-color: #2da2b8">&nbsp;</span></td>
+		<td align="center"><span class="badge badge-pill badge-secondary" style="background-color: #8f7aa3">&nbsp;</span></td>
+		<td align="center"><span class="badge badge-pill badge-secondary" style="background-color: #9e8b5c">&nbsp;</span></td>
+		<td align="center"><span class="badge badge-pill badge-secondary" style="background-color: #b4b4b4">&nbsp;</span></td>
+	</thead>
+	<tbody>
+		<tr>
+			<td>
+				{{entity_1|safe}} only
+			</td>
+			<td align="center">
+				<i class="far fa-circle" aria-hidden="true"></i>
+			</td>
+			<td align="center">
+				
+			</td>
+			<td align="center">
+				
+			</td>
+			<td align="center">
+				<i class="far fa-circle" aria-hidden="true"></i>
+			</td>
+			<td align="center">
+				<i class="far fa-circle" aria-hidden="true"></i>
+			</td>
+			<td align="center">
+				
+			</td>
+			<td align="center">
+				<i class="far fa-circle" aria-hidden="true"></i>
+			</td>
+		</tr>
+		<tr>
+			<td>
+				Intersection
+			</td>
+			<td align="center">
+				
+			</td>
+			<td align="center">
+				<i class="far fa-circle" aria-hidden="true"></i>
+			</td>
+			<td align="center">
+				
+			</td>
+			<td align="center">
+				<i class="far fa-circle" aria-hidden="true"></i>
+			</td>
+			<td align="center">
+				
+			</td>
+			<td align="center">
+				<i class="far fa-circle" aria-hidden="true"></i>
+			</td>
+			<td align="center">
+				<i class="far fa-circle" aria-hidden="true"></i>
+			</td>
+		</tr>
+		<tr>
+			<td>
+				{{entity_2|safe}} only
+			</td>
+			<td align="center">
+				
+			</td>
+			<td align="center">
+				
+			</td>
+			<td align="center">
+				<i class="far fa-circle" aria-hidden="true"></i>
+			</td>
+			<td align="center">
+				
+			</td>
+			<td align="center">
+				<i class="far fa-circle" aria-hidden="true"></i>
+			</td>
+			<td align="center">
+				<i class="far fa-circle" aria-hidden="true"></i>
+			</td>
+			<td align="center">
+				<i class="far fa-circle" aria-hidden="true"></i>
+			</td>
+		</tr>
+		</tbody>
+	</table>
+{% endmacro %}
+
+
+
+
+
+
+{% macro render_mirna_enrich_pathway_results_nt_variation_table(mirnas_list, resource) %}
+	{% if mirnas_list|length > 0 %}
+		<div class="card">
+  			<div class="card-header">
+    			<b>Single nucleotide variation</b>
+  			</div>
+  			<div class="card-block">
+  				<p></p>
+				<table id="{{resource|e}}_enrich_nt_results_table" class="display responsive nowrap" width="100%" cellspacing="0" style="font-size: 12px">
+				<thead>
+				<tr>
+                <th rowspan="2">miRNA</th>
+                <th colspan="6"></th>
+                <th style="background-color: #1e90ff;">
+                	<center>Wild type only</center>
+                </th>
+                <th style="background-color: #3cb371;">
+                	<center>Intersection</center>
+                </th>
+                <th style="background-color: #ff6347;">
+                	<center>Variation only</center>
+                </th>
+                <th></th>
+            </tr>
+				<tr>
+					<th>Type</th>
+					<th><center>Position</center></th>
+					<th><center>Ref</center></th>
+					<th><center>Mod</center></th>
+					<th><center>No. of pathways</center></th>
+					<th></th>
+					<th style="background-color: #1e90ff;"><center>No. of pathways</center></th>
+					<th style="background-color: #3cb371;"><center>No. of pathways</center></th>
+					<th style="background-color: #ff6347;"><center>No. of pathways</center></th>
+					<th></th>
+				</tr>
+				</thead>
+				<tbody>
+				{% for mir, value in mirnas_list.items() %}	
+					{% if value['variations']['substitution']|length > 0 %}
+						{% set mat_mirna_id = mir %}
+						<tr>
+							<td>
+									{{ mat_mirna_id|safe }}
+							</td>
+							<td>
+								<span class="enrich_row_type">
+									Wild Type
+								</span>
+								<span style="display: none;" class="enrich_row_mirna_id">{{ mat_mirna_id|safe }}</span>
+							</td>
+							<td align="center">
+								<span class="enrich_row_pos">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="enrich_row_ref">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="enrich_row_mod">
+									-
+								</span>
+							</td>
+							<td align="center">
+								{% if value['pathways']|length > 0 %}
+								<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+									<span class="enrich_row_pathway">
+										{{ value['pathways']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td></td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td></td>
+						</tr>
+						{% for s in value['variations']['substitution'] %}
+							<tr>
+								<td>
+										{{ mat_mirna_id|safe }}
+								</td>
+								<td>
+									<span class="enrich_row_type">
+										Substitution
+									</span>
+									<span style="display: none;" class="enrich_row_mirna_id">{{ mat_mirna_id|safe }}</span>
+								</td>
+								<td align="center">
+									<span class="enrich_row_pos">
+										{{ s['position']|safe }}
+									</span>
+								</td>
+								<td align="center">
+									<span class="enrich_row_ref">
+										{{ s['ref']|safe }}
+									</span>
+								</td>
+								<td align="center">
+									<span class="enrich_row_mod">
+										{{ s['mod']|safe }}
+									</span>
+								</td>
+								<td align="center">
+									{% if s['pathways']|length > 0 %}
+									<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+										<span class="enrich_row_pathway">
+											{{ s['pathways']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['pathways']|length > 0 %}
+									<a href="#" class="btn btn-sm enrich_pathway_nt_var_wt_var_stats_btn" id="{{resource|e}}">
+										<i class="fas fa-chart-area" aria-hidden="true"></i>
+									</a>
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['wt_only']|length > 0 %}
+									<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+										<span class="enrich_row_pathway_wt_o">
+											{{ s['wt_only']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['intersection']|length > 0 %}
+									<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+										<span class="enrich_row_pathway_ins">
+											{{ s['intersection']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['variation_only']|length > 0 %}
+									<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+										<span class="enrich_row_pathway_var_o">
+											{{ s['variation_only']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['wt_only']|length > 0 or s['intersection']|length > 0 or s['variation_only']|length > 0 %}
+									<a href="#" class="btn btn-sm enrich_pathway_nt_var_comp_stats_btn" id="{{resource|e}}">
+										<i class="fas fa-chart-area" aria-hidden="true"></i>
+									</a>
+									{% endif %}
+								</td>
+							</tr>
+						{% endfor %}
+					{% endif %}
+				{% endfor %}	
+				</tbody>
+				</table>
+				<p></p>
+				<script type="text/javascript" >
+					$(function() {
+						var table = $('table#{{resource|e}}_enrich_nt_results_table').DataTable({
+					   	columnDefs: [
+					      	{ 'visible': false, 'targets': 0 }
+					      ],
+					      order: [[ 0, 'asc' ]],
+					      displayLength: 10,
+					      drawCallback: function ( settings ) {
+					      	var api = this.api();
+					         var rows = api.rows( {page:'current'} ).nodes();
+					         var last=null;
+					 
+					         api.column(0, {page:'current'} ).data().each( function ( group, i ) {
+					         	if ( last !== group ) {
+					            	$(rows).eq( i ).before(
+					               	'<tr class="group"><td colspan="11">'+group+'</td></tr>'
+					               );
+					 
+					               last = group;
+					           	}
+					         });
+					      }
+						});
+					 
+					   // Order by the grouping
+					   $('table#{{resource|e}}_enrich_nt_results_table tbody').on( 'click', 'tr.group', function () {
+					   	var currentOrder = table.order()[0];
+					      if ( currentOrder[0] === 1 && currentOrder[1] === 'asc' ) {
+					      	table.order( [ 0, 'desc' ] ).draw();
+					      }
+					      else {
+					      	table.order( [ 0, 'asc' ] ).draw();
+					      }
+					   });
+					   
+					});
+				</script>
+  				<div id="{{resource|e}}_enrich_nt_var_hist_container" style="display: none; padding: 10px">
+					<hr>
+					<div id="{{resource|e}}_nt_var_hist_loading_status" style="display: none;">
+						<center><p class="lead"><i class="fas fa-cog fa-spin"></i> Loading...</p></center>
+					</div>
+					<a href="#" id="{{resource|e}}" class="badge badge-pill badge-info enrich_nt_var_hist_close_btn">
+						<i class="fas fa-eye-slash" aria-hidden="true"></i> Close
+					</a>
+					<br><br>
+					<div id="{{resource|e}}_enrich_nt_var_hist_content"></div>
+				</div>
+  			</div>
+		</div>
+		<br>		
+	{% endif %}
+{% endmacro %}
+
+
+
+
+{% macro render_mirna_enrich_pathway_results_isomir_table(mirnas_list, resource) %}
+	{% if mirnas_list|length > 0 %}
+		<div class="card">
+  			<div class="card-header">
+    			<b>isomiR</b>
+  			</div>
+  			<div class="card-block">
+  				<p></p>
+				<table id="{{resource|e}}_enrich_isomir_results_table" class="display responsive nowrap" width="100%" cellspacing="0" style="font-size: 12px">
+				<thead>
+				<tr>
+                <th rowspan="2">miRNA</th>
+                <th colspan="5"></th>
+                <th style="background-color: #1e90ff;">
+                	<center>Wild type only</center>
+                </th>
+                <th style="background-color: #3cb371;">
+                	<center>Intersection</center>
+                </th>
+                <th style="background-color: #ff6347;">
+                	<center>Variation only</center>
+                </th>
+                <th></th>
+            </tr>
+				<tr>
+					<th>Type</th>
+					<th><center>5p</center></th>
+					<th><center>3p</center></th>
+					<th><center>No. of pathways</center></th>
+					<th></th>
+					<th style="background-color: #1e90ff;"><center>No. of pathways</center></th>
+					<th style="background-color: #3cb371;"><center>No. of pathways</center></th>
+					<th style="background-color: #ff6347;"><center>No. of pathways</center></th>
+					<th></th>
+				</tr>
+				</thead>
+				<tbody>
+				{% for mir, value in mirnas_list.items() %}	
+					{% if value['variations']['isomir']|length > 0 %}
+						{% set mat_mirna_id = mir %}
+						<tr>
+							<td>
+									{{ mat_mirna_id|safe }}
+							</td>
+							<td>
+								<span class="enrich_row_type">
+									Wild Type
+								</span>
+								<span style="display: none;" class="enrich_row_mirna_id">{{ mat_mirna_id|safe }}</span>
+							</td>
+							<td align="center">
+								<span class="enrich_row_5p">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="enrich_row_3p">
+									-
+								</span>
+							</td>
+							<td align="center">
+								{% if value['pathways']|length > 0 %}
+								<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+									<span class="enrich_row_pathway">
+										{{ value['pathways']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td></td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="">
+									-
+								</span>
+							</td>
+							<td></td>
+						</tr>
+						{% for s in value['variations']['isomir'] %}
+							<tr>
+								<td>
+										{{ mat_mirna_id|safe }}
+								</td>
+								<td>
+									<span class="enrich_row_type">
+										isomiR
+									</span>
+									<span style="display: none;" class="enrich_row_mirna_id">{{ mat_mirna_id|safe }}</span>
+								</td>
+								<td align="center">
+									<span class="enrich_row_5p">
+										{{ s['5p']|safe }}
+									</span>
+								</td>
+								<td align="center">
+									<span class="enrich_row_3p">
+										{{ s['3p']|safe }}
+									</span>
+								</td>
+								<td align="center">
+									{% if s['pathways']|length > 0 %}
+									<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+										<span class="enrich_row_pathway">
+											{{ s['pathways']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['pathways']|length > 0 %}
+									<a href="#" class="btn btn-sm enrich_pathway_isomir_wt_var_stats_btn" id="{{resource|e}}">
+										<i class="fas fa-chart-area" aria-hidden="true"></i>
+									</a>
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['wt_only']|length > 0 %}
+									<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+										<span class="enrich_row_pathway_wt_o">
+											{{ s['wt_only']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['intersection']|length > 0 %}
+									<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+										<span class="enrich_row_pathway_ins">
+											{{ s['intersection']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['variation_only']|length > 0 %}
+									<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+										<span class="enrich_row_pathway_var_o">
+											{{ s['variation_only']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['wt_only']|length > 0 or s['intersection']|length > 0 or s['variation_only']|length > 0 %}
+									<a href="#" class="btn btn-sm enrich_pathway_isomir_comp_stats_btn" id="{{resource|e}}">
+										<i class="fas fa-chart-area" aria-hidden="true"></i>
+									</a>
+									{% endif %}
+								</td>
+							</tr>
+						{% endfor %}
+					{% endif %}
+				{% endfor %}	
+				</tbody>
+				</table>
+				<p></p>
+				<script type="text/javascript">
+					$(function() {
+						var table = $('table#{{resource|e}}_enrich_isomir_results_table').DataTable({
+					   	columnDefs: [
+					      	{ 'visible': false, 'targets': 0 }
+					      ],
+					      order: [[ 0, 'asc' ]],
+					      displayLength: 10,
+					      drawCallback: function ( settings ) {
+					      	var api = this.api();
+					         var rows = api.rows( {page:'current'} ).nodes();
+					         var last=null;
+					 
+					         api.column(0, {page:'current'} ).data().each( function ( group, i ) {
+					         	if ( last !== group ) {
+					            	$(rows).eq( i ).before(
+					               	'<tr class="group"><td colspan="10">'+group+'</td></tr>'
+					               );
+					 
+					               last = group;
+					            }
+					        	});
+					      }
+						});
+					 
+					   // Order by the grouping
+					   $('table#{{resource|e}}_enrich_isomir_results_table tbody').on( 'click', 'tr.group', function () {
+					   	var currentOrder = table.order()[0];
+					      if ( currentOrder[0] === 1 && currentOrder[1] === 'asc' ) {
+					      	table.order( [ 0, 'desc' ] ).draw();
+					      }
+					      else {
+					      	table.order( [ 0, 'asc' ] ).draw();
+					   	}
+					   });
+					  
+					});
+				</script>
+				<div id="{{resource|e}}_enrich_isomir_hist_container" style="display: none; padding: 10px">
+					<hr>
+					<div id="{{resource|e}}_isomir_hist_loading_status" style="display: none;">
+						<center><p class="lead"><i class="fas fa-cog fa-spin"></i> Loading...</p></center>
+					</div>
+					<a href="#" id="{{resource|e}}" class="badge badge-pill badge-info enrich_isomir_hist_close_btn">
+						<i class="fas fa-eye-slash" aria-hidden="true"></i> Close
+					</a>
+					<br><br>
+					<div id="{{resource|e}}_enrich_isomir_hist_content"></div>
+				</div>
+  			</div>
+		</div>
+		<br>		
+	{% endif %}
+{% endmacro %}
+
+
+
+{% macro render_mirna_enrich_pathway_results_wt_table(mirnas_list, resource) %}
+	{% if mirnas_list|length > 0 %}
+		<div class="card">
+  			<div class="card-header">
+    			<b>Wild Type</b>
+  			</div>
+  			<div class="card-block">
+  				<p></p>
+				<table id="{{resource|e}}_enrich_wt_results_table" class="display responsive nowrap" width="400" cellspacing="0" style="font-size: 12px">
+				<thead>
+				<tr>
+					<th>miRNA</th>
+					<th>Type</th>
+					<th><center>No. of pathways</center></th>
+					<th></th>
+				</tr>
+				</thead>
+				<tbody>
+				{% for mir, value in mirnas_list.items() %}	
+					{% if value['variations']['isomir']|length == 0 and value['variations']['substitution']|length == 0 %}
+						{% set mat_mirna_id = mir %}
+						<tr>
+							<td>
+									{{ mat_mirna_id|safe }}
+							</td>
+							<td>
+								<span class="enrich_row_type">
+									Wild Type
+								</span>
+								<span style="display: none;" class="enrich_row_mirna_id">{{ mat_mirna_id|safe }}</span>
+							</td>
+							<td align="center">
+								{% if value['pathways']|length > 0 %}
+								<a href="#" class="enrich_get_pathway_table" id="{{resource|e}}">
+									<span class="enrich_row_pathway">
+										{{ value['pathways']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td>
+								{% if value['pathways']|length > 0 %}
+									<a href="#" class="btn btn-sm enrich_pathway_wt_stats_btn" id="{{resource|e}}">
+										<i class="fas fa-chart-area" aria-hidden="true"></i>
+									</a>
+								{% endif %}							
+							</td>
+						</tr>
+					{% endif %}
+				{% endfor %}	
+				</tbody>
+				</table>
+				<p></p>
+				<script type="text/javascript" >
+					$(function() {
+						var table = $('table#{{resource|e}}_enrich_wt_results_table').DataTable({
+					      order: [[ 0, 'asc' ]],
+					      displayLength: 10
+						});
+					});
+				</script>
+				<div id="{{resource|e}}_enrich_wt_hist_container" style="display: none; padding: 10px">
+					<hr>
+					<div id="{{resource|e}}_wt_hist_loading_status" style="display: none;">
+						<center><p class="lead"><i class="fas fa-cog fa-spin"></i> Loading...</p></center>
+					</div>
+					<a href="#" id="{{resource|e}}" class="badge badge-pill badge-info enrich_wt_hist_close_btn">
+						<i class="fas fa-eye-slash" aria-hidden="true"></i> Close
+					</a>
+					<br><br>
+					<div id="{{resource|e}}_enrich_wt_hist_content"></div>
+				</div>
+  			</div>
+		</div>
+		<br>		
+	{% endif %}
+{% endmacro %}
+
+
+
+{% macro render_go_enrich_histogram(title, x_labels, wt_data, var_data, label, threshold, target, filename, entity_label1, entity_label2) %}
+	{% if x_labels|length > 0 %}
+		{% set w = x_labels|length * 30 + 400 %}
+		{% set x_labels_len = x_labels|map('length')|list|max + 100 %}
+		{% set chart_height = (x_labels|map('length')|list|max * 3) + 700 %}
+		<p class="lead"><i class="fas fa-chart-area" aria-hidden="true"></i> {{title|e}}: {{entity_label1|safe}}{% if target != 'wildtype' %} vs. {{entity_label2|safe}}{% endif %}</p>
+		<div style="overflow-x: auto;">
+			<div id="{{target|e}}_go_hist_{{label|e}}" style="min-width: {{w|e}}px; height: {{chart_height|e}}px; margin: 0 auto"></div>
+		</div>		
+		<br><br>
+		<script type="text/javascript">
+			$(function() {
+				Highcharts.chart('{{target|e}}_go_hist_{{label|e}}', {
+				   title: {
+				   	text: '{{title|e}}'
+				   },
+				   subtitle: {
+				   	text: ''
+				   },
+				   exporting: {
+				   	sourceWidth: {{w|e}},
+				   	filename: '{{filename|e}}'
+				   },
+				   xAxis: {
+				   	categories: {{x_labels|tojson}},
+				   	labels: {
+            			rotation: -90,
+               	 	style: {
+            				width: '{{x_labels_len|e}}px'
+        					}
+                	},
+            		title: {
+				   		text: 'GO terms'
+				   	}
+				   },
+				   yAxis: {
+				   	min: 0,
+				   	title: {
+				   		text: '-Log(P-value)'
+				   	}
+				   },
+				   tooltip: {
+				   	headerFormat: '<span style="font-size:10px">{point.key}</span><table>',
+				   	pointFormat: '<tr><td style="color:{series.color};padding:0">{series.name}: </td>' +
+				            '<td style="padding:0"><b>{point.y:.3f}</b></td></tr>',
+				   	footerFormat: '</table>',
+				   	shared: true,
+				   	useHTML: true
+				   },
+				   plotOptions: {
+				   	column: {
+				   		pointPadding: 0.1,
+				   		borderWidth: 0
+				   	}
+				   },
+               credits: {
+				   	enabled: false
+               },
+				   series: [{
+				   	type: 'column',
+				   	name: '{{entity_label1|safe}}',
+				   	color: '#1e90ff',
+				   	data: {{wt_data|safe}}
+				
+				   }{% if var_data|length > 0 %}, {
+				   	type: 'column',
+				   	name: '{{entity_label2|safe}}',
+				   	color: '#ff6347',
+				   	data: {{var_data|safe}}
+				   }{% endif %}, {
+				      type: 'spline',
+				      name: 'Threshold',
+				      color: '#000000',
+				      data: {{threshold|safe}},
+				      lineWidth: 2,
+            		dashStyle: 'dot',
+				      marker: {
+				      	enabled: false
+				      }
+				   }]
+				});
+			});
+		</script>
+	{% endif %}
+{% endmacro %}
+
+
+
+{% macro render_go_enrich_comp_histogram(title, x_labels, wt_data, var_data, inter_data, label, threshold, target, filename, entity_label1, entity_label2) %}
+	{% if x_labels|length > 0 %}
+		{% set w = x_labels|length * 30 + 400 %}
+		{% set x_labels_len = x_labels|map('length')|list|max + 100 %}
+		{% set chart_height = (x_labels|map('length')|list|max * 3) + 700 %}
+		<p class="lead"><i class="fas fa-chart-area" aria-hidden="true"></i> {{title|e}}: {{entity_label1|safe}} vs. {{entity_label2|safe}}</p>
+		<div style="overflow-x: auto;">
+			<div id="{{target|e}}_go_hist_{{label|e}}" style="min-width: {{w|e}}px; height: {{chart_height|e}}px; margin: 0 auto"></div>
+		</div>		
+		<br><br>
+		<script type="text/javascript" >
+			
+			$(function() {
+				Highcharts.chart('{{target|e}}_go_hist_{{label|e}}', {
+				   title: {
+				   	text: '{{title|e}}'
+				   },
+				   subtitle: {
+				   	text: ''
+				   },
+				   exporting: {
+				   	sourceWidth: {{w|e}},
+				   	filename: '{{filename|e}}_comp'
+				   },
+				   xAxis: {
+				   	categories: {{x_labels|tojson}},
+				   	labels: {
+            			rotation: -90,
+               	 	style: {
+            				width: '{{x_labels_len|e}}px'
+        					}
+                	},
+            		title: {
+				   		text: 'GO terms'
+				   	}
+				   },
+				   yAxis: {
+				   	min: 0,
+				   	title: {
+				   		text: '-Log(P-value)'
+				   	}
+				   },
+				   tooltip: {
+				   	headerFormat: '<span style="font-size:10px">{point.key}</span><table>',
+				   	pointFormat: '<tr><td style="color:{series.color};padding:0">{series.name}: </td>' +
+				            '<td style="padding:0"><b>{point.y:.3f}</b></td></tr>',
+				   	footerFormat: '</table>',
+				   	shared: true,
+				   	useHTML: true
+				   },
+				   plotOptions: {
+				   	column: {
+				   		pointPadding: 0.1,
+				   		borderWidth: 0
+				   	}
+				   },
+               credits: {
+				   	enabled: false
+               },
+				   series: [{
+				   	type: 'column',
+				   	name: '{{entity_label1|safe}} only',
+				   	color: '#1e90ff',
+				   	data: {{wt_data|safe}}
+				   }, {
+				   	type: 'column',
+				   	name: 'Intersection',
+				   	color: '#3cb371',
+				   	data: {{inter_data|safe}}
+				   }, {
+				   	type: 'column',
+				   	name: '{{entity_label2|safe}} only',
+				   	color: '#ff6347',
+				   	data: {{var_data|safe}}
+				   }, {
+				      type: 'spline',
+				      name: 'Threshold',
+				      color: '#000000',
+				      data: {{threshold|safe}},
+				      lineWidth: 2,
+            		dashStyle: 'dot',
+				      marker: {
+				      	enabled: false
+				      }
+				   }]
+				});
+			});
+			
+		</script>
+	{% endif %}
+{% endmacro %}
+
+
+
+{% macro render_pathway_enrich_histogram(x_labels, wt_data, var_data, label, threshold, target, filename, entity_label1, entity_label2) %}
+	{% if x_labels|length > 0 %}
+		{% set w = x_labels|length * 30 + 400 %}
+		{% set x_labels_len = x_labels|map('length')|list|max + 100 %}
+		{% set chart_height = (x_labels|map('length')|list|max * 3) + 700 %}
+		<p class="lead"><i class="fas fa-chart-area" aria-hidden="true"></i> {{entity_label1|safe}}{% if target != 'wildtype' %} vs. {{entity_label2|safe}}{% endif %}</p>
+		<div style="overflow-x: auto;">
+			<div id="{{target|e}}_pathway_hist_{{label|e}}" style="min-width: {{w|e}}px; height: {{chart_height|e}}px; margin: 0 auto"></div>
+		</div>		
+		<br><br>
+		<script type="text/javascript">
+			$(function() {
+				Highcharts.chart('{{target|e}}_pathway_hist_{{label|e}}', {
+				   title: {
+				   	text: ''
+				   },
+				   subtitle: {
+				   	text: ''
+				   },
+				   exporting: {
+				   	sourceWidth: {{w|e}},
+				   	filename: '{{filename|e}}'
+				   },
+				   xAxis: {
+				   	categories: {{x_labels|tojson}},
+				   	labels: {
+            			rotation: -90,
+               	 	style: {
+            				width: '{{x_labels_len|e}}px'
+        					}
+                	},
+            		title: {
+				   		text: '{% if label == 'kegg' %}KEGG{% elif label == 'reactome' %}Reactome{% endif %}'
+				   	}
+				   },
+				   yAxis: {
+				   	min: 0,
+				   	title: {
+				   		text: '-Log(P-value)'
+				   	}
+				   },
+				   tooltip: {
+				   	headerFormat: '<span style="font-size:10px">{point.key}</span><table>',
+				   	pointFormat: '<tr><td style="color:{series.color};padding:0">{series.name}: </td>' +
+				            '<td style="padding:0"><b>{point.y:.3f}</b></td></tr>',
+				   	footerFormat: '</table>',
+				   	shared: true,
+				   	useHTML: true
+				   },
+				   plotOptions: {
+				   	column: {
+				   		pointPadding: 0.1,
+				   		borderWidth: 0
+				   	}
+				   },
+               credits: {
+				   	enabled: false
+               },
+				   series: [{
+				   	type: 'column',
+				   	name: '{{entity_label1|safe}}',
+				   	color: '#1e90ff',
+				   	data: {{wt_data|safe}}
+				
+				   }{% if var_data|length > 0 %}, {
+				   	type: 'column',
+				   	name: '{{entity_label2|safe}}',
+				   	color: '#ff6347',
+				   	data: {{var_data|safe}}
+				   }{% endif %}, {
+				      type: 'spline',
+				      name: 'Threshold',
+				      color: '#000000',
+				      data: {{threshold|safe}},
+				      lineWidth: 2,
+            		dashStyle: 'dot',
+				      marker: {
+				      	enabled: false
+				      }
+				   }]
+				});
+			});
+		</script>
+	{% endif %}
+{% endmacro %}
+
+
+
+{% macro render_pathway_enrich_comp_histogram(x_labels, wt_data, var_data, inter_data, label, threshold, target, filename, entity_label1, entity_label2) %}
+	{% if x_labels|length > 0 %}
+		{% set w = x_labels|length * 30 + 400 %}
+		{% set x_labels_len = x_labels|map('length')|list|max + 100 %}
+		{% set chart_height = (x_labels|map('length')|list|max * 3) + 700 %}
+		<p class="lead"><i class="fas fa-chart-area" aria-hidden="true"></i> {{entity_label1|safe}} vs. {{entity_label2|safe}}</p>
+		<div style="overflow-x: auto;">
+			<div id="{{target|e}}_pathway_hist_{{label|e}}" style="min-width: {{w|e}}px; height: {{chart_height|e}}px; margin: 0 auto"></div>
+		</div>		
+		<br><br>
+		<script type="text/javascript" >
+			
+			$(function() {
+				Highcharts.chart('{{target|e}}_pathway_hist_{{label|e}}', {
+				   title: {
+				   	text: ''
+				   },
+				   subtitle: {
+				   	text: ''
+				   },
+				   exporting: {
+				   	sourceWidth: {{w|e}},
+				   	filename: '{{filename|e}}_comp'
+				   },
+				   xAxis: {
+				   	categories: {{x_labels|tojson}},
+				   	labels: {
+            			rotation: -90,
+               	 	style: {
+            				width: '{{x_labels_len|e}}px'
+        					}
+                	},
+            		title: {
+				   		text: '{% if label == 'kegg' %}KEGG{% elif label == 'reactome' %}Reactome{% endif %}'
+				   	}
+				   },
+				   yAxis: {
+				   	min: 0,
+				   	title: {
+				   		text: '-Log(P-value)'
+				   	}
+				   },
+				   tooltip: {
+				   	headerFormat: '<span style="font-size:10px">{point.key}</span><table>',
+				   	pointFormat: '<tr><td style="color:{series.color};padding:0">{series.name}: </td>' +
+				            '<td style="padding:0"><b>{point.y:.3f}</b></td></tr>',
+				   	footerFormat: '</table>',
+				   	shared: true,
+				   	useHTML: true
+				   },
+				   plotOptions: {
+				   	column: {
+				   		pointPadding: 0.1,
+				   		borderWidth: 0
+				   	}
+				   },
+               credits: {
+				   	enabled: false
+               },
+				   series: [{
+				   	type: 'column',
+				   	name: '{{entity_label1|safe}} only',
+				   	color: '#1e90ff',
+				   	data: {{wt_data|safe}}
+				   }, {
+				   	type: 'column',
+				   	name: 'Intersection',
+				   	color: '#3cb371',
+				   	data: {{inter_data|safe}}
+				   }, {
+				   	type: 'column',
+				   	name: '{{entity_label2|safe}} only',
+				   	color: '#ff6347',
+				   	data: {{var_data|safe}}
+				   }, {
+				      type: 'spline',
+				      name: 'Threshold',
+				      color: '#000000',
+				      data: {{threshold|safe}},
+				      lineWidth: 2,
+            		dashStyle: 'dot',
+				      marker: {
+				      	enabled: false
+				      }
+				   }]
+				});
+			});
+			
+		</script>
+	{% endif %}
+{% endmacro %}
+

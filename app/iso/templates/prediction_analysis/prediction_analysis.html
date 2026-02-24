@@ -1,0 +1,267 @@
+{% import 'prediction_analysis/macros/pred_input.html' as pred_macro %}
+
+<br>
+<ul class="nav nav-tabs mb-3" id="tabs-pred-tab" role="tablist">
+  	<li class="nav-item">
+    	<a class="nav-link active" id="tabs_pred_input_check_tab" data-toggle="tab" href="#pred_input_check_tab" role="tab" aria-controls="tabs_pred_input_check_tab" aria-selected="true">
+    		<i class="fas fa-search"></i> Input review
+    	</a>
+  	</li>
+  	<li class="nav-item">
+    	<a class="nav-link" id="tabs_pred_results_tab" data-toggle="tab" href="#pred_results_tab" role="tab" aria-controls="tabs_pred_results_tab" aria-selected="false" style="display: none;">
+    		<i class="fas fa-list"></i> Results
+    	</a>
+  	</li>
+</ul>
+<div class="tab-content" id="tabs-pred-analysis-results">
+	<div class="tab-pane fade show active" id="pred_input_check_tab" role="tabpanel" aria-labelledby="pred_input_check_tab"> 
+		  
+		<div class="row">
+		
+			<div class="col-xs-12 col-sm-12 col-md-12 col-lg-8">
+				{{ pred_macro.render_mirna_pred_input_isomir_table(isomir_table_content) }}
+				{{ pred_macro.render_mirna_pred_input_nt_variation_table(single_nt_table_content) }}
+				
+				{% if wild_type_table_content|length > 0 %}
+					{{ pred_macro.render_mirna_pred_input_wt_table(wild_type_table_content) }}
+				{% endif %}
+				<p></p>
+			</div><!-- /.col-xs-12 col-sm-12 col-md-12 col-lg-8 --> 
+
+			<div class="col-xs-12 col-sm-12 col-md-12 col-lg-4">
+				
+				<div class="card text-white bg-primary mb-3">
+				  	<div class="card-body">
+				    	<h4 class="card-title">Prediction Analysis</h4>
+				    	<p class="card-text" align="justify">
+				    		Input inspected. Only correct miRNA specifications will be considered for analysis. Click on the <em>Run</em> button to start analysis. All miRNA 
+				    		specification errors will instead be visualized below. 
+				    	</p>
+				  	</div>
+				  	<div class="card-footer">
+				  		<button type="button" class="btn btn-warning" id="exec_pred_analysis_btn">
+				  			<i class="fas fa-cogs" aria-hidden="true"></i> Run
+				  		</button>
+				  	</div>
+				</div>
+				<div id="pred_analysis_processing_content">
+					{% if errors|length > 0 %}
+						<p align="justify">We identified the following errors:</p>
+						{% for e in errors %}
+							<ul>
+								<li><b>miRNA</b>: {{e['mirna_id']|e}}</li>
+								<li><b>Header</b>:<br>{{e['header']|safe}}</li>
+								<li>
+									<b>Errors</b><br>
+									<ul>
+									{% for v in e['errors'] %}
+										<li><code>{{v['variation']}}</code> {{v['msg']}}</li>
+									{% endfor %}
+									</ul>
+								</li>
+							</ul>
+							<hr>
+						{% endfor %}
+					{% endif %}
+				</div>
+			</div><!-- /.col-xs-12 col-sm-12 col-md-12 col-lg-4 --> 
+
+		</div><!-- ./row -->
+		
+  	</div>
+  	<div class="tab-pane fade" id="pred_results_tab" role="tabpanel" aria-labelledby="tabs_pred_results_tab">
+		&nbsp;&nbsp;  	
+  	</div>
+</div>
+
+<script>
+
+	$(function() {
+	
+		$('button#exec_pred_analysis_btn').on('click' , function(e) {
+			// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+				
+				if (checkVariableExistance(csrf_token)) {
+	     			
+	     			$.ajax({
+	         		url: '/prediction_analysis_processing_status',
+	         		beforeSend: function(xhr, settings) {
+	         			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         			}
+	     				},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	      					$('div#pred_analysis_processing_content').html('');
+								$('div#pred_results_tab').html('');
+								$('div#enrich_analysis_content').html('');
+								$('div#enrich_analysis_processing_content').css('display', 'none');
+	      					$('div#pred_analysis_processing_content').html(data);	
+	      				}
+	      				
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}	       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+	      			}
+	     			});
+	     		}
+	     		
+	     		e.handled = true;	
+	     	}
+   	});
+   	
+   	
+   	///////////////////////////////////////////////////////////////////////////////////////////
+		// Targets table
+		///////////////////////////////////////////////////////////////////////////////////////////
+	   
+	   $(document).on('click', 'a.pred_get_targets_table', function (e) {
+	   	e.preventDefault();
+	   	
+	   	// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var tool_tab = $(this).find('span').attr('class');
+				var mirna_id = '';
+				var vtype = '';
+				var v3p = '';
+				var v5p = '';
+				var vref = '';
+				var vmod = '';
+				var vpos = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					if ($(value).attr('class') === 'pred_row_mirna_id') {
+						mirna_id = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'pred_row_type') {
+						vtype = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'pred_row_3p'){
+						v3p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'pred_row_5p'){
+						v5p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'pred_row_pos'){
+						vpos = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'pred_row_ref'){
+						vref = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'pred_row_mod'){
+						vmod = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+							if ($(value).attr('class') === 'pred_row_mirna_id') {
+								mirna_id = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'pred_row_type') {
+								vtype = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'pred_row_3p'){
+								v3p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'pred_row_5p'){
+								v5p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'pred_row_pos'){
+								vpos = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'pred_row_ref'){
+								vref = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'pred_row_mod'){
+								vmod = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+		 			 checkVariableExistance(mirna_id) && 
+		 			 checkVariableExistance(vtype) && 
+		 			 checkVariableExistance(tool_tab) && 
+		 			 mirna_id !== '' && 
+		 			 vtype !== '' && 
+		 			 tool_tab !== '') {
+		 			 
+		 			$.ajax({
+		      			url: '/prediction_analysis_variation_statistics',
+		      			beforeSend: function(xhr, settings) {
+		      				if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+		          				xhr.setRequestHeader("X-CSRFToken", csrf_token);
+		      				}
+		  				},
+		   			data: { 
+		   				mirna_id: mirna_id, 
+		   				vtype: vtype, 
+		   				v3p: v3p, 
+		   				v5p: v5p, 
+		   				vpos: vpos, 
+		   				vref: vref, 
+		   				vmod: vmod, 
+		   				tool_tab: tool_tab
+		   			},
+		   			type: 'POST',
+		   			dataType: 'html',
+		   			success: function(data) {
+		   				if (data !== null) {
+		       				$('div#pred_statistics_modal_content').html(data);
+		       				var variation = vpos !== '' ? ' (position: ' + vpos + ', ref: ' + vref + ', mod: ' + vmod + ') - ' + tool_tab.replace('pred_row_', '') : ' (5p: ' + v5p + ', 3p: ' + v3p + ') - ' + tool_tab.replace('pred_row_', '');
+		       				if (vtype === 'Wild Type') {
+		       					variation = ' - ' + tool_tab.replace('pred_row_', '');
+		       				}
+		       				$('h5#pred_statistics_modal_label').text(vtype + ': ' + mirna_id + variation);
+		       				$('div#pred_statistics_modal').modal('show');
+		       			}
+		   			},
+		   			error: function(error) {
+		   				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+		
+		       			modal_error_notification('An error occurred' + msg);
+		   			}
+		  			});
+		 		}
+		 		
+	 			e.handled = true;
+			}
+	 		return false;
+	   });				  
+   	
+ 	});
+
+</script>

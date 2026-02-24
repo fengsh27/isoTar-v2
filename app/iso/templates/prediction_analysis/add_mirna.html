@@ -1,0 +1,274 @@
+{% import 'prediction_analysis/macros/pred_input.html' as pred_macro %}
+
+
+<div class="card">
+	<div class="card-header"><b>miRNA customization module</b></div>
+  	<div class="card-body">
+  		<p align="justify">
+			By using this module, it is possible to add, to the selected mature miRNA, single nucleotide and isomiR variations. 
+			Each variation requires specific parameters. Once they have been specified, press the <b>&lt;<i class="fas fa-plus" aria-hidden="true"></i> Add to the list&gt;</b> button.     	
+  		</p>
+  		<table>
+		<tbody>
+			<tr>
+				<td colspan="3">
+					<p><span class="badge badge-pill badge-primary">Mature</span> <span id="pred_add_mirna_id">{{mirna_id|safe}}</span><br></p>
+					<p style="display: block; word-break:break-all;"><b>Sequence: </b><span id="pred_add_seq">{{mat_seq|safe}}</span></p>
+				</td>
+			</tr>
+			<tr>
+				<td colspan="3">
+					<p><span class="badge badge-pill badge-danger">Pre</span> <span id="pred_add_pre_mirna_id">{{pre_id|safe}}</span></p>
+					<p style="display: block; word-break:break-all;"><b>Sequence: </b><span id="pred_add_pre_seq">{{pre_seq|safe}}</span></p>
+					<hr>
+				</td>
+			</tr>
+			<tr>
+				<td colspan="3">
+					<b>Specify a novel isomiR</b>
+				</td>
+			</tr>
+			<tr>
+				<td style="width: 100px">
+					Modify from 5p end
+					<div class="input-group input-group-sm">
+						<select class="form-control" id="pred_isomir_5p" style="width: 60px">
+							<option value="-20">-20</option>
+					      <option value="-19">-19</option>
+					      <option value="-18">-18</option>
+					      <option value="-17">-17</option>
+					      <option value="-16">-16</option>
+					      <option value="-15">-15</option>
+					      <option value="-14">-14</option>
+					      <option value="-13">-13</option>
+					      <option value="-12">-12</option>
+					      <option value="-11">-11</option>
+					      <option value="-10">-10</option>
+					      <option value="-9">-9</option>
+					      <option value="-8">-8</option>
+					      <option value="-7">-7</option>
+					      <option value="-6">-6</option>
+					      <option value="-5">-5</option>
+					      <option value="-4">-4</option>
+							<option value="-3">-3</option>
+							<option value="-2">-2</option>
+							<option value="-1">-1</option>
+					      <option value="0" selected="select">0</option>
+					      <option value="+1">+1</option>
+					      <option value="+2">+2</option>
+					      <option value="+3">+3</option>
+					      <option value="+4">+4</option>
+					      <option value="+5">+5</option>
+					      <option value="+6">+6</option>
+					      <option value="+7">+7</option>
+					      <option value="+8">+8</option>
+					      <option value="+9">+9</option>
+					      <option value="+10">+10</option>
+					      <option value="+11">+11</option>
+					      <option value="+12">+12</option>
+					      <option value="+13">+13</option>
+					      <option value="+14">+14</option>
+					      <option value="+15">+15</option>
+					      <option value="+16">+16</option>
+					      <option value="+17">+17</option>
+					      <option value="+18">+18</option>
+					      <option value="+19">+19</option>
+					      <option value="+20">+20</option>
+					   </select>		
+				   </div>	
+				</td>
+				<td style="width: 100px">
+					Modify from 3p end
+					<div class="input-group input-group-sm">
+						<select class="form-control" id="pred_isomir_3p">
+					      <option value="-20">-20</option>
+					      <option value="-19">-19</option>
+					      <option value="-18">-18</option>
+					      <option value="-17">-17</option>
+					      <option value="-16">-16</option>
+					      <option value="-15">-15</option>
+					      <option value="-14">-14</option>
+					      <option value="-13">-13</option>
+					      <option value="-12">-12</option>
+					      <option value="-11">-11</option>
+					      <option value="-10">-10</option>
+					      <option value="-9">-9</option>
+					      <option value="-8">-8</option>
+					      <option value="-7">-7</option>
+					      <option value="-6">-6</option>
+					      <option value="-5">-5</option>
+					      <option value="-4">-4</option>
+							<option value="-3">-3</option>
+							<option value="-2">-2</option>
+							<option value="-1">-1</option>
+					      <option value="0" selected="select">0</option>
+					      <option value="+1">+1</option>
+					      <option value="+2">+2</option>
+					      <option value="+3">+3</option>
+					      <option value="+4">+4</option>
+					      <option value="+5">+5</option>
+					      <option value="+6">+6</option>
+					      <option value="+7">+7</option>
+					      <option value="+8">+8</option>
+					      <option value="+9">+9</option>
+					      <option value="+10">+10</option>
+					      <option value="+11">+11</option>
+					      <option value="+12">+12</option>
+					      <option value="+13">+13</option>
+					      <option value="+14">+14</option>
+					      <option value="+15">+15</option>
+					      <option value="+16">+16</option>
+					      <option value="+17">+17</option>
+					      <option value="+18">+18</option>
+					      <option value="+19">+19</option>
+					      <option value="+20">+20</option>
+					   </select>		
+				   </div>				
+				</td>
+				<td></td>
+			</tr>	
+			<tr>
+				<td colspan="3">
+					<a href="#" id="pred_add_isomir_btn" class="badge badge-pill badge-info">
+						<i class="fas fa-plus" aria-hidden="true"></i> Add to the list
+					</a>			
+				</td>
+			</tr>
+			<tr>
+				<td colspan="3">
+					<hr>
+					<b>Specify a novel single nucleotide variation</b>
+				</td>
+			</tr>
+			<tr>
+				<td style="width: 100px">
+					Position
+					<div class="input-group input-group-sm">
+						<select class="form-control" id="pred_position_nt_sub" style="width: 60px">
+					      {% for i in range(mat_seq|length) %}  												
+								{% set count = i + 1 %}
+								<option value="{{count|safe}}">{{count|safe}}</option>
+							{% endfor %}
+					   </select>		
+				   </div>				
+				</td>
+				<td style="width: 100px">
+					Reference
+					<div class="input-group input-group-sm">
+						<select class="form-control" id="pred_ref_nt_sub" style="width: 60px">
+					      <option value="A" selected="select">A</option>
+					      <option value="G">G</option>
+					      <option value="C">C</option>
+					      <option value="U">U</option>
+					      <option value="-">-</option>
+					   </select>		
+				   </div>				
+				</td>
+				<td style="width: 100px">
+					Modification
+					<div class="input-group input-group-sm">
+						<select class="form-control" id="pred_mod_nt_sub" style="width: 60px">
+					      <option value="A" selected="select">A</option>
+					      <option value="G">G</option>
+					      <option value="C">C</option>
+					      <option value="U">U</option>
+					      <option value="-">-</option>
+					   </select>		
+				   </div>				
+				</td>
+			</tr>	
+			<tr>
+				<td colspan="3">
+					<a href="#" id="pred_add_nt_sub_btn" class="badge badge-pill badge-dark">
+						<i class="fas fa-plus" aria-hidden="true"></i> Add to the list
+					</a>	
+					<hr>		
+				</td>
+			</tr>
+		</tbody>  		
+  		</table>
+    	<div id="pred_mirna_variations"></div>
+  	</div>
+  	<div class="card-footer" align="right">
+    	<button type="button" class="btn btn-danger btn-sm" id="pred_close_add_variations_btn">Done</button>&nbsp;
+    	<button type="button" class="btn btn-info btn-sm" id="pred_add_variations_btn">Add the customized miRNA</button>
+  	</div>
+</div>
+
+
+<script>
+	$(function() {
+	 	
+	 	// Variation IDX
+	 	var var_idx = 0;
+	 	
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Add miRNA variation
+		///////////////////////////////////////////////////////////////////////////////////////////
+    	
+    	$('a#pred_add_isomir_btn').on('click', function (e) {
+    		e.preventDefault();
+    		var p5 = $('select#pred_isomir_5p').val();
+			var p3 = $('select#pred_isomir_3p').val();
+			
+			var cnt = '<span id="var_' + var_idx + '"><a href="#" class="badge badge-pill badge-info pred_del_var"><i class="fas fa-times" aria-hidden="true"></i></a> ' + p5 + '|' + p3 +'&nbsp;&nbsp;</span>';
+			$('div#pred_mirna_variations').append(cnt);
+			
+			var_idx += 1;		
+		});
+		
+		$('a#pred_add_nt_sub_btn').on('click', function (e) {
+			e.preventDefault();
+			var pos = $.trim($('select#pred_position_nt_sub').val());
+    		var ref = $('select#pred_ref_nt_sub').val();
+			var mod = $('select#pred_mod_nt_sub').val();
+			
+			var cnt = '<span id="var_' + var_idx + '"><a href="#" class="badge badge-pill badge-dark pred_del_var"><i class="fas fa-times" aria-hidden="true"></i></a> ' + pos + ':' + ref + '|' + mod +'&nbsp;&nbsp;</span>';
+			$('div#pred_mirna_variations').append(cnt);
+			
+			var_idx += 1;		
+		});
+		
+		
+		$('button#pred_close_add_variations_btn').on('click', function () {
+			$('div#add_mirna_content').html('');	
+		});
+		
+		$(document).on('click', 'button#pred_add_variations_btn', function () {
+    		var mir_id = $.trim($('span#pred_add_mirna_id').text());
+    		var seq = $.trim($('span#pred_add_seq').text());	
+    		var pre_id = $.trim($('span#pred_add_pre_mirna_id').text());
+    		
+    		var discard = ['0|0', '-|-', '+|+', 'A|A', 'C|C', 'G|G', 'U|U'];
+    		var variations = [];
+    		$('span[id^="var_"]').each(function(i,el){ 
+				var variation = $.trim($(el).text()); 
+    			var check_var = variation.replace(/^[0-9]+:/g, ''); 	
+
+  				if(check_var !== '' && $.inArray(check_var, discard) === -1){
+  					var nts = check_var.split('|');
+  					//if (nts[0] !== nts[1]) {
+  						if ($.inArray(variation, variations) === -1) {
+							variations.push(variation);		
+						} 	
+  					//} 				
+  				}
+			});
+    		
+    		var cnt = '>' + mir_id + ' ' + pre_id + '\n' + seq + '\n';
+    		if (variations.length) {
+    			cnt = '>' + mir_id + ' ' + pre_id + ' ' + variations.join(';') + '\n' + seq + '\n';
+    		}
+    		
+    		pred_mirnas_input_filtering(cnt); 
+		});
+		
+		$(document).on('click', 'a.pred_del_var' , function(e) {
+			e.preventDefault();
+     		var p_id = $(this).closest('span').attr('id');
+     		$('span#' + p_id).remove();
+		});
+		
+	});
+
+</script>

@@ -1,0 +1,266 @@
+{% import 'prediction_analysis/macros/pred_input.html' as pred_macro %}
+
+<div class="card">
+	<p class="card-header">
+		<a href="#" id="pred_analysis_response_close_btn" style="display: none;">
+			<i class="fas fa-times" aria-hidden="true"></i>
+		</a> Analysis response
+	</p>
+  	<div class="card-body">
+  		<div class="row">		
+  			<span id="pre_task_id" class=""></span>
+  			<span id="pre_pid" class=""></span>
+			<div class="col-xs-12 col-sm-12 col-md-12 col-lg-12" id="pred_analysis_status_update_content">
+				<center>
+					<a href="#" id="pred_stop_btn">
+						<span class="badge badge-pill badge-danger"><i class="fas fa-times" aria-hidden="true"></i> Stop</span>
+					</a> 
+					<i class="fas fa-cog fa-spin"></i> Under processing...				
+				</center>
+			</div><!-- /.col-xs-12 col-sm-12 col-md-12 col-lg-12 -->
+		</div><!-- /.row -->
+  	</div>
+</div>
+
+
+<script>
+		
+	$(function() {
+	
+		$('a#pred_analysis_response_close_btn').on('click', function (e) {
+			e.preventDefault();
+			$('div#pred_analysis_processing_content').html('');
+		});
+		
+		// Prediction Analysis execution
+		exec_prediction_analysis();
+
+	 	var checker = setInterval(function()
+		{ 
+			var csrf_token = $('meta[name=_csrf_token]').attr('content');
+			var task_id = $('span#pre_task_id').attr('class');
+			var pid = $('span#pre_pid').attr('class');
+		
+			if (checkVariableExistance(csrf_token) &&
+				 checkVariableExistance(task_id) &&
+				 checkVariableExistance(pid)) {
+	    		$.ajax({
+	      		url: '/prediction_analysis_status_check',
+	      		beforeSend: function(xhr, settings) {
+	      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	      			}
+	  				},
+	   			data: { 
+	   				task_id: task_id, 
+	   				pid: pid 
+	   			},
+	   			type: 'POST',
+	   			dataType: 'json',
+	   			success: function(data) {
+
+	       			if (data !== null) {
+	       				if (data.job_status === 'done') {
+	       					$('div#pred_analysis_status_update_content').html('<center><i class="far fa-thumbs-up" aria-hidden="true"></i> Analysis completed.<br>See <em>Results</em> section.</center>');
+	       					$('button#exec_pred_analysis_btn').attr('disabled', false);
+	       					$('a#pred_show_setup').removeClass('disabled');
+	       					exec_prediction_analysis_cleaner();
+    							clearInterval(checker);
+	       				}
+	       			}
+	   			},
+	   			error: function(error) {
+	   				var res = $.parseJSON(error.responseText);
+	   				var error_code = parseInt(error.status, 10);
+	   				var msg = '';
+	
+	   				if(error_code === 400)
+	   					msg = ': <i>' + res.error_msg + '</i> Please reload the page.';
+	   				else if( error_code === 405) {
+	   					msg = ': <i>' + res.error_msg + '</i>';
+	   				}
+	       			
+	       			$('button#exec_pred_analysis_btn').attr("disabled", false);
+	       			$('a#pred_show_setup').removeClass('disabled');
+	       			modal_error_notification('An error occurred' + msg);
+	   			}
+	    		});
+    		}	
+    		
+		}, 20000); //time in milliseconds 
+		
+		
+		$('a#pred_stop_btn').on('click', function (e) {
+			e.preventDefault();
+			var csrf_token = $('meta[name=_csrf_token]').attr('content');
+			var pid = $('span#pre_pid').attr('class');
+			
+			if (checkVariableExistance(csrf_token) &&
+				 checkVariableExistance(pid)) {
+	  			
+	  			$.ajax({
+	      		url: '/prediction_analysis_kill_all',
+	      		beforeSend: function(xhr, settings) {
+	      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	      			}
+	  				},
+	   			data: { pid: pid },
+	   			type: 'POST',
+	   			dataType: 'json',
+	   			success: function(response) {
+
+	       			$('div#pred_analysis_status_update_content').html('<center><i class="far fa-hand-paper" aria-hidden="true"></i> The analysis has been stopped.</center>');
+    					$('button#exec_pred_analysis_btn').attr('disabled', false);
+    					$('a#pred_show_setup').removeClass('disabled');
+    					$('a#pred_analysis_response_close_btn').css('display','inline-block');
+    					clearInterval(checker);
+	   			},
+	   			error: function(error) {
+	   				var res = $.parseJSON(error.responseText);
+	   				var error_code = parseInt(error.status, 10);
+	   				var msg = '';
+	
+	   				if(error_code === 400)
+	   					msg = ': <i>' + res.error_msg + '</i> Please reload the page.';
+	   				else if( error_code === 405) {
+	   					msg = ': <i>' + res.error_msg + '</i>';
+	   				}
+	   						
+	       			modal_error_notification('An error occurred' + msg);
+	   			}
+	  			});
+	  		}
+		});
+		
+	});
+
+	
+	function exec_prediction_analysis() {
+		var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		var min_cons = $('select#pred_min_cons').val();
+		
+		if (checkVariableExistance(csrf_token) &&
+			 checkVariableExistance(min_cons)) {
+  			
+  			$('button#exec_pred_analysis_btn').attr('disabled', true);	
+			$('a#pred_show_setup').addClass('disabled');
+       				
+  			$.ajax({
+      		url: '/exec_prediction_analysis',
+      		beforeSend: function(xhr, settings) {
+      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+      			}
+  				},
+   			data: { min_cons:min_cons },
+   			type: 'POST',
+   			dataType: 'json',
+   			success: function(response) {
+       			//console.log(response)
+       			if (response !== null) {
+       				$('span#pre_task_id').attr('class', response.task_id);
+       				$('span#pre_pid').attr('class', response.job_pid);
+       			}
+       			
+   			},
+   			error: function(error) {
+   				var res = $.parseJSON(error.responseText);
+   				var error_code = parseInt(error.status, 10);
+   				var msg = '';
+
+   				if(error_code === 400)
+   					msg = ': <i>' + res.error_msg + '</i> Please reload the page.';
+   				else if( error_code === 405) {
+   					msg = ': <i>' + res.error_msg + '</i>';
+   				}
+   				
+   				$('button#exec_pred_analysis_btn').attr('disabled', false);  
+					$('a#pred_show_setup').removeClass('disabled');     			
+       			modal_error_notification('An error occurred' + msg);
+   			}
+  			});
+  		}
+	}
+	
+	
+	function exec_prediction_analysis_cleaner() {
+		var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		var pid = $('span#pre_pid').attr('class');
+		
+		if (checkVariableExistance(csrf_token) &&
+			 checkVariableExistance(pid)) {
+  			
+  			$.ajax({
+      		url: '/prediction_analysis_cleaner',
+      		beforeSend: function(xhr, settings) {
+      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+      			}
+  				},
+   			data: { pid: pid },
+   			type: 'POST',
+   			dataType: 'html',
+   			success: function(response) {   
+       			if (response !== null) {
+       				$('div#pred_results_tab').html(response);	
+       				$('a#tabs_pred_results_tab').css('display','block');	
+       				$('a#pred_analysis_response_close_btn').css('display','inline-block');
+       			}
+   			},
+   			error: function(error) {
+   				var res = $.parseJSON(error.responseText);
+   				var error_code = parseInt(error.status, 10);
+   				var msg = '';
+
+   				if(error_code === 400)
+   					msg = ': <i>' + res.error_msg + '</i> Please reload the page.';
+   				else if( error_code === 405) {
+   					msg = ': <i>' + res.error_msg + '</i>';
+   				}
+   						
+   				$('a#tabs_pred_results_tab').css('display','block');
+       			modal_error_notification('An error occurred' + msg);
+   			}
+  			});
+  		}
+	}
+	
+	
+	function exec_prediction_analysis_process_killer() {
+		var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		var pid = $('span#pre_pid').attr('class');
+		
+		if (checkVariableExistance(csrf_token) &&
+			 checkVariableExistance(pid)) {
+  			
+  			$.ajax({
+      		url: '/prediction_analysis_kill_all',
+      		beforeSend: function(xhr, settings) {
+      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+      			}
+  				},
+   			data: { pid: pid },
+   			type: 'POST',
+   			dataType: 'json',
+   			success: function(response) {
+       			//console.log(response)       			
+   			},
+   			error: function(error) {
+   				var res = $.parseJSON(error.responseText);
+   				var error_code = parseInt(error.status, 10);
+   				var msg = '';
+
+   				if(error_code === 400)
+   					msg = ': <i>' + res.error_msg + '</i> Please reload the page.';
+   				else if( error_code === 405) {
+   					msg = ': <i>' + res.error_msg + '</i>';
+   				}
+   						
+       			modal_error_notification('An error occurred' + msg);
+   			}
+  			});
+  		}
+	}
+</script>

@@ -1,0 +1,36 @@
+{% import 'prediction_analysis/macros/pred_input.html' as pred_macro %}
+           
+{% if show_isomir_table %}
+	{{ pred_macro.render_mirna_pred_results_isomir_variation_table(pred_data) }}
+{% endif %}
+
+{% if show_nt_variation_table %}
+	{{ pred_macro.render_mirna_pred_results_nt_variation_table(pred_data) }}
+{% endif %}
+
+{% if show_wt_table %}
+	{{ pred_macro.render_mirna_pred_results_wt_table(pred_data) }}
+{% endif %}
+
+{{ pred_macro.render_mirna_pred_statistics_js() }}
+
+
+<!-- Modal -->
+<div class="modal fade" id="pred_statistics_modal" tabindex="-1" role="dialog" aria-labelledby="pred_statistics_modal_label" aria-hidden="true">
+  	<div class="modal-dialog modal-lg" role="document">
+    	<div class="modal-content">
+      	<div class="modal-header">
+        		<h5 class="modal-title" id="pred_statistics_modal_label"></h5>
+        		<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          		<span aria-hidden="true">&times;</span>
+        		</button>
+      	</div>
+      	<div class="modal-body">
+      		<div id="pred_statistics_modal_content"></div>
+      	</div>
+      	<div class="modal-footer">
+        		<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+      	</div>
+   	</div>
+  	</div>
+</div>

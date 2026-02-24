@@ -46,6 +46,10 @@ RUN python2.7 -m pip install --no-cache-dir --upgrade "pip==20.3.4" "setuptools=
 	&& python2.7 -m pip install --no-cache-dir "dendropy==4.3.0" \
 	&& python2.7 -m pip install --no-cache-dir -r /opt/requirements.txt
 
+# Setup app_v1
+COPY app_v1 /app_v1
+RUN python3.6 -m pip install --no-cache-dir -r /app_v1/requirements.txt
+
 # Setup Vienna-rna
 RUN cd /opt \
 	&& dpkg -i viennarna_2.4.11-1_amd64.deb

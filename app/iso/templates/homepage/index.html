@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}isoTar - Homepage{% endblock %}
+
+
+{% block page_content %}
+<div class="page-header">
+	<p class="muted"><i>i</i>soTar - Consensus Target Prediction with Functional Enrichment Analysis for Human miRNA Variants</p>
+</div>
+<div class="row">
+	<div class="col-xs-12 col-sm-12 col-md-12 col-lg-6 featurette">
+		<br>
+		<p class="featurette-heading">
+			<span class="lead" style="font-size: .5em">Run on any system, no worries!</span>
+		</p>
+		<p class="" align="justify">
+			<strong><i>i</i>soTar</strong> is a high performance web-based containerized application designed for Human miRNA variants. It provides:
+		</p>
+		
+		<ul>
+			<li><i>Consensus Target Prediction</i></li>
+			<li><i>Functional Enrichment Analysis</i></li>		
+			<li><i>Easy download and run (powered by <a href="https://www.docker.com/" target="_blank" title="Docker">Docker</a>)</i></li>
+		</ul>	
+		
+		<p align="justify">
+			Through a friendly web-based <em>User Interface</em> (UI), users can explore the impact of Human miRNA variants on the Human Transcriptome.<br><br>
+			
+			<a class="btn btn-success" href="{{ url_for('main.doc', _external=True) }}" role="button">View documentation »</a>
+			
+		</p>
+	</div><!-- /.col-xs-12 col-sm-12 col-md-12 col-lg-6 -->
+	<div class="col-xs-12 col-sm-12 col-md-12 col-lg-6">
+		<center><img src="{{ url_for('static', filename='public/images/vendor/network.jpg', _external=True) }}" class="img-responsive" alt="isoTar" title="isoTar" width="100%"></center>
+	</div><!-- /.col-xs-7 col-sm-7 col-md-12 col-lg-6 -->
+</div><!-- /.row -->
+<hr>
+
+<div class="bd-callout bd-callout-warning">
+	<p align="justify" style="font-size: 0.8em">
+  		<strong><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Disclaimer:</strong> This program is for educational and research purposes only.<br><br>
+  		
+  		This program is free software; you can redistribute it and/or modify
+	   it under the terms of the GNU General Public License as published by
+	   the Free Software Foundation; either version 3 of the License, or (at
+	   your option) any later version.<br><br>
+	
+	   This program is distributed in the hope that it will be useful,
+	   but WITHOUT ANY WARRANTY; without even the implied warranty of
+	   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+	   General Public License for more details.<br><br>
+	
+	   A copy of the license text can be obtained from <a href="https://www.gnu.org/licenses/gpl-3.0.en.html" title="GNU General Public License" target="_blank">https://www.gnu.org/licenses/gpl-3.0.en.html</a>
+  	</p>
+</div>
+<br>
+<center><p>Copyright &copy; 2020 Department of Cancer Biology and Genetics, The Ohio State University, USA</p></center>
+{% endblock %}
+
+
+
+
+{% block scripts %}
+{{ super() }}
+	<script>
+		$(function() {
+			$('[data-toggle="popover"]').popover({
+				html: true
+			});
+		});
+		var colors = Highcharts.getOptions().colors;
+	</script>	
+{% endblock %}

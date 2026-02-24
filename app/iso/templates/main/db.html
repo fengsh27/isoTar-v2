@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% import 'main/macros/main_input.html' as main_macro %}
+
+{% block title %}Known A-to-I Mature miRNA Editing Sites{% endblock %}
+
+{% block page_content %}
+<div class="page-header">
+	<p class="muted">{% if var_type == 'edit_db'%}Known A-to-I Mature miRNA Editing Sites{% else %}SNPs in Mature miRNA{% endif %}</p>
+</div>
+<div class="page-content">
+	{{ main_macro.render_variations_db_table(variations_db, var_type) }}
+</div>
+{% endblock %}
+
+
+
+{% block scripts %}
+{{ super() }}	
+	<script type="text/javascript" >
+		
+		$(function() {
+		
+			// Setup - add a text input to each footer cell
+    		$('table#variations_table tfoot th').each( function () {
+        		var title = $(this).text();
+        		if (title !== '') {
+     				$(this).html( '<input style="width:35px" type="text" placeholder="Search" />' );
+     			}
+    		});
+    	
+    
+			var var_table = $('table#variations_table').DataTable({
+		   	order: [[ 1, 'asc' ]],
+		      displayLength: 10,
+		      dom: 'Bfrtip',
+			  	buttons: [{
+					extend: 'copy',
+					title : '{{filename|e}}',
+               exportOptions: {
+               	columns: [ 1, 2, 3, 4, 5, 6, 7, 8 ]
+               }					  
+			  	},{
+					extend: 'csv',
+					text: 'TSV',
+					title : '{{filename|e}}',
+					fieldSeparator: '\t', 
+					extension: '.tsv',
+               exportOptions: {
+               	columns: [ 1, 2, 3, 4, 5, 6, 7, 8 ]
+               }					  
+			  	},{
+					extend: 'excel',
+					title : '{{filename|e}}',
+               exportOptions: {
+               	columns: [ 1, 2, 3, 4, 5, 6, 7, 8 ]
+               } 					  
+			  	},{
+					extend: 'pdf',
+					title : '{{filename|e}}',
+					orientation: 'landscape',
+               pageSize: 'LEGAL',
+               exportOptions: {
+               	columns: [ 1, 2, 3, 4, 5, 6, 7, 8 ]
+               }					  
+			  	},{
+					extend: 'print',
+					title : '{{filename|e}}',
+               exportOptions: {
+               	columns: [ 1, 2, 3, 4, 5, 6, 7, 8 ]
+               } 					  
+			 	}]
+			});
+			
+			
+			// Apply the search
+		   var_table.columns().every( function () {
+		   	var that = this;
+		 
+		      $('input', this.footer()).on( 'keyup change', function () {
+		      	if(that.search() !== this.value){
+		         	that
+		            	.search( this.value )
+		               .draw();
+		         }
+		      });
+		   });
+			
+			
+			$('a#export_mirna_list_btn').on('click', function (e) {
+				e.preventDefault();
+				// Prevent event triggering more then once
+				if(e.handled !== true) {
+					
+					var rows = new Array();
+					$('div#var_db_modal_content').html('');
+										
+					var mirnas_checked = $('table#variations_table').DataTable()
+										      	.column(0)
+										        	.nodes()
+										        	.to$()
+										        	.find('input[name^=mir_var_site]:checked');
+
+					$(mirnas_checked).each(function () {
+						rows.push($(this).val());
+					});
+					
+					$('div#var_db_modal_content').html('<pre>' + rows.join('<br>') + '</pre>');
+					$('div#var_db_modal').modal('show');			
+					e.handled = true;
+				}
+			});
+						   
+		});
+	</script>
+{% endblock %}

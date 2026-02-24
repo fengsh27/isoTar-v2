@@ -1,0 +1,104 @@
+/*! ========================================================================
+ * Bootstrap Toggle: bootstrap-toggle.css v2.2.0
+ * http://www.bootstraptoggle.com
+ * ========================================================================
+ * Copyright 2014 Min Hur, The New York Times Company
+ * Licensed under MIT
+ * ======================================================================== */
+.checkbox label .toggle,.checkbox-inline .toggle{
+	margin-left:-20px !important;
+	margin-right:5px !important;
+}
+.toggle{
+	position:relative !important;
+	overflow:hidden !important
+}
+.toggle input[type=checkbox]{
+	display:none !important
+}
+.toggle-group{
+	position:absolute !important;
+	width:200% !important;
+	top:0 !important;
+	bottom:0 !important;
+	left:0 !important;
+	transition:left .35s !important;
+	-webkit-transition:left .35s !important;
+	-moz-user-select:none !important;
+	-webkit-user-select:none !important
+}
+.toggle.off .toggle-group{
+	left:-100% !important
+}
+.toggle-on{
+	position:absolute !important;
+	top:0 !important;
+	bottom:0 !important;
+	left:0 !important;
+	right:50% !important;
+	margin:0 !important;
+	border:0 !important;
+	border-radius:0 !important
+}
+.toggle-off{
+	position:absolute !important;
+	top:0 !important;
+	bottom:0 !important;
+	left:50% !important;
+	right:0 !important;
+	margin:0 !important;
+	border:0 !important;
+	border-radius:0 !important
+}
+.toggle-handle{
+	position:relative !important;
+	margin:0 auto !important;
+	padding-top:0 !important;
+	padding-bottom:0 !important;
+	height:100% !important;
+	width:0 !important;
+	border-width:0 1px !important
+}
+.toggle.btn{
+	min-width:59px !important;
+	min-height:34px !important
+}
+.toggle-on.btn{
+	padding-right:24px !important
+}
+.toggle-off.btn{
+	padding-left:24px !important
+}
+.toggle.btn-lg{
+	min-width:79px !important;
+	min-height:45px !important
+}
+.toggle-on.btn-lg{
+	padding-right:31px !important
+}
+.toggle-off.btn-lg{
+	padding-left:31px !important
+}
+.toggle-handle.btn-lg{
+	width:40px !important
+}
+.toggle.btn-sm{
+	min-width:50px !important;
+	min-height:30px !important
+}
+.toggle-on.btn-sm{
+	padding-right:20px !important
+}
+.toggle-off.btn-sm{
+	padding-left:20px !important
+}
+.toggle.btn-xs{
+	min-width:35px !important;
+	min-height:22px !important
+}
+.toggle-on.btn-xs{
+	padding-right:12px !important
+}
+.toggle-off.btn-xs{
+	padding-left:12px !important
+}

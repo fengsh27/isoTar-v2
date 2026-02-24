@@ -1,0 +1,218 @@
+{% import 'enrichment_analysis/macros/enrich_input.html' as enrich_macro %}
+
+<div id="enrich_analysis_results"></div>
+
+<!-- Modal -->
+<div class="modal fade" id="enrich_statistics_modal" tabindex="-1" role="dialog" aria-labelledby="enrich_statistics_modal_label" aria-hidden="true">
+  	<div class="modal-dialog modal-lg" role="document">
+    	<div class="modal-content"  style="width: 1000px">
+      	<div class="modal-header">
+        		<h5 class="modal-title" id="enrich_statistics_modal_label"></h5>
+        		<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          		<span aria-hidden="true">&times;</span>
+        		</button>
+      	</div>
+      	<div class="modal-body">
+      		<div id="enrich_statistics_modal_content"></div>
+      	</div>
+      	<div class="modal-footer">
+        		<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+      	</div>
+   	</div>
+  	</div>
+</div>
+
+<script>
+	$(function() {
+	
+	 	var checker_go = setInterval(function()
+		{ 
+			var csrf_token = $('meta[name=_csrf_token]').attr('content');
+
+			if (checkVariableExistance(csrf_token)) {
+	    		$.ajax({
+	      		url: '/enrichment_analysis_status_check',
+	      		beforeSend: function(xhr, settings) {
+	      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	      			}
+	  				},
+	  				data: {
+						analysis_type: '{{analysis_type|safe}}'	  				
+	  				},
+	  				type: 'POST',
+	   			dataType: 'json',
+	   			success: function(response) {
+	       			if (response !== null) {
+	       				if (response.status === 'done') {
+	       					exec_enrichment_analysis_cleaner();
+    							clearInterval(checker_go);
+	       				}
+	       			}
+	   			},
+	   			error: function(error) {
+	   				var res = $.parseJSON(error.responseText);
+   					var error_code = parseInt(error.status, 10);
+   					var msg = '';
+   				
+	   				if(error_code === 400)
+	   					msg = res.error_msg + '. Please reload the page.';
+	   				else {
+	   					msg = res.error_msg;
+	   				}		       			
+	
+						$('button#exec_enrich_analysis_btn').attr("disabled", false);
+	       			$('a#enrich_show_setup').removeClass('disabled');
+	       			modal_error_notification('An error occurred: ' + msg);
+	   			}
+	    		});
+    		}	
+ 
+		}, 10000); //time in milliseconds 
+		
+		
+		
+		$('a#enrich_stop_btn').on('click', function (e) {
+			e.preventDefault();
+			var csrf_token = $('meta[name=_csrf_token]').attr('content');
+			
+			if (checkVariableExistance(csrf_token)) {
+	  			
+	  			$.ajax({
+	      		url: '/enrichment_analysis_kill_all',
+	      		beforeSend: function(xhr, settings) {
+	      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	      			}
+	  				},
+	  				data: {
+						analysis_type: '{{analysis_type|safe}}'	  				
+	  				},
+	   			type: 'POST',
+	   			dataType: 'json',
+	   			success: function(data) {
+	       			if (data !== null) {
+	       				$('div#enrich_analysis_status_update_content').html('<center><i class="far fa-hand-paper" aria-hidden="true"></i> The Functional Enrichment Analysis has been stopped</center>');				
+	       			} 
+	       
+    					$('button#exec_enrich_analysis_btn').attr("disabled", false);
+	       			$('a#enrich_show_setup').removeClass('disabled');
+	       			$('a#enrich_analysis_response_close_btn').css('display','inline-block');
+	       			clearInterval(checker_go);
+	   			},
+	   			error: function(error) {
+	   				var res = $.parseJSON(error.responseText);
+	   				var error_code = parseInt(error.status, 10);
+	   				var msg = '';
+	
+	   				if(error_code === 400)
+	   					msg = ': <i>' + res.error_msg + '</i> Please reload the page.';
+	   				else if( error_code === 405) {
+	   					msg = ': <i>' + res.error_msg + '</i>';
+	   				}
+	   					
+	   				$('button#exec_enrich_analysis_btn').attr("disabled", false);
+	       			$('a#enrich_show_setup').removeClass('disabled');
+	       			modal_error_notification('An error occurred' + msg);
+	   			}
+	  			});
+	  		}
+		});
+		
+	});
+	
+	
+	function exec_enrichment_analysis_cleaner() {
+		var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		
+		if (checkVariableExistance(csrf_token)) {
+  			
+  			$.ajax({
+      		url: '/enrichment_analysis_cleaner',
+      		beforeSend: function(xhr, settings) {
+      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+      			}
+  				},
+	  			data: {
+					analysis_type: '{{analysis_type|safe}}'	  				
+	  			},
+	   		type: 'POST',
+   			dataType: 'json',
+   			success: function(response) {  
+       			if (response !== null) {
+       				if (response.status === 'done') {
+       					$('a#enrich_analysis_response_close_btn').css('display','inline-block');
+       					$('div#enrich_analysis_status_update_content').html('<center><i class="far fa-thumbs-up" aria-hidden="true"></i> Analysis completed</center>');
+	       				$('button#exec_enrich_analysis_btn').attr('disabled', false);
+	       				$('a#enrich_show_setup').removeClass('disabled');
+	       				// Load all enrichment data
+	       				get_enrichment_analysis_data();
+       				}
+       			}
+   			},
+   			error: function(error) {
+   				var res = $.parseJSON(error.responseText);
+	   				var error_code = parseInt(error.status, 10);
+	   				var msg = '';
+	
+	   				if(error_code === 400)
+	   					msg = ': <i>' + res.error_msg + '</i> Please reload the page.';
+	   				else if( error_code === 405) {
+	   					msg = ': <i>' + res.error_msg + '</i>';
+	   				}
+   						
+   				$('button#exec_enrich_analysis_btn').attr("disabled", false);
+	       		$('a#enrich_show_setup').removeClass('disabled');
+       			modal_error_notification('An error occurred' + msg);
+   			}
+  			});
+  		}
+  		
+  		return false;
+	}
+	
+	
+	
+	function get_enrichment_analysis_data() {
+		var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		
+		if (checkVariableExistance(csrf_token)) {
+  			
+  			$.ajax({
+      		url: '/get_enrichment_analysis_results',
+      		beforeSend: function(xhr, settings) {
+      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+      			}
+  				},
+  				data: {
+					analysis_type: '{{analysis_type|e}}'				
+  				},
+  				type: 'POST',
+   			dataType: 'html',
+   			success: function(response) {  
+       			if (response !== null) {
+       				$('div#enrich_analysis_results').html(response);
+       			}
+   			},
+   			error: function(error) {
+   				var res = $.parseJSON(error.responseText);
+   				var error_code = parseInt(error.status, 10);
+   				var msg = '';
+
+   				if(error_code === 400)
+   					msg = ': <i>' + res.error_msg + '</i> Please reload the page.';
+   				else if( error_code === 405) {
+   					msg = ': <i>' + res.error_msg + '</i>';
+   				}
+   						
+       			modal_error_notification('An error occurred' + msg);
+   			}
+  			});
+  		}
+  		
+  		return false;
+	}
+
+</script>

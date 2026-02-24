@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}isoTar - Prediction Analysis{% endblock %}
+
+{% import 'prediction_analysis/macros/pred_input.html' as pred_macro %}
+{% import 'enrichment_analysis/macros/enrich_input.html' as enrich_macro %}
+
+{% block page_content %}
+<div class="page-content">
+
+	<ul class="nav nav-tabs mb-3" id="pills-pred-enrich-tab" role="tablist">
+	  	<li class="nav-item">
+	    	<a class="nav-link active" id="pills_pred_analysis_tab" data-toggle="tab" href="#pred_analysis_tab" role="tab" aria-controls="pills_pred_analysis_tab" aria-selected="true">
+	    		Consensus Prediction
+	    	</a>
+	  	</li>
+	  	<li class="nav-item">
+	    	<a class="nav-link" id="pills_enrich_analysis_tab" data-toggle="tab" href="#enrich_analysis_tab" role="tab" aria-controls="pills_enrich_analysiss_tab" aria-selected="false">
+	    		Functional Analysis
+	    	</a>
+	  	</li>
+	  	<li class="nav-item" style="padding-left: 2px; color: white">
+			<a class="btn btn-primary" id="upload_work_btn">
+		  		<i class="fas fa-upload"></i> Upload previous results
+		  	</a>
+		</li>		
+		<li class="nav-item" style="padding-left: 2px; color: white">
+		  	<a class="btn btn-primary" id="download_work_btn">
+				<i class="fas fa-download"></i> Download the current results		
+		  	</a>
+		</li>
+		<li class="nav-item" style="padding-left: 2px; color: white">
+		  	<a class="btn btn-success" id="reload_work_btn">
+				<i class="fas fa-sync-alt"></i> Reload latest results 
+		  	</a>
+		</li>
+	</ul>
+	<div class="tab-content" id="pills-pred-enrich-results">
+		<div class="tab-pane fade show active" id="pred_analysis_tab" role="tabpanel" aria-labelledby="pred_analysis_tab"> 
+			{{ pred_macro.render_prediction_input_form(sys_cores) }}
+			<div id="pred_analysis_content"></div>	
+		</div>
+		<div class="tab-pane fade show" id="enrich_analysis_tab" role="tabpanel" aria-labelledby="enrich_analysis_tab"> 	
+			{{ enrich_macro.render_pred_enrichment_form(sys_cores) }}		
+			<div id="enrich_analysis_content"></div>	
+		</div>
+	</div>
+	
+	<!-- Modal -->
+	<div class="modal fade" id="pre_modal" tabindex="-1" role="dialog" aria-labelledby="pre_modal_label" aria-hidden="true">
+	  	<div class="modal-dialog" role="document">
+	    	<div class="modal-content">
+	      	<div class="modal-header">
+	        		<h5 class="modal-title" id="pre_modal_label"><i class="fas fa-exclamation-circle"></i> Error</h5>
+	        		<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+	          		<span aria-hidden="true">&times;</span>
+	        		</button>
+	      	</div>
+	      	<div class="modal-body">
+	        		<p id="pred_form_check_error_content"></p>
+	      	</div>
+	      	<div class="modal-footer">
+	        		<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+	      	</div>
+	   	</div>
+	  	</div>
+	</div>
+	
+	<!-- Modal -->
+	<div class="modal fade" id="upload_work_modal" tabindex="-1" role="dialog" aria-labelledby="upload_work_modal_label" aria-hidden="true">
+	  	<div class="modal-dialog" role="document">
+	    	<div class="modal-content">
+	      	<div class="modal-header">
+	        		<h5 class="modal-title" id="upload_work_modal_label">Upload module</h5>
+	        		<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+	          		<span aria-hidden="true">&times;</span>
+	        		</button>
+	      	</div>
+	      	<div class="modal-body">
+  					<!-- The fileinput-button span is used to style the file input field as button -->
+  					<p>Use this module to upload and load previous (downloaded) results. Please, wait until the final response.</p>
+				   <span class="btn btn-primary fileinput-button btn-sm">
+				       <i class="fas fa-upload"></i>
+				       <span>Search &amp; Upload</span>
+				       <!-- The file input field used as target for the file upload widget -->
+				       <input id="fileupload" type="file" name="files[]">
+				   </span> Only <i>.ZIP</i> file is permitted.
+				   <br><br>
+				   <!-- The global progress bar -->
+				   
+   	 			<div id="progress" class="progress">
+        				<div class="progress-bar" style="width: 0%"></div>
+    				</div>
+    				<br>
+				   <div id="upload_response"></div>
+				   <div id="upload_setting_response"></div>
+	      	</div>
+	      	<div class="modal-footer">
+	        		<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+	      	</div>
+	   	</div>
+	  	</div>
+	</div>
+	
+	
+	
+	<!-- Modal -->
+	<div class="modal fade" id="download_work_modal" tabindex="-1" role="dialog" aria-labelledby="download_work_modal_label" aria-hidden="true">
+	  	<div class="modal-dialog" role="document">
+	    	<div class="modal-content">
+	      	<div class="modal-header">
+	        		<h5 class="modal-title" id="download_work_modal_label">Download module</h5>
+	        		<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+	          		<span aria-hidden="true">&times;</span>
+	        		</button>
+	      	</div>
+	      	<div class="modal-body" id="download_response">
+	      		<center>
+	      			<h2 class="lead"><i class="fas fa-cog fa-spin"></i> Zipping, please wait...</h2>
+	      		</center>
+	      	</div>
+	      	<div class="modal-footer">
+	        		<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+	      	</div>
+	   	</div>
+	  	</div>
+	</div>
+	
+	
+	<!-- Modal -->
+	<div class="modal fade" id="variations_db_modal" tabindex="-1" role="dialog" aria-labelledby="variations_db_modal_label" aria-hidden="true">
+	  	<div class="modal-dialog modal-lg" role="document">
+	    	<div class="modal-content" style="width: 1000px">
+	      	<div class="modal-header">
+	      		<h5 class="modal-title">
+						<a href="#" class="btn btn-warning btn-sm" id="add_variations_list_btn">
+							<i class="fas fa-plus"></i> Add
+						</a>	      		
+	      		</h5>
+	        		<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+	          		<span aria-hidden="true">&times;</span>
+	        		</button>
+	      	</div>
+	      	<div class="modal-body">
+	      		<p>Check variations you might want to use. Add them to the <i>textarea</i> by clicking on the button above.</p>
+	      		<div id="variations_db_modal_content" style="font-size: 10px"></div>
+	      	</div>
+	      	<div class="modal-footer">
+	        		<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+	      	</div>
+	   	</div>
+	  	</div>
+	</div>
+	
+</div>
+{% endblock %}
+
+
+{% block scripts %}
+	{{ super() }}
+	{{ pred_macro.render_mirna_pred_js(mat_mirnas_list) }}
+	{{ enrich_macro.render_mirna_enrich_js() }}
+{% endblock %}
+
