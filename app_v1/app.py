@@ -46,10 +46,12 @@ def run_job(self, job_id):
 
     try:
         mirna_id = meta["mirna_id"]
-        operations = meta.get("operations", [])
         tools = meta["tools"]
         genome = meta.get("genome", "hg38")
         cores = int(meta.get("cores", 1))
+        modifications = meta.get("modifications", [])
+        shift = meta.get("shift")
+        pre_id = meta.get("pre_id")
 
         fasta_path = os.path.join(job_dir, "mirna.fa")
         cmd = [
@@ -59,8 +61,14 @@ def run_job(self, job_id):
             "-o",
             fasta_path,
         ]
-        for op in operations:
-            cmd.extend(op)
+        for mod in modifications:
+            cmd.extend(["-m", mod])
+        if shift:
+            cmd.extend(["-s", shift])
+        if modifications and shift:
+            cmd.append("-b")
+        if pre_id:
+            cmd.extend(["--pre-id", pre_id])
         subprocess.check_call(cmd)
 
         cmd = [
@@ -100,10 +108,18 @@ def submit_job():
     data = request.get_json(force=True, silent=True) or {}
     tools = data.get("tools", [])
     mirna_id = data.get("mirna_id")
-    operations = data.get("operations", [])
+    modifications = data.get("modifications", [])
+    shift = data.get("shift")
+    pre_id = data.get("pre_id")
 
     if not tools or not mirna_id:
         return jsonify({"error": "tools and mirna_id are required"}), 400
+
+    if not isinstance(modifications, list):
+        return jsonify({"error": "modifications must be a list of strings"}), 400
+
+    if shift is not None and not isinstance(shift, str):
+        return jsonify({"error": "shift must be a string in format 'left|right' (e.g. '-4|-6')"}), 400
 
     job_id = str(uuid.uuid4())
     job_dir = _job_path(job_id)
@@ -113,14 +129,18 @@ def submit_job():
         "job_id": job_id,
         "status": "queued",
         "created_at": int(time.time()),
-        "tools": tools,
         "mirna_id": mirna_id,
-        "operations": operations,
+        "tools": tools,
         "genome": data.get("genome", "hg38"),
         "cores": data.get("cores", 1),
+        "modifications": modifications,
+        "shift": shift,
+        "pre_id": pre_id,
     }
     _write_meta(job_id, meta)
     task = run_job.delay(job_id)
+    meta["task_id"] = task.id
+    _write_meta(job_id, meta)
     return jsonify({"job_id": job_id, "task_id": task.id}), 202
 
 
@@ -151,6 +171,22 @@ def job_result(job_id):
         shutil.make_archive(archive_path.replace(".zip", ""), "zip", result_dir)
 
     return send_file(archive_path, as_attachment=True, download_name="{}_result.zip".format(job_id))
+
+
+@app.route("/api/v1/jobs/<job_id>/kill", methods=["POST"])
+def kill_job(job_id):
+    if not os.path.exists(_job_meta_path(job_id)):
+        return jsonify({"error": "job not found"}), 404
+    meta = _load_meta(job_id)
+    if meta.get("status") not in ("queued", "running"):
+        return jsonify({"error": "job is not killable", "status": meta.get("status")}), 409
+    task_id = meta.get("task_id")
+    if task_id:
+        celery_app.control.revoke(task_id, terminate=True, signal="SIGTERM")
+    meta["status"] = "killed"
+    meta["finished_at"] = int(time.time())
+    _write_meta(job_id, meta)
+    return jsonify({"job_id": job_id, "status": "killed"}), 200
 
 
 @app.route("/api/v1/jobs/<job_id>", methods=["DELETE"])
