@@ -14,6 +14,7 @@ if not hasattr(subprocess, "run"):
     subprocess.run = _run
 import json
 import shutil
+import time
 
 
 # Predefined list of tools
@@ -440,7 +441,30 @@ def get_longest_utr_length(utr_file):
                 current_length += len(line.strip())
     return max(max_length, current_length)
     
+def _write_progress(output_folder, tools, tool_statuses):
+    completed = sum(1 for t in tool_statuses if tool_statuses[t]["status"] == "done")
+    current = None
+    for t in tools:
+        if tool_statuses[t]["status"] == "running":
+            current = t
+            break
+    data = {
+        "total_tools": len(tools),
+        "completed_tools": completed,
+        "current_tool": current,
+        "tools_status": tool_statuses,
+        "updated_at": int(time.time())
+    }
+    progress_path = os.path.join(output_folder, "progress.json")
+    with open(progress_path, 'w') as f:
+        json.dump(data, f)
+
+
 def process_tools(sequences, tools, utr_file, output_folder, temp_folder):
+    tool_statuses = {}
+    for t in tools:
+        tool_statuses[t] = {"status": "pending", "started_at": None, "finished_at": None}
+    _write_progress(output_folder, tools, tool_statuses)
     seq_num = 0
     for seq in sequences:
         # Create a temporary FASTA file for the single sequence
@@ -457,7 +481,13 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder):
                 output_file = "{}/{}_miRanda_results.txt".format(miranda_out_dir, seq['header'])
                 # Run the tool
                 print("miRanda is processing {}".format(name_fasta))
+                tool_statuses["miRanda"]["status"] = "running"
+                tool_statuses["miRanda"]["started_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
                 run_miranda(temp_fasta, utr_file, output_file)
+                tool_statuses["miRanda"]["status"] = "done"
+                tool_statuses["miRanda"]["finished_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
             elif tool == "RNAhybrid":
                 # Output directory for miRanda
                 rnahybrid_out_dir = os.path.join(output_folder, "RNAhybrid")
@@ -467,7 +497,13 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder):
                 max_utr_length = get_longest_utr_length(utr_file)
                 # Run the tool
                 print("RNAhybrid is processing {}".format(name_fasta))
+                tool_statuses["RNAhybrid"]["status"] = "running"
+                tool_statuses["RNAhybrid"]["started_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
                 run_rnahybrid(temp_fasta, utr_file, output_file, int(seq['length']), max_utr_length)
+                tool_statuses["RNAhybrid"]["status"] = "done"
+                tool_statuses["RNAhybrid"]["finished_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
             elif tool == "miRmap":
                 # Create output directory for miRmap
                 mirmap_out_dir = os.path.join(output_folder, "miRmap")
@@ -475,7 +511,13 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder):
                 output_file = "{}/{}_miRmap_results.txt".format(mirmap_out_dir, seq['header'])
                 # Run the tool
                 print("miRmap is processing {}".format(name_fasta))
-                run_mirmap(seq['sequence'], seq['header'], utr_file, output_file) 
+                tool_statuses["miRmap"]["status"] = "running"
+                tool_statuses["miRmap"]["started_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
+                run_mirmap(seq['sequence'], seq['header'], utr_file, output_file)
+                tool_statuses["miRmap"]["status"] = "done"
+                tool_statuses["miRmap"]["finished_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
             elif tool == "DMISO":         
                 # Output directory for DMISO
                 dmiso_out_dir = os.path.join(output_folder, "DMISO")
@@ -484,9 +526,15 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder):
                 output_file = "{}/{}_DMISO_results.txt".format(dmiso_out_dir, seq['header'])
                 # Run the tool
                 print("DMISO is processing {}".format(name_fasta))
+                tool_statuses["DMISO"]["status"] = "running"
+                tool_statuses["DMISO"]["started_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
                 run_dmiso(temp_fasta, utr_file, temp_output_file)
                 # Parse DMISO results
                 parse_dmiso_results(temp_output_file, output_file)
+                tool_statuses["DMISO"]["status"] = "done"
+                tool_statuses["DMISO"]["finished_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
             elif tool == "PITA":
                 # Output directory for PITA
                 pita_out_dir = os.path.join(output_folder, "PITA")
@@ -494,6 +542,9 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder):
                 output_file_prefix = "{}/{}".format(pita_out_dir, seq['header'])
                 # Run the tool
                 print("PITA is processing {}".format(name_fasta))
+                tool_statuses["PITA"]["status"] = "running"
+                tool_statuses["PITA"]["started_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
                 run_pita(temp_fasta, utr_file, output_file_prefix)
                 # remove temp file
                 if os.path.exists("tmp_seqfile1"):
@@ -502,6 +553,9 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder):
                     os.remove("tmp_seqfile2")
                 if os.path.exists(output_file_prefix + "_pita_results.gxp"):
                     os.remove(output_file_prefix + "_pita_results.gxp")
+                tool_statuses["PITA"]["status"] = "done"
+                tool_statuses["PITA"]["finished_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
             elif tool == "Targetscan":
                                 # Output directory for PITA
                 targetscan_out_dir = os.path.join(output_folder, "Targetscan")
@@ -510,6 +564,9 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder):
                 output_file2 = "{}/{}_Targetscan_results2.txt".format(targetscan_out_dir, seq['header'])
                 # Run the tool
                 print("Targetscan is processing {}".format(name_fasta))
+                tool_statuses["Targetscan"]["status"] = "running"
+                tool_statuses["Targetscan"]["started_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
                 targetscan_prep(seq['sequence'], seq['header'], targetscan_out_dir)
                 # TargetScan Input File path
                 targetscan_input = "{}/{}_targetscan.txt".format(targetscan_out_dir, seq['header'])
@@ -562,16 +619,25 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder):
                                 next(pf)
                                 merged.write(pf.read())
                             # Remove the part file after merging
-                            os.remove(part_file)               
+                            os.remove(part_file)
+                tool_statuses["Targetscan"]["status"] = "done"
+                tool_statuses["Targetscan"]["finished_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
             else:
                 # Handle other tools
                 print("Tool {} is processing {}".format(tool, name_fasta))
         seq_num += 1
-        
+
 def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_folder):
     # Get all UTR subfiles
     utr_subfiles = [os.path.join(temp_folder+"/utr", f) for f in os.listdir(temp_folder+"/utr") if f.startswith("temp_3utr_part")]
-    
+
+    # Initialize progress tracking
+    tool_statuses = {}
+    for t in tools:
+        tool_statuses[t] = {"status": "pending", "started_at": None, "finished_at": None}
+    _write_progress(output_folder, tools, tool_statuses)
+
     # Create a pool of workers
     pool = multiprocessing.Pool(processes=num_cores)
     seq_num = 0
@@ -596,8 +662,11 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 
                 # Run in parallel
                 print("miRanda is processing {}".format(name_fasta))
+                tool_statuses["miRanda"]["status"] = "running"
+                tool_statuses["miRanda"]["started_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
                 pool.map(run_miranda_with_params, args)
-                
+
                 # Merge results
                 with open(output_file, 'w') as merged_file:
                     for utr_file in utr_subfiles:
@@ -606,7 +675,10 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                             with open(part_file, 'r') as pf:
                                 merged_file.write(pf.read())
                             os.remove(part_file)  # Remove temporary part file
-            
+                tool_statuses["miRanda"]["status"] = "done"
+                tool_statuses["miRanda"]["finished_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
+
             elif tool == "RNAhybrid":
                 # Create output directory for miRanda
                 rnahybrid_out_dir = os.path.join(output_folder, "RNAhybrid")
@@ -621,8 +693,11 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 
                 # Run in parallel
                 print("RNAhybrid is processing {}".format(name_fasta))
+                tool_statuses["RNAhybrid"]["status"] = "running"
+                tool_statuses["RNAhybrid"]["started_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
                 pool.map(run_rnahybrid_with_params, args)
-                
+
                 # Merge results
                 with open(output_file, 'w') as merged_file:
                     for utr_file in utr_subfiles:
@@ -631,7 +706,10 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                             with open(part_file, 'r') as pf:
                                 merged_file.write(pf.read())
                             os.remove(part_file)  # Remove temporary part file
-                            
+                tool_statuses["RNAhybrid"]["status"] = "done"
+                tool_statuses["RNAhybrid"]["finished_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
+
             elif tool == "miRmap":
                 # Create output directory for miRmap
                 mirmap_out_dir = os.path.join(output_folder, "miRmap")
@@ -646,8 +724,11 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
     
                 # Run in parallel
                 print("miRmap is processing {}".format(name_fasta))
+                tool_statuses["miRmap"]["status"] = "running"
+                tool_statuses["miRmap"]["started_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
                 pool.map(run_mirmap_with_params, args)
-    
+
                 # Merge results
                 with open(output_file, 'w') as merged_file:
                     for utr_file in utr_subfiles:
@@ -656,7 +737,10 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                             with open(part_file, 'r') as pf:
                                 merged_file.write(pf.read())
                             os.remove(part_file)  # Remove temporary part file
-                
+                tool_statuses["miRmap"]["status"] = "done"
+                tool_statuses["miRmap"]["finished_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
+
             elif tool == "DMISO":
                 # Create output directory for DMISO
                 dmiso_out_dir = os.path.join(output_folder, "DMISO")
@@ -671,8 +755,11 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 
                 # Run in parallel
                 print("DMISO is processing {}".format(name_fasta))
+                tool_statuses["DMISO"]["status"] = "running"
+                tool_statuses["DMISO"]["started_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
                 pool.map(run_dmiso_with_params, args)
-                
+
                 # Merge results
                 with open(output_file_before, 'w') as merged_file:
                     for utr_file in utr_subfiles:
@@ -683,7 +770,10 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                             os.remove(part_file)  # Remove temporary part file
                 # Parse DMISO results
                 parse_dmiso_results(output_file_before, output_file)
-                                                     
+                tool_statuses["DMISO"]["status"] = "done"
+                tool_statuses["DMISO"]["finished_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
+
             elif tool == "PITA":
                 # Create output directory for PITA
                 pita_out_dir = os.path.join(output_folder, "PITA")
@@ -697,6 +787,9 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 
                 # Run in parallel
                 print("PITA is processing {}".format(name_fasta))
+                tool_statuses["PITA"]["status"] = "running"
+                tool_statuses["PITA"]["started_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
                 pool.map(run_pita_with_params, args)
                 
                 # Merge results
@@ -742,10 +835,19 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 if os.path.exists("tmp_seqfile1"):
                     os.remove("tmp_seqfile1")
                 if os.path.exists("tmp_seqfile2"):
-                    os.remove("tmp_seqfile2")           
-            elif tool == "Targetscan":         
+                    os.remove("tmp_seqfile2")
+                tool_statuses["PITA"]["status"] = "done"
+                tool_statuses["PITA"]["finished_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
+            elif tool == "Targetscan":
                 # Run the tool
                 print("Targetscan is processing {}".format(name_fasta))
+                tool_statuses["Targetscan"]["status"] = "running"
+                tool_statuses["Targetscan"]["started_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
+                tool_statuses["Targetscan"]["status"] = "done"
+                tool_statuses["Targetscan"]["finished_at"] = int(time.time())
+                _write_progress(output_folder, tools, tool_statuses)
             else:
                 # Handle other tools
                 print("Tool {} is processing {}".format(tool, name_fasta))

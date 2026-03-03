@@ -22,6 +22,10 @@ def _job_meta_path(job_id):
     return os.path.join(_job_path(job_id), "job.json")
 
 
+def _progress_path(job_id):
+    return os.path.join(_job_path(job_id), "output", "progress.json")
+
+
 def _write_meta(job_id, data):
     with open(_job_meta_path(job_id), "w") as f:
         json.dump(data, f, indent=2)
@@ -30,6 +34,17 @@ def _write_meta(job_id, data):
 def _load_meta(job_id):
     with open(_job_meta_path(job_id), "r") as f:
         return json.load(f)
+
+
+def _load_progress(job_id):
+    path = _progress_path(job_id)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except (ValueError, IOError):
+        return None
 
 
 @celery_app.task(bind=True)
@@ -70,22 +85,34 @@ def run_job(self, job_id):
         if pre_id:
             cmd.extend(["--pre-id", pre_id])
         subprocess.check_call(cmd)
+        meta["step"] = "processing"
+        _write_meta(job_id, meta)
 
-        cmd = [
-            "python3.6",
-            "/opt/v2/mirna_predicting.py",
-            "-c",
-            str(cores),
-            "-i",
-            fasta_path,
-            "-t",
-        ] + tools + [
-            "-g",
-            genome,
-            "-o",
-            output_dir,
-        ]
-        subprocess.check_call(cmd)
+        meta["step"] = "predicting"
+        _write_meta(job_id, meta)
+
+        other_tools = [t for t in tools if t != "miRmap"]
+        if other_tools:
+            cmd = [
+                "python3.6",
+                "/opt/v2/mirna_predicting.py",
+                "-c", str(cores),
+                "-i", fasta_path,
+                "-t",
+            ] + other_tools + ["-g", genome, "-o", output_dir]
+            subprocess.check_call(cmd)
+
+        if "miRmap" in tools:
+            cmd = [
+                "python2.7",
+                "/opt/v2/mirna_predicting.py",
+                "-c", str(cores),
+                "-i", fasta_path,
+                "-t", "miRmap",
+                "-g", genome,
+                "-o", output_dir,
+            ]
+            subprocess.check_call(cmd)
 
         meta["status"] = "succeeded"
         meta["finished_at"] = int(time.time())
@@ -149,6 +176,9 @@ def job_status(job_id):
     if not os.path.exists(_job_meta_path(job_id)):
         return jsonify({"error": "job not found"}), 404
     meta = _load_meta(job_id)
+    progress = _load_progress(job_id)
+    if progress is not None:
+        meta["progress"] = progress
     resp = jsonify(meta)
     resp.headers["Cache-Control"] = "no-store"
     return resp
