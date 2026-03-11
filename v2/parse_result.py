@@ -6,6 +6,15 @@ import json
 import csv
 import sys
 
+# Matches Ensembl (ENST00000284637) or RefSeq mRNA (NM_001164664), stripping version suffix
+_TRANSCRIPT_RE = re.compile(r'(ENST\d+|NM_\d+)(?:\.\d+)?')
+
+def _extract_transcript_id(text):
+    """Return ENST or NM_ transcript ID from text, without version suffix. None if not found."""
+    m = _TRANSCRIPT_RE.search(text)
+    return m.group(1) if m else None
+
+
 def read_sequences_from_json(json_file):
     # Read sequences from a JSON file.
 
@@ -69,16 +78,14 @@ def parsePITAResults(output_f_path, result_dict):
     if os.path.exists(output_f_path):
         with open(output_f_path, 'r') as f:        
             handler = csv.reader(f, delimiter='\t')
-            for line in handler:  
+            for line in handler:
                 if len(line) == 13:
-                    # Target
-                    matchObj = re.match(r".*(ENST\d+).*", line[0], re.I)
-                    if matchObj:
-                        tar = matchObj.group(1)
+                    tar = _extract_transcript_id(line[0])
+                    if tar:
                         ddG = float(line[12])
                         if ddG <= -10.0:
                             if tar not in results:
-                                results.append(tar)        
+                                results.append(tar)
     if 'prediction' not in result_dict:
         result_dict["prediction"] = {}
     result_dict["prediction"]['PITA'] = results
@@ -90,12 +97,10 @@ def parseRnahybridResults(output_f_path, result_dict):
     if os.path.exists(output_f_path):
         with open(output_f_path, 'r') as f:        
             handler = csv.reader(f, delimiter=':')
-            for line in handler:  
+            for line in handler:
                 if len(line) == 11:
-                    # Target
-                    matchObj = re.match(r".*(ENST\d+).*", line[0], re.I)
-                    if matchObj:
-                        tar = matchObj.group(1) 
+                    tar = _extract_transcript_id(line[0])
+                    if tar:
                         # Get the seed region 2-7
                         target_seq = line[8][-8:-1]
                         mirna_seq = line[9][-8:-1]
@@ -129,9 +134,9 @@ def parseMirmapResults(output_f_path, result_dict):
             lines = f.readlines()
             for i in range(0, len(lines)):
                 # miRNA - Target
-                matchObj = re.match(r'^>[^,]+,.*?\s+([A-Za-z0-9]+)(?:\.[0-9]+)?\s*$', lines[i], re.M|re.I)
+                matchObj = re.match(r'^>[^,]+,.*?\s+(\S+)\s*$', lines[i], re.M|re.I)
                 if matchObj:
-                    tar = matchObj.group(1)  # Now group(1) = ENST00000409913
+                    tar = _extract_transcript_id(matchObj.group(1))
                     i += 2
                     if i < len(lines):
                         matchObj = re.match(r'.*[0-9]+.*', lines[i], re.M|re.I) # check this line contain any number
@@ -172,10 +177,10 @@ def parseMirandaResults(output_f_path, result_dict):
                                 i += 5
                                 # miRNA - Target
                                 if i < len(lines):
-                                    matchObj2 = re.match(r'^>([^\s]+)\s+[^_]+_[^_]+_([A-Za-z0-9]+)(?:\.[0-9]+)?\s+.*$', lines[i], re.M|re.I)
+                                    matchObj2 = re.match(r'^>([^\s]+)\s+(\S+)', lines[i], re.M|re.I)
                                     if matchObj2:
-                                        tar = matchObj2.group(2)
-                                        if tar not in results:
+                                        tar = _extract_transcript_id(matchObj2.group(2))
+                                        if tar and tar not in results:
                                             results.append(tar)
     if 'prediction' not in result_dict:
         result_dict["prediction"] = {}
