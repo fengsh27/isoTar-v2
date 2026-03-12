@@ -48,7 +48,8 @@ RUN python2.7 -m pip install --no-cache-dir --upgrade "pip==20.3.4" "setuptools=
 
 # Setup app_v1
 COPY app_v1 /app_v1
-RUN python3.6 -m pip install --no-cache-dir -r /app_v1/requirements.txt
+RUN python3.6 -m pip install --no-cache-dir -r /app_v1/requirements.txt \
+    && mkdir -p /app/logs/celery /opt/logs/app_v1
 
 # Setup Vienna-rna
 RUN cd /opt \

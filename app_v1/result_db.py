@@ -9,7 +9,7 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from parse_result import read_sequences_from_json, process_sequence, _extract_transcript_id
+from app_v1.parse_result import read_sequences_from_json, process_sequence, _extract_transcript_id
 
 DB_FILENAME = "result.db"
 
@@ -232,7 +232,7 @@ def query_genes(db_path, sort_by="tool_count", order="desc", offset=0, number=20
     finally:
         conn.close()
 
-    return {"total_genes": total_genes, "total": total, "genes": genes, "venn": venn}
+    return {"total": total, "genes": genes, "venn": venn}
 
 
 if __name__ == "__main__":
