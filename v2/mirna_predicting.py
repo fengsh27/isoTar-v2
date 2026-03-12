@@ -182,11 +182,11 @@ def process_3utr_fasta(utr_file, num_cores, temp_folder):
 
 def sanitize_output_path(output_file):
     """Sanitize output filename to avoid illegal characters."""
-    output_dir, filename = os.path.split(output_file)
-    safe_filename = re.sub(r"[^A-Za-z0-9._-]+", "_", filename)
-    if safe_filename in {"", ".", ".."}:
-        safe_filename = "miranda_output.txt"
-    return os.path.join(output_dir, safe_filename)
+    # output_dir, filename = os.path.split(output_file)
+    # safe_filename = re.sub(r"[^A-Za-z0-9._-]+", "_", filename)
+    # if safe_filename in {"", ".", ".."}:
+    #     safe_filename = "miranda_output.txt"
+    return output_file
 
 
 def run_miranda(mirna_file, utr_file, output_file):
