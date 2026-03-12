@@ -2,7 +2,7 @@ import logging
 import os
 from logging.handlers import TimedRotatingFileHandler
 
-LOG_DIR = os.environ.get("ISOTAR_LOG_DIR", "/opt/logs/app_v1")
+LOG_DIR = os.environ.get("ISOTAR_LOG_DIR", "/opt/out")
 LOG_LEVEL = os.environ.get("ISOTAR_LOG_LEVEL", "INFO").upper()
 
 _FORMATTER = logging.Formatter(

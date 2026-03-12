@@ -232,7 +232,7 @@ def query_genes(db_path, sort_by="tool_count", order="desc", offset=0, number=20
     finally:
         conn.close()
 
-    return {"total": total, "genes": genes, "venn": venn}
+    return {"total_genes": total_genes, "total": total, "genes": genes, "venn": venn}
 
 
 if __name__ == "__main__":
