@@ -9,6 +9,7 @@ from flask import Flask, jsonify, request, send_file
 
 from app_v1.celery_app import celery_app
 from app_v1.logger import get_logger
+from app_v1.result_db import ensure_db, query_genes
 
 logger = get_logger()
 
@@ -212,9 +213,59 @@ def job_result(job_id):
                        job_id, meta.get("status"))
         return jsonify({"error": "job not completed", "status": meta.get("status")}), 409
 
+    output_dir = meta.get("result_path")
+    if not output_dir or not os.path.exists(output_dir):
+        logger.error("result directory missing job_id=%s result_path=%s", job_id, output_dir)
+        return jsonify({"error": "result not found"}), 404
+
+    # Query parameters
+    sort_by    = request.args.get("sortBy", "tool_count")
+    order      = request.args.get("ascendOrDescend", "desc")
+    gene_label = request.args.get("geneLabel", "").strip() or None
+    try:
+        offset = int(request.args.get("offset", 0))
+        number = int(request.args.get("number", 20))
+    except ValueError:
+        return jsonify({"error": "offset and number must be integers"}), 400
+
+    if sort_by not in ("gene_label", "tool_count"):
+        return jsonify({"error": "sortBy must be gene_label or tool_count"}), 400
+    if order.lower() not in ("asc", "desc", "ascend", "descend"):
+        return jsonify({"error": "ascendOrDescend must be asc or desc"}), 400
+    if offset < 0 or number < 1 or number > 1000:
+        return jsonify({"error": "offset must be >= 0 and number must be between 1 and 1000"}), 400
+
+    try:
+        db_path = ensure_db(output_dir)
+        data = query_genes(db_path, sort_by=sort_by, order=order,
+                           offset=offset, number=number, gene_label=gene_label)
+    except Exception as e:
+        logger.error("result processing failed job_id=%s error=%s", job_id, e)
+        return jsonify({"error": "result processing failed: {}".format(str(e))}), 500
+
+    data.update({
+        "job_id":     job_id,
+        "sort_by":    sort_by,
+        "order":      order,
+        "offset":     offset,
+        "number":     number,
+        "gene_label": gene_label,
+    })
+    logger.info("result queried job_id=%s sort_by=%s order=%s offset=%d number=%d gene_label=%s total=%d total_genes=%d",
+                job_id, sort_by, order, offset, number, gene_label, data["total"], data["total_genes"])
+    return jsonify(data)
+
+
+@app.route("/api/v1/jobs/<job_id>/result/download", methods=["GET"])
+def job_result_download(job_id):
+    if not os.path.exists(_job_meta_path(job_id)):
+        return jsonify({"error": "job not found"}), 404
+    meta = _load_meta(job_id)
+    if meta.get("status") != "succeeded":
+        return jsonify({"error": "job not completed", "status": meta.get("status")}), 409
+
     result_dir = meta.get("result_path")
     if not result_dir or not os.path.exists(result_dir):
-        logger.error("result directory missing job_id=%s result_path=%s", job_id, result_dir)
         return jsonify({"error": "result not found"}), 404
 
     archive_path = os.path.join(_job_path(job_id), "result.zip")
