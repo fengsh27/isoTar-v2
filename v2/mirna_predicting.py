@@ -31,8 +31,18 @@ TARGETSCAN = "/opt/TargetScan/"
 DMISO = "/usr/local/bin/dmiso"
 
 # 3 UTR PATH
-HUMAN_HG19_3UTR = '/opt/human/hg19/3utr.fa'
-HUMAN_HG38_3UTR = '/opt/human/hg38/3utr.fasta'
+HUMAN_HG19_3UTR = '/opt/reference_files/hsa_HG19_only_3UTRs.fasta'
+HUMAN_HG38_3UTR = '/opt/reference_files/hsa_HG38_only_3UTRs.fasta'
+
+ROUNDWORM_3UTR = '/opt/reference_files/cel_WBcel235_3UTRs.fasta'
+DOG_3UTR = '/opt/reference_files/cfa_CanFam3.1_3UTRs.fasta'
+FRUITFLY_3UTR = '/opt/reference_files/dme_Release6_3UTRs.fasta'
+ZEBRAFISH_3UTR = '/opt/reference_files/dre_GRCz11_3UTRs.fasta'
+GRAYSHORTTAILEDOPOSSUM_3UTR = '/opt/reference_files/mdo_MonDom5_3UTRs.fasta'
+RHESUSMACAQUE_3UTR = '/opt/reference_files/mml_Mmul_8.0.1_3UTRs.fasta'
+HOUSEMOUSE_3UTR = '/opt/reference_files/mmu_GRCm38_3UTRs.fasta'
+CHIMPANZEE_3UTR = '/opt/reference_files/ptr_Pan_tro3.0_3UTRs.fasta'
+NORWAYRAT_3UTR = '/opt/reference_files/rno_RGSC6_rn6_3UTRs.fasta'
 
 # Ensure miRmap modules can be imported
 MIRMAP_SRC = "/opt/miRmap/src"
@@ -874,7 +884,9 @@ def main():
     parser.add_argument("-i", "--input", type=str, required=True, help="path to mirna sequence input file")
     parser.add_argument("-t", "--tools", type=str, nargs="+", required=True, 
                         help="List of tools to run. Choose from: {}".format(', '.join(ALLOWED_TOOLS)))
-    parser.add_argument("-g", "--genome", type=str, choices=["hg19", "hg38"], help="Reference genome (hg19 or hg38)", required=True)
+    parser.add_argument("-g", "--genome", type=str,
+                        choices=["hg19", "hg38", "cel", "cfa", "dme", "dre", "mdo", "mml", "mmu", "ptr", "rno"],
+                        help="Reference genome/species code", required=True)
     parser.add_argument("-o", "--output", type=str, required=True, help="output folder name")
 
     args = parser.parse_args()
@@ -907,8 +919,21 @@ def main():
     sequences = parse_fasta(mirna)
     save_to_json(sequences, tools, num_cores, "{}/mirna_prediction_parameters.json".format(output_folder))
     
-    # Determine the 3' UTR file based on the genome
-    utr_file = HUMAN_HG19_3UTR if genome == "hg19" else HUMAN_HG38_3UTR
+    # Determine the 3' UTR file based on the genome/species code
+    _UTR_FILE_MAP = {
+        "hg19": HUMAN_HG19_3UTR,
+        "hg38": HUMAN_HG38_3UTR,
+        "cel":  ROUNDWORM_3UTR,
+        "cfa":  DOG_3UTR,
+        "dme":  FRUITFLY_3UTR,
+        "dre":  ZEBRAFISH_3UTR,
+        "mdo":  GRAYSHORTTAILEDOPOSSUM_3UTR,
+        "mml":  RHESUSMACAQUE_3UTR,
+        "mmu":  HOUSEMOUSE_3UTR,
+        "ptr":  CHIMPANZEE_3UTR,
+        "rno":  NORWAYRAT_3UTR,
+    }
+    utr_file = _UTR_FILE_MAP[genome]
 
     # Create output directory
     for tool in tools:

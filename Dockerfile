@@ -10,7 +10,7 @@ LABEl edu.osumc.dept="Department of Cancer Biology and Genetics - The Ohio State
 
 ADD tools /opt/
 COPY v2/*.py /opt/v2/
-COPY v2/opt/human /opt/human
+COPY v2/opt/reference_files /opt/reference_files
 COPY v2/opt/resources /opt/resources
 
 
