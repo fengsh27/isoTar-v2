@@ -223,15 +223,50 @@ def process_sequence(sequence, result_dir):
         }
         raise Exception("Error processing sequence: {}".format(json.dumps(error_context, indent=2)))
 
+def _build_label_map(ref_db_path):
+    """Return dict mapping raw_id -> symbol from reference_mapping.db, or {} if unavailable."""
+    import sqlite3
+    label_map = {}
+    candidates = [ref_db_path]
+    # Fallback: Docker path
+    if not os.path.exists(ref_db_path):
+        candidates.append("/app_v1/reference_mapping.db")
+    for path in candidates:
+        if os.path.exists(path):
+            conn = sqlite3.connect(path)
+            try:
+                c = conn.cursor()
+                c.execute("SELECT raw_id, symbol FROM gene_mapping WHERE symbol IS NOT NULL")
+                for raw_id, symbol in c.fetchall():
+                    label_map[raw_id] = symbol
+            finally:
+                conn.close()
+            break
+    return label_map
+
+
 def main():
     import argparse
-    
+
     parser = argparse.ArgumentParser(description='Process miRNA sequences and generate prediction results')
     parser.add_argument('result_dir', help='Path to miRNA prediction results')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output')
+    parser.add_argument('--gene-label', action='store_true',
+                        help='Replace gene IDs with gene labels (symbols) from reference_mapping.db')
     args = parser.parse_args()
     result_dir = args.result_dir
     output_dir = os.path.join(result_dir, "miRNA_prediction_results")
+
+    # Build label map if --gene-label requested
+    label_map = {}
+    if args.gene_label:
+        _default_ref_db = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "app_v1", "reference_mapping.db"
+        )
+        ref_db = os.environ.get("ISOTAR_REFERENCE_MAPPING_DB", _default_ref_db)
+        label_map = _build_label_map(ref_db)
+        if not label_map:
+            print("Warning: --gene-label requested but reference_mapping.db not found or empty")
     try:
         # Create output directory if it doesn't exist
         if not os.path.exists(output_dir):
@@ -250,11 +285,19 @@ def main():
         for sequence in sequences:
             try:
                 prediction_results = process_sequence(sequence, result_dir)
-                
+
+                # Replace gene IDs with gene labels if requested
+                if label_map and "prediction" in prediction_results:
+                    for tool in prediction_results["prediction"]:
+                        prediction_results["prediction"][tool] = [
+                            label_map.get(gid, gid)
+                            for gid in prediction_results["prediction"][tool]
+                        ]
+
                 # Generate output filename
                 output_filename = "{}_results.json".format(sequence['header'])
                 output_path = os.path.join(output_dir, output_filename)
-                
+
                 # Write results to file
                 with open(output_path, 'w') as file:
                     json.dump(prediction_results, file, indent=4)

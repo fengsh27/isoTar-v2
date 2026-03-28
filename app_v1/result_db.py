@@ -13,6 +13,12 @@ from app_v1.parse_result import read_sequences_from_json, process_sequence, _ext
 
 DB_FILENAME = "result.db"
 
+# Path to the reference mapping database (gene_id -> gene_label/gene_name)
+REFERENCE_MAPPING_DB = os.environ.get(
+    "ISOTAR_REFERENCE_MAPPING_DB",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "reference_mapping.db"),
+)
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -39,11 +45,37 @@ def _parse_dmiso_file(dmiso_path):
     return gene_ids
 
 
+def _load_gene_info(gene_ids):
+    """Look up gene_label and gene_name for a collection of gene IDs.
+
+    Returns a dict: gene_id -> (gene_label, gene_name).
+    Missing entries map to (None, None).
+    """
+    info = {}
+    if not os.path.exists(REFERENCE_MAPPING_DB):
+        return info
+    conn = sqlite3.connect(REFERENCE_MAPPING_DB)
+    try:
+        c = conn.cursor()
+        for gene_id in gene_ids:
+            c.execute(
+                "SELECT symbol, genename FROM gene_mapping WHERE raw_id = ? LIMIT 1",
+                (gene_id,),
+            )
+            row = c.fetchone()
+            if row:
+                info[gene_id] = (row[0], row[1])
+    finally:
+        conn.close()
+    return info
+
+
 def _build_db(output_dir, db_path):
     """Parse all prediction results and populate a fresh SQLite database.
 
     Schema:
         gene_tools(gene_id TEXT, tool TEXT, PRIMARY KEY (gene_id, tool))
+        gene_info(gene_id TEXT PRIMARY KEY, gene_label TEXT, gene_name TEXT)
 
     Non-DMISO tools are parsed via parse_result.process_sequence().
     DMISO is read directly from output/DMISO/<header>_DMISO_results.txt
@@ -55,7 +87,7 @@ def _build_db(output_dir, db_path):
     json_file = os.path.join(output_dir, "mirna_prediction_parameters.json")
     sequences = read_sequences_from_json(json_file)
 
-    # Collect gene → tools mapping across all sequences
+    # Collect gene -> tools mapping across all sequences
     gene_tools = {}   # gene_id -> set of tool names
 
     def _add(gene_id, tool):
@@ -81,6 +113,9 @@ def _build_db(output_dir, db_path):
             for gene_id in _parse_dmiso_file(dmiso_path):
                 _add(gene_id, "DMISO")
 
+    # Look up gene labels and names from reference_mapping.db
+    gene_info = _load_gene_info(list(gene_tools.keys()))
+
     # Write to a temp file, then rename atomically
     tmp_fd, tmp_path = tempfile.mkstemp(dir=output_dir, suffix=".db.tmp")
     os.close(tmp_fd)
@@ -95,11 +130,27 @@ def _build_db(output_dir, db_path):
                     PRIMARY KEY (gene_id, tool)
                 )
             """)
+            c.execute("""
+                CREATE TABLE gene_info (
+                    gene_id    TEXT PRIMARY KEY,
+                    gene_label TEXT,
+                    gene_name  TEXT
+                )
+            """)
             c.executemany(
                 "INSERT OR IGNORE INTO gene_tools (gene_id, tool) VALUES (?, ?)",
                 ((gene_id, tool)
                  for gene_id, tools in gene_tools.items()
                  for tool in tools),
+            )
+            c.executemany(
+                "INSERT OR IGNORE INTO gene_info (gene_id, gene_label, gene_name) VALUES (?, ?, ?)",
+                (
+                    (gene_id,
+                     gene_info.get(gene_id, (None, None))[0],
+                     gene_info.get(gene_id, (None, None))[1])
+                    for gene_id in gene_tools.keys()
+                ),
             )
             conn.commit()
         finally:
@@ -111,19 +162,27 @@ def _build_db(output_dir, db_path):
         raise
 
 
-def _venn_stats(cursor, filter_pattern=None):
+def _venn_stats(cursor, gene_label_pattern=None):
     """Compute per-tool set sizes and all pairwise/higher-order intersections.
 
     Intersection semantics: |A∩B| counts genes found by BOTH A and B,
     regardless of other tools — the standard input for Venn diagram libraries.
 
-    filter_pattern: SQL LIKE pattern (e.g. '%ENST%'), or None for no filter.
+    gene_label_pattern: SQL LIKE pattern (e.g. '%TP53%') applied to gene_info.gene_label,
+                        or None for no filter.
     """
     cursor.execute("SELECT DISTINCT tool FROM gene_tools ORDER BY tool")
     tools = [row[0] for row in cursor.fetchall()]
 
-    gene_filter_sql = "AND gene_id LIKE ?" if filter_pattern else ""
-    gene_filter_arg = [filter_pattern] if filter_pattern else []
+    if gene_label_pattern:
+        gene_filter_sql = (
+            "AND gene_id IN "
+            "(SELECT gene_id FROM gene_info WHERE gene_label LIKE ?)"
+        )
+        gene_filter_arg = [gene_label_pattern]
+    else:
+        gene_filter_sql = ""
+        gene_filter_arg = []
 
     sets = {}
     for tool in tools:
@@ -178,16 +237,22 @@ def query_genes(db_path, sort_by="tool_count", order="desc", offset=0, number=20
         order:      "asc" | "desc"
         offset:     row offset for pagination
         number:     page size
-        gene_label: optional substring to filter gene_id (case-insensitive)
+        gene_label: optional substring to filter by gene_info.gene_label (case-insensitive)
 
-    Returns a dict with keys: total, genes, venn.
+    Returns a dict with keys: total_genes, total, genes, venn.
+    Each gene entry contains: gene_id, gene_label, gene_name, tool_count, tools.
     """
-    sort_col = "tool_count" if sort_by == "tool_count" else "gene_id"
     sort_dir = "ASC" if order.lower() in ("asc", "ascend") else "DESC"
+    sort_col = "tool_count" if sort_by == "tool_count" else "gi.gene_label"
 
     filter_pattern = "%{}%".format(gene_label) if gene_label else None
-    where_sql  = "WHERE gene_id LIKE ?" if filter_pattern else ""
-    where_args = [filter_pattern] if filter_pattern else []
+
+    if filter_pattern:
+        where_sql  = "WHERE gi.gene_label LIKE ?"
+        where_args = [filter_pattern]
+    else:
+        where_sql  = ""
+        where_args = []
 
     conn = sqlite3.connect(db_path)
     try:
@@ -199,7 +264,12 @@ def query_genes(db_path, sort_by="tool_count", order="desc", offset=0, number=20
 
         # Total distinct genes — respects geneLabel filter
         c.execute(
-            "SELECT COUNT(DISTINCT gene_id) FROM gene_tools {}".format(where_sql),
+            """
+            SELECT COUNT(DISTINCT gt.gene_id)
+            FROM   gene_tools gt
+            LEFT JOIN gene_info gi ON gt.gene_id = gi.gene_id
+            {}
+            """.format(where_sql),
             where_args,
         )
         total = c.fetchone()[0]
@@ -207,13 +277,16 @@ def query_genes(db_path, sort_by="tool_count", order="desc", offset=0, number=20
         # Paginated gene rows (respects filter)
         c.execute(
             """
-            SELECT   gene_id,
-                     COUNT(*)               AS tool_count,
-                     GROUP_CONCAT(tool, ',') AS tools
-            FROM     gene_tools
+            SELECT   gt.gene_id,
+                     gi.gene_label,
+                     gi.gene_name,
+                     COUNT(*)                   AS tool_count,
+                     GROUP_CONCAT(gt.tool, ',') AS tools
+            FROM     gene_tools gt
+            LEFT JOIN gene_info gi ON gt.gene_id = gi.gene_id
             {where}
-            GROUP BY gene_id
-            ORDER BY {sort_col} {sort_dir}, gene_id ASC
+            GROUP BY gt.gene_id
+            ORDER BY {sort_col} {sort_dir}, gt.gene_id ASC
             LIMIT  ? OFFSET ?
             """.format(where=where_sql, sort_col=sort_col, sort_dir=sort_dir),
             where_args + [number, offset],
@@ -221,13 +294,15 @@ def query_genes(db_path, sort_by="tool_count", order="desc", offset=0, number=20
         genes = [
             {
                 "gene_id":    row[0],
-                "tool_count": row[1],
-                "tools":      sorted(row[2].split(",")),
+                "gene_label": row[1],
+                "gene_name":  row[2],
+                "tool_count": row[3],
+                "tools":      sorted(row[4].split(",")),
             }
             for row in c.fetchall()
         ]
 
-        venn = _venn_stats(c, filter_pattern=filter_pattern)
+        venn = _venn_stats(c, gene_label_pattern=filter_pattern)
 
     finally:
         conn.close()
