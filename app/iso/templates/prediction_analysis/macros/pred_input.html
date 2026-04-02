@@ -1,0 +1,2394 @@
+{% macro render_prediction_input_form(sys_cores) %}
+
+<div class="row">		
+	<div class="col-xs-12 col-sm-12 col-md-7 col-lg-7">  
+		<div class="card">
+			<h4 class="card-header">
+				<a class="btn btn-dark btn-sm" href="#" role="button" id="pred_show_setup">
+					<i class="fas fa-plus"></i> Setup
+				</a>
+			</h4>
+		  	<div class="card-body" id="pred_setup_content">
+				
+				<div class="bd-callout bd-callout-primary">
+		  			<h4>1. Search for miRNA(s) and specify their variation(s)</h4>
+					<hr>
+					<p align="justify">
+						Use options available in this module to provide all miRNA specifications.
+						<br><b>Note:</b> All miRNAs and their variations will be shown in the <i>textarea</i>.
+					</p>
+					<div class="row">		
+						<div class="col-xs-12 col-sm-2 col-md-2 col-lg-2">
+							<center>
+								<img src="{{ url_for('static', filename='public/images/vendor/search.png') }}" alt="">
+							</center>
+						</div><!-- /.col-xs-12 col-sm-2 col-md-2 col-lg-2 -->
+						<div class="col-xs-12 col-sm-10 col-md-10 col-lg-10">
+							<b>Search and customize a miRNA</b>
+							<div class="btn-group" role="group" aria-label="find_a_mirna" style="width: 100%">
+								<input type="text" class="form-control mirna_typeahead" placeholder="E.g.: hsa-miR-495-3p" 
+						  				aria-describedby="pred_mirna_sugg" id="pred_mirna_sugg" name="pred_mirna_sugg">
+						  		<div class="input-group-btn">
+				   				<button class="btn btn-secondary" type="button" id="pred_mirna_sugg_del_btn">Example</button>
+				 				</div>
+				 				<div class="input-group-btn">
+				   				<button class="btn btn-success" type="button" id="pred_mirna_sugg_btn">Search</button>
+				 				</div>
+							</div>
+							
+						</div><!-- /.col-xs-12 col-sm-10 col-md-10 col-lg-10 -->
+					</div><!-- /.row -->
+					
+					<hr>
+					
+					<div class="row">		
+						<div class="col-xs-12 col-sm-2 col-md-2 col-lg-2">
+							<center>
+								<img src="{{ url_for('static', filename='public/images/vendor/db.png') }}" alt="">
+							</center>
+						</div><!-- /.col-xs-12 col-sm-2 col-md-2 col-lg-2 -->
+						<div class="col-xs-12 col-sm-10 col-md-10 col-lg-10">
+							<b>or search Databases</b>
+							<div class="dropdown show">
+								<a class="btn btn-primary btn-sm dropdown-toggle" href="#" role="button" id="known_var_btn" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+							  		<i class="fas fa-database"></i> Known Variations Databases 
+							  	</a>
+							
+							  	<div class="dropdown-menu" aria-labelledby="known_var_btn">
+							    	<a class="dropdown-item get_variations_db_btn" href="#" id="edit_db">
+			          				<span class="badge badge-pill badge-success btn-sm"><i class="fas fa-eye"></i> Show</span> Known A-to-I Mature miRNA Editing Sites
+			          			</a>
+			          			<a class="dropdown-item get_variations_db_btn" href="#" id="snp_db">
+			          				<span class="badge badge-pill badge-success btn-sm"><i class="fas fa-eye"></i> Show</span> SNPs in Mature miRNA
+			          			</a>
+							  	</div>
+							</div>
+							
+						</div><!-- /.col-xs-12 col-sm-10 col-md-10 col-lg-10 -->
+					</div><!-- /.row -->
+					
+				</div><!-- /.bd-callout bd-callout-primary -->
+		
+		  		
+		  		<p></p>
+				<form action="" method="post" role="form" id="pred_analysis_form">
+					<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+					
+					<div class="card bg-light" style="width: 100%;">
+		  				<div class="card-header">
+							miRNA(s) and their variations(s) currently added using the first module (above). You can also paste them directly into the textarea. 
+							<a class="badge badge-pill badge-secondary btn-sm" href="#" id="pred_example">See an example</a>  				
+		  				</div>
+		  				<div class="card-body">
+		    				<div class="form-group" id="pred_mirnas_textarea_content">
+								<textarea class="form-control" name="pred_mirnas_list" id="pred_mirnas_list" rows="10" style="width: 100%; font-size: 12px"></textarea>
+							</div>
+		  				</div>
+					</div>
+					
+					<div class="bd-callout bd-callout-success">
+			  			<h4>2. Select the prediction tool(s) and the <i>Minimum Consensus</i></h4>
+						<hr>
+						
+						<div class="row">	
+							<div class="col-xs-12 col-sm-12 col-md-6 col-lg-6">
+								<p><b><em>Prediction Tools</em>: Check the one(s) you would like to use.</b></p>
+								<table>
+								<tbody>
+									<tr>
+										<td>
+											<div class="input-group input-group-sm">
+												<select class="form-control" id="comb_pred_tools0">
+											      <option value="0" selected="select">OR</option>
+											      <option value="1">AND</option>
+											   </select>		
+										   </div>						
+										</td>	
+										<td>&nbsp;&nbsp;</td>
+										<td style="text-align: left !important">
+											<label class="custom-control custom-checkbox">
+							    				<input class="custom-control-input" type="checkbox" name="pred_tools[]" id="pred_tools1" value="0">
+							    				<span class="custom-control-indicator"></span>
+							    				<span class="custom-control-description"><b>miRanda</b></span>
+							  				</label>
+										</td>	
+										<td>
+											<span class="badge badge-pill badge-primary">&nbsp;</span>
+											<span class="badge badge-pill badge-warning">&nbsp;</span>
+										</td>
+									</tr>
+									<tr>
+										<td>
+											<div class="input-group input-group-sm">
+												<select class="form-control" id="comb_pred_tools1">
+											      <option value="0" selected="select">OR</option>
+											      <option value="1">AND</option>
+											   </select>		
+										   </div>						
+										</td>	
+										<td>&nbsp;&nbsp;</td>
+										<td>
+											<label class="custom-control custom-checkbox">
+							    				<input class="custom-control-input" type="checkbox" name="pred_tools[]" id="pred_tools2" value="1">
+							    				<span class="custom-control-indicator"></span>
+							    				<span class="custom-control-description"><b>miRmap</b>&nbsp;&nbsp;&nbsp;&nbsp;</span>
+							  				</label>
+										</td>						
+										<td>
+											<span class="badge badge-pill badge-primary">&nbsp;</span>
+											<span class="badge badge-pill badge-warning">&nbsp;</span>
+										</td>
+									</tr>
+									<tr>
+										<td>
+											<div class="input-group input-group-sm">
+											<select class="form-control" id="comb_pred_tools2">
+										      <option value="0" selected="select">OR</option>
+										      <option value="1">AND</option>
+										    </select>		
+										    </div>						
+										</td>	
+										<td>&nbsp;&nbsp;</td>
+										<td>
+											<label class="custom-control custom-checkbox">
+							    				<input class="custom-control-input" type="checkbox" name="pred_tools[]" id="pred_tools3" value="2">
+							    				<span class="custom-control-indicator"></span>
+							    				<span class="custom-control-description"><b>TargetScan</b></span>
+							  				</label>
+										</td>						
+										<td>
+											<span class="badge badge-pill badge-primary">&nbsp;</span>
+											<span class="badge badge-pill badge-danger">&nbsp;</span>
+										</td>
+									</tr>
+									<tr>			
+										<td>
+											<div class="input-group input-group-sm">
+												<select class="form-control" id="comb_pred_tools3">
+											      <option value="0" selected="select">OR</option>
+											      <option value="1">AND</option>
+											   </select>		
+										   </div>						
+										</td>	
+										<td>&nbsp;&nbsp;</td>
+										<td>
+											<label class="custom-control custom-checkbox">
+							    				<input class="custom-control-input" type="checkbox" name="pred_tools[]" id="pred_tools4" value="3">
+							    				<span class="custom-control-indicator"></span>
+							    				<span class="custom-control-description"><b>RNAhybrid</b>&nbsp;</span>
+							  				</label>
+										</td>						
+										<td>
+											<span class="badge badge-pill badge-warning">&nbsp;</span>
+										</td>
+									</tr>
+									<tr>
+										<td>
+											<div class="input-group input-group-sm">
+												<select class="form-control" id="comb_pred_tools4">
+											      <option value="0" selected="select">OR</option>
+											      <option value="1">AND</option>
+											   </select>		
+										   </div>						
+										</td>	
+										<td>&nbsp;&nbsp;</td>
+										<td>
+											<label class="custom-control custom-checkbox">
+							    				<input class="custom-control-input" type="checkbox" name="pred_tools[]" id="pred_tools5" value="4">
+							    				<span class="custom-control-indicator"></span>
+							    				<span class="custom-control-description"><b>PITA</b>&nbsp;&nbsp;&nbsp;&nbsp;</span>
+							  				</label>
+										</td>		
+										<td>
+											<span class="badge badge-pill badge-warning">&nbsp;</span>
+										</td>
+									</tr>
+													
+								</tbody>						
+								</table>
+							</div>	
+							<div class="col-xs-12 col-sm-12 col-md-6 col-lg-6 form-group">
+								<p style="font-size: 13px"><span class="badge badge-pill badge-primary">&nbsp;</span> Sequence-based approach</p>
+								<p style="font-size: 13px"><span class="badge badge-pill badge-warning">&nbsp;</span> Thermodynamic Stability-based approach</p>
+								<p style="font-size: 13px"><span class="badge badge-pill badge-danger">&nbsp;</span> Evolutionary Conservation-based approach</p>
+								<hr>
+								<p><b><em>Consensus</em>: Minimum number of tools that predict the same target</b>.</p>
+						    	<select class="form-control" name="pred_min_cons" id="pred_min_cons" style="width: 100%">
+						      	<option value="1">1 tool</option>
+						      	<option value="2">2 tools</option>
+						      	<option value="3">3 tools</option>
+						      	<option value="4" selected="selected">4 tools (recommended)</option>
+						      	<option value="5">5 tools</option>
+						    	</select>
+							</div>
+						</div><!-- /.row -->
+					</div><!-- /.bd-callout bd-callout-success -->
+					
+					<div class="bd-callout bd-callout-warning">
+			  			<h4>3. Select the number of CPU cores for the analysis</h4>
+						<hr>
+						<div class="row">
+							<div class="col-xs-12 col-sm-12 col-md-7 col-lg-7">
+								{{ render_system_details(sys_cores) }}
+							</div><!-- /.col-xs-12 col-sm-12 col-md-7 col-lg-7 -->
+							<div class="col-xs-12 col-sm-12 col-md-5 col-lg-5 form-group">
+								<p><b>How many cores you would like to use?</b></p>
+								<select class="form-control" name="pred_no_cores" id="pred_no_cores" style="width: 100%">
+								{% for i in range(sys_cores) %}  												
+									{% set count = i + 1 %}
+									<option value="{{count|safe}}">{{count|safe}} {% if count == 1 %}core{% else %}cores{% endif %}</option>
+								{% endfor %}
+								</select>
+							</div><!-- /.col-xs-12 col-sm-12 col-md-5 col-lg-5 -->
+						</div><!-- /.row -->
+					</div><!-- /.bd-callout bd-callout-warning -->			
+					
+					<hr>
+					
+					<div class="form-group" align="right">
+						<button type="submit" class="btn btn-warning"><i class="fas fa-cogs" aria-hidden="true"></i> Submit</button>
+					</div>
+				</form>
+						
+		  	</div><!-- /.card-body -->
+		</div>
+
+	</div><!-- /.col-xs-12 col-sm-12 col-md-7 col-lg-7 -->
+	<div class="col-xs-12 col-sm-12 col-md-5 col-lg-5"> 
+		<div id="add_mirna_content"></div> 
+	</div><!-- /.col-xs-12 col-sm-12 col-md-5 col-lg-5 -->
+</div><!-- /.row -->	
+			
+
+{% endmacro %}
+
+
+{% macro render_system_details(sys_cores) %}
+<center>
+	<table cellpadding="10">
+	<tbody>
+	<tr>
+		<td>
+			<center>
+				<img src="{{ url_for('static', filename='public/images/vendor/host.png') }}" alt="">
+			</center>
+		</td>
+		<td>
+			<center>
+				<p><span class="lead" style="font-size: 3em">{{ sys_cores|safe }}</span></p>
+			</center>
+		</td>	
+		<td>
+			<p>CPU {% if sys_cores == 1 -%}core{% else %}cores{% endif %} available in your system</p>
+		</td>	
+	</tr>	
+	</tbody>	
+	</table>
+</center>
+{% endmacro %}
+
+
+{% macro render_mirna_pred_js(mat_mirnas_list) %}
+<script>
+	
+	function reload_prediction_analysis_cleaner() {
+		var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		var pid = -1;
+		
+		if (checkVariableExistance(csrf_token) &&
+			 checkVariableExistance(pid)) {
+  			
+  			$.ajax({
+      		url: '/prediction_analysis_cleaner',
+      		beforeSend: function(xhr, settings) {
+      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+      			}
+  				},
+   			data: { pid: pid },
+   			type: 'POST',
+   			dataType: 'html',
+   			success: function(response) {   
+       			if (response !== null) {
+       				$('div#pred_results_tab').html(response);	
+       				$('a#tabs_pred_results_tab').css('display','block');	
+       			}
+   			},
+   			error: function(error) {
+   				var res = $.parseJSON(error.responseText);
+   				var error_code = parseInt(error.status, 10);
+   				var msg = '';
+
+   				if(error_code === 400)
+   					msg = ': <i>' + res.error_msg + '</i> Please reload the page.';
+   				else if( error_code === 405) {
+   					msg = ': <i>' + res.error_msg + '</i>';
+   				}
+   						
+       			modal_error_notification('An error occurred' + msg);
+   			}
+  			});
+  		}
+	}
+	
+	
+	function reload_enrichment_analysis_data() {
+		var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		
+		if (checkVariableExistance(csrf_token)) {
+  			
+  			$.ajax({
+      		url: '/reload_enrichment_analysis_results',
+      		beforeSend: function(xhr, settings) {
+      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+      			}
+  				},
+  				data: {},
+  				type: 'POST',
+   			dataType: 'html',
+   			success: function(response) {  
+       			if (response !== null) {
+       				$('div#enrich_setup_content').fadeToggle('slow', 'linear');
+       				$('div#enrich_analysis_content').html(response);
+       			}
+   			},
+   			error: function(error) {
+   				var res = $.parseJSON(error.responseText);
+   				var error_code = parseInt(error.status, 10);
+   				var msg = '';
+
+   				if(error_code === 400)
+   					msg = ': <i>' + res.error_msg + '</i> Please reload the page.';
+   				else if( error_code === 405) {
+   					msg = ': <i>' + res.error_msg + '</i>';
+   				}
+   						
+       			modal_error_notification('An error occurred' + msg);
+   			}
+  			});
+  		}
+  		
+  		return false;
+	}
+	
+	
+	
+	
+	function prepare_uploaded_work() {
+		var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		
+		if (checkVariableExistance(csrf_token)) {
+  			
+  			$.ajax({
+      		url: '/prepare_uploaded_file',
+      		beforeSend: function(xhr, settings) {
+      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+      			}
+  				},
+  				data: {},
+  				type: 'POST',
+   			dataType: 'html',
+   			success: function(response) {  
+       			if (response !== null) {       				
+       				// Check the uploaded work
+       				var checker = setInterval(function() 
+       				{ 
+							var csrf_token = $('meta[name=_csrf_token]').attr('content');
+						
+							if (checkVariableExistance(csrf_token)) {
+					    		$.ajax({
+					      		url: '/upload_work_check',
+					      		beforeSend: function(xhr, settings) {
+					      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+					          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+					      			}
+					  				},
+					   			data: {},
+					   			type: 'POST',
+					   			dataType: 'json',
+					   			success: function(data) {
+				
+					       			if (data !== null) {
+					       				if (data.job_status === 'done') {
+					       					$('div#upload_setting_response').html('<center>\
+					       					<a href="#" class="btn btn-warning btn-sm" id="reload_work_btn">\
+					       					<i class="fas fa-sync-alt"></i> Load the work\
+					       					</a></center>');
+				    							clearInterval(checker);
+					       				}
+					       			}
+					   			},
+					   			error: function(error) {
+					   				var res = $.parseJSON(error.responseText);
+					   				var error_code = parseInt(error.status, 10);
+					   				var msg = '';
+					
+					   				if(error_code === 400)
+					   					msg = ': <i>' + res.error_msg + '</i> Please reload the page.';
+					   				else if( error_code === 405) {
+					   					msg = ': <i>' + res.error_msg + '</i>';
+					   				}
+					       			
+					       			modal_error_notification('An error occurred' + msg);
+					   			}
+					    		});
+				    		}	
+				    		
+						}, 5000); //time in milliseconds 
+       			}
+   			},
+   			error: function(error) {
+   				var res = $.parseJSON(error.responseText);
+   				var error_code = parseInt(error.status, 10);
+   				var msg = '';
+
+   				if(error_code === 400)
+   					msg = ': <i>' + res.error_msg + '</i> Please reload the page.';
+   				else if( error_code === 405) {
+   					msg = ': <i>' + res.error_msg + '</i>';
+   				}
+   						
+       			modal_error_notification('An error occurred' + msg);
+   			}
+  			});
+  		}
+  		
+  		return false;
+	}
+	
+	
+	
+	
+	$(function() {
+	
+		
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Variation modal box
+		///////////////////////////////////////////////////////////////////////////////////////////
+		$('a.get_variations_db_btn').on('click', function (e) {
+			e.preventDefault();
+			// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var target = $(this).attr('id');
+				
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+				if (checkVariableExistance(csrf_token)) {
+        			
+        			$.ajax({
+            		url: '/get_variations_db',
+            		beforeSend: function(xhr, settings) {
+            			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+                			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+            			}
+        				},
+         			data: {
+							target: target         			
+         			},
+         			type: 'POST',
+         			dataType: 'html',
+         			success: function(data) {
+         				if (data !== null) {
+             				$('div#variations_db_modal_content').html(data);
+	       					$('div#variations_db_modal').modal('show');	
+             			}
+         			},
+         			error: function(error) {
+         				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+
+		       			modal_error_notification('An error occurred' + msg);
+         			}
+        			});
+        		}		
+				e.handled = true;
+			}
+		});
+			
+	
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// File upload modal box
+		///////////////////////////////////////////////////////////////////////////////////////////
+		$('a#upload_work_btn').on('click', function (e) {
+			e.preventDefault();
+			// Prevent event triggering more then once
+			if(e.handled !== true) {
+				$('div.progress-bar').css('width', '0%');
+				$('div#upload_response').html('');
+				$('div#upload_setting_response').html('');
+				$('div#upload_work_modal').modal('show');
+				e.handled = true;
+			}			
+		}); 
+
+		
+		$('#fileupload').fileupload({
+			maxChunkSize: 4000000000, // 4GB
+			url: '/work_uploader',       	
+        	dataType: 'json',
+        	method: 'POST',
+        	timeout: 600000, // sets timeout to 600 seconds
+        	done: function (e, data) {
+            $.each(data.result.files, function (index, file) {
+            	$('div#upload_response').html('<center><h2 class="lead"><i class="far fa-thumbs-up"></i> Upload completed.</h2></center>');
+            	$('div#upload_setting_response').html('<center><h2 class="lead"><i class="fas fa-cog fa-spin"></i> Unzipping, please wait...</h2></center>');	
+            });
+            
+            // Prepare the uploaded work
+            prepare_uploaded_work();
+        	},
+        	error: function (error) {
+
+         	var res = $.parseJSON(error.responseText);
+				var error_code = parseInt(error.status, 10);
+				var msg = '';
+
+				if(error_code === 400)
+					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+				else if( error_code === 405) {
+					msg = ': <i>' + res.error_msg + '</i>.';
+				}	
+				
+				$('div#upload_response').html('<center><h2 class="lead"><i class="far fa-thumbs-down"></i> An error occurred' + msg + '</h2></center>');
+        	},
+        	progressall: function (e, data) {
+            var progress = parseInt(data.loaded / data.total * 100, 10);
+            $('#progress .progress-bar').css(
+            	'width',
+               progress + '%'
+            );
+        	}
+    	});
+    	
+    	
+ 		///////////////////////////////////////////////////////////////////////////////////////////
+		// Reload an uploaded work
+		///////////////////////////////////////////////////////////////////////////////////////////
+    	$(document).on('click', 'a#reload_work_btn', function (e) {
+			e.preventDefault();
+			$('div.progress-bar').css('width', '0%');
+			$('div#upload_response').html('');
+			$('div#upload_work_modal').modal('hide');
+				
+			// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+				if (checkVariableExistance(csrf_token)) {
+					 
+					$('div#pred_setup_content').fadeToggle('slow', 'linear');
+					$('div#add_mirna_content').html('');
+        			$('div#pred_analysis_content').html('<br><p class="lead"><i class="fas fa-cog fa-spin"></i> Loading...</p>');
+        			
+        			$.ajax({
+            		url: '/reload_prediction_analysis_details',
+            		beforeSend: function(xhr, settings) {
+            			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+                			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+            			}
+        				},
+         			data: {},
+         			type: 'POST',
+         			dataType: 'html',
+         			success: function(data) {
+         				if (data !== null) {
+             				$('div#pred_analysis_content').html(data);
+	       					reload_prediction_analysis_cleaner();
+	       					reload_enrichment_analysis_data();
+             			}
+         			},
+         			error: function(error) {
+         				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+
+		       			modal_error_notification('An error occurred' + msg);
+         			}
+        			});
+        		}
+				e.handled = true;
+			}	
+		}); 
+    
+    	
+    	///////////////////////////////////////////////////////////////////////////////////////////
+		// File download modal box
+		///////////////////////////////////////////////////////////////////////////////////////////
+		$('a#download_work_btn').on('click', function (e) {
+			e.preventDefault();
+			// Prevent event triggering more then once
+			if(e.handled !== true) {
+				$('div#download_response').html('<center><h2 class="lead"><i class="fas fa-cog fa-spin"></i> Zipping, please wait...</h2></center>');
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+				if (checkVariableExistance(csrf_token)) {
+        			
+        			$.ajax({
+            		url: '/work_dowloader',
+            		beforeSend: function(xhr, settings) {
+            			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+                			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+            			}
+        				},
+         			dataType: 'json',
+         			success: function(data) {
+         				if (data !== null) {
+								$('div#download_work_modal').modal('show');
+								
+								// Check the download work
+		       				var checker = setInterval(function() 
+		       				{ 
+									var csrf_token = $('meta[name=_csrf_token]').attr('content');
+								
+									if (checkVariableExistance(csrf_token)) {
+							    		$.ajax({
+							      		url: '/download_work_check',
+							      		beforeSend: function(xhr, settings) {
+							      			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+							          			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+							      			}
+							  				},
+							   			data: {},
+							   			type: 'POST',
+							   			dataType: 'json',
+							   			success: function(data) {
+						
+							       			if (data !== null) {
+							       				if (data.job_status === 'done') {
+							       					$('div#download_response').html('<p>Click on the following button to download current results.</p>\
+							       					<center><a class="btn btn-warning btn-sm" href="/static/public/output.zip" target="_blank">\
+							  							<i class="fas fa-download"></i> Get your data</a></center>');
+						    							clearInterval(checker);
+							       				}
+							       			}
+							   			},
+							   			error: function(error) {
+							   				var res = $.parseJSON(error.responseText);
+							   				var error_code = parseInt(error.status, 10);
+							   				var msg = '';
+							
+							   				if(error_code === 400)
+							   					msg = ': <i>' + res.error_msg + '</i> Please reload the page.';
+							   				else if( error_code === 405) {
+							   					msg = ': <i>' + res.error_msg + '</i>';
+							   				}
+							       			
+							       			modal_error_notification('An error occurred' + msg);
+							   			}
+							    		});
+						    		}	
+						    		
+								}, 5000); //time in milliseconds 
+       			
+             			}
+         			},
+         			error: function(error) {
+         				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+
+		       			modal_error_notification('An error occurred' + msg);
+         			}
+        			});
+        		}
+
+				e.handled = true;
+			}			
+		}); 
+
+
+	
+		$('a#enrich_analysis_response_close_btn').on('click', function (e) {
+			e.preventDefault();
+			// Prevent event triggering more then once
+			if(e.handled !== true) {
+				$('div#enrich_analysis_processing_content').css('display', 'none');			
+				e.handled = true;
+			}
+		});
+
+		
+		$('a#pred_show_setup').on('click', function(e) {
+			e.preventDefault();
+			// Prevent event triggering more then once
+			if(e.handled !== true) {
+  				$('div#pred_setup_content').fadeToggle('slow', 'linear');
+  				e.handled = true;
+			}
+		});
+	
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Suggestion bar content
+		///////////////////////////////////////////////////////////////////////////////////////////
+
+		// Defining the local dataset
+    	    
+    	// Constructing the suggestion engine
+    	var engine = new Bloodhound({
+       	datumTokenizer: Bloodhound.tokenizers.whitespace,
+        	queryTokenizer: Bloodhound.tokenizers.whitespace,
+        	local: {{mat_mirnas_list|safe}}
+    	});
+    
+    	// Initializing the typeahead
+    	$('.mirna_typeahead').typeahead({
+       	hint: true,
+        	highlight: true, /* Enable substring highlighting */
+        	minLength: 4 /* Specify minimum characters required for showing suggestions */
+    	},
+    	{
+        	source: engine,
+        	limit: 20
+    	});
+    	
+    	
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Add suggested miRNA
+		///////////////////////////////////////////////////////////////////////////////////////////
+    	
+    	$('button#pred_mirna_sugg_btn').on('click', function (e) {
+    		// Prevent event triggering more then once
+			if(e.handled !== true) {
+	    		var mir = $.trim($('input#pred_mirna_sugg').val());
+	    		var csrf_token = $('meta[name=_csrf_token]').attr('content');
+	    		
+	    		if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(mir) && 
+	    			 mir !== '') {
+	    			$.ajax({
+	         			url: '/prediction_analysis_sugg_mirna',
+	         			beforeSend: function(xhr, settings) {
+	         				if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             				xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         				}
+	     				},
+	      			data: { mirna: mir },
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	          				$('div#add_mirna_content').html(data);
+	          			}
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}	       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+	      			}
+	     			});
+	    		}
+	    	e.handled = true;
+			}
+		});
+   
+    	
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// miRNA example
+		///////////////////////////////////////////////////////////////////////////////////////////
+
+		$('a#pred_example').on('click', function (e) {
+			e.preventDefault();
+			var cnt = '>hsa-miR-495-3p hsa-mir-495 +2|0;2:A|G;-1|-2;-1|+1\nAAACAAACAUGGUGCACUUCUU\n';
+			
+			//$('textarea[name="pred_mirnas_list"]').val($('textarea[name="pred_mirnas_list"]').val() + '\n' + cnt);
+    		pred_mirnas_input_filtering(cnt);    		
+		});
+		
+		$('button#pred_mirna_sugg_del_btn').on('click', function () {
+			$('input#pred_mirna_sugg').val('hsa-miR-495-3p [pre-miR: hsa-mir-495]');
+		});
+		
+		
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Prediction Analysis
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$('form#pred_analysis_form').validate({
+			showErrors: function(errorMap, errorList) {
+			
+				$.each($('input[name^=pred_tools]'), function(idx, elm) {
+					$(elm).removeClass('is-invalid');
+				});
+				
+				$('textarea#pred_mirnas_list').removeClass('is-invalid');
+					
+				if (errorList.length > 0) {
+					var msg = "Your setup contains errors, see details below:<br><br>";
+	        		
+	        		$.each(errorList, function(key, element){ 
+	        			msg += element.message + '<br>';
+	
+						if (element.element.type === 'checkbox') {
+							$.each($('input[name^=pred_tools]'), function(idx, elm) {
+								$(elm).addClass('is-invalid');
+							});
+		        		} else {
+		        			$('textarea#pred_mirnas_list').addClass('is-invalid');
+		        		}
+		        		
+					});
+					
+					modal_error_notification(msg);
+				}
+				
+				return false;
+    		},
+			onkeyup: false,
+			onkeydown: false,
+   		onclick: false,
+   		onfocusout: false,
+			rules: 
+			{
+				'pred_tools[]': 
+				{ 
+					required: true,
+					minlength: 1
+				},
+				pred_mirnas_list: 
+				{ 
+					required: true
+				}
+			},
+			messages: {
+            'pred_tools[]':
+            {
+                required: '* No predictor tool has been specified'
+            },
+            pred_mirnas_list:
+            {
+                required: '* No miRNA has been specified'
+            }
+        	},
+    		errorPlacement: function (error, element) {
+    			return true;
+    		},    		
+			submitHandler: function(form) {
+			
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+				
+				// No. of selected tools
+				var no_tools = $('input[name^=pred_tools]:checked').length;
+				// Consensus
+				var no_consensus = $('select#pred_min_cons').val();
+				
+					
+				if (no_tools < no_consensus) {
+					
+					var msg = "Your setup contains errors, see details below:<br><br>";
+					msg += '* The number of predictor tools must match with the specified consensus';
+					
+					// Update and show the modal
+		    		$('p#pred_form_check_error_content').html(msg);
+		        	$('div#pre_modal').modal('show');
+		        	
+					$('div#pre_modal').on('hidden.bs.modal, hide.bs.modal', function () {
+    					$('select#pred_min_cons').addClass('is-invalid');
+    					$('select#pred_min_cons').focus();
+					});
+					
+					return false;
+				}
+				
+				$('select#pred_min_cons').removeClass('is-invalid');
+				
+				var tools = new Array();
+				$.each($('input[name^=pred_tools]:checked'), function() {
+					tools.push(parseInt($(this).val(), 10));
+				});
+				
+        		var fa = get_pred_mirnas_input_filtering($('textarea#pred_mirnas_list').val());
+
+        		//var fa = $('textarea#pred_mirnas_list').val();
+        		var cores = parseInt($('select#pred_no_cores').val(), 10);	
+        		var consensus = parseInt($('select#pred_min_cons').val(), 10);	
+        		var tool_combination = new Array();
+        		
+        		// Get the tools combination
+        		for (i = 0; i < 5; i++) {
+        			// Check the i-th selectbox value
+        			if (parseInt($('select#comb_pred_tools'+ i.toString()).val(), 10) === 1) {
+        				tool_combination.push(i.toString());
+        			}
+        		}
+				
+				var t_comb = tool_combination.length > 0 ? tool_combination.join(',') : ''; 				
+				
+				if (checkVariableExistance(csrf_token) && 
+					 checkVariableExistance(tools) && 
+					 checkVariableExistance(fa) && 
+					 checkVariableExistance(cores) && 
+					 checkVariableExistance(consensus)) {
+					 
+					$('div#pred_setup_content').fadeToggle('slow', 'linear');
+					$('div#add_mirna_content').html('');
+        			$('div#pred_analysis_content').html('<br><p class="lead"><i class="fas fa-cog fa-spin"></i> Loading...</p>');
+        			
+        			$.ajax({
+            		url: '/prediction_analysis_details',
+            		beforeSend: function(xhr, settings) {
+            			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+                			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+            			}
+        				},
+         			data: { 
+         				tools: tools, 
+         				fa: fa, 
+         				cores: cores, 
+         				consensus: consensus,
+         				combination: t_comb
+         			},
+         			type: 'POST',
+         			dataType: 'html',
+         			success: function(data) {
+         				if (data !== null) {
+             				$('div#pred_analysis_content').html(data);
+             			}
+         			},
+         			error: function(error) {
+         				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+
+		       			modal_error_notification('An error occurred' + msg);
+         			}
+        			});
+        		}
+        		return false;
+  			}	
+		});
+	});
+	
+	function pred_mirnas_input_filtering(cnt) {
+		var txt_cnt = $('textarea[name="pred_mirnas_list"]').val();
+		var mirs = [];
+		var filtered_cnt = '';
+		var merged_cnt = $.trim(txt_cnt) + '\n' + $.trim(cnt);
+		var filtered_mirs = [];
+		
+		if ($.trim(merged_cnt) !== '') {
+			mirs = merged_cnt.split('\n');
+
+			for (i = 0; i < mirs.length; i++) {
+				if ($.trim(mirs[i]) !== '' ) {
+
+					var matches = mirs[i].match(/^>.*(hsa\-[^\s]+)\s+(hsa\-[^\s]+)\s*([^\s]*)\s*$/);
+					if (matches) {
+						var mirna_id = $.trim(matches[1]);
+						var pre_id = $.trim(matches[2]);
+						var label = mirna_id + '__' + pre_id;
+						var variations = [];
+						
+						if ($.trim(matches[3]) !== '') {
+							var vars = matches[3].replace(/([\-\+]*[^1-9;]0{1,}\|[\-\+]*[^1-9;]0{1,})/gm, '');
+							variations = $.trim(vars.replace(/;{2,}/gm, ';')).split(';');
+							variations = variations.filter(function (n) { return n !== ''});
+						}
+						
+						var seq = '';
+						i += 1;
+						while (i < mirs.length && mirs[i] !== undefined && mirs[i].match(/^>.*(hsa\-[^\s]+)\s+(hsa\-[^\s]+)\s*([^\s]*)\s*$/) === null) {
+							seq += $.trim(mirs[i]);
+							i += 1;
+						}	
+						
+						if ($.trim(seq) !== '') {
+							
+							if (!filtered_mirs.hasOwnProperty(label)) {
+								filtered_mirs[label] = { 'mirna_id': mirna_id, 'variations': variations, 'seq': seq, 'pre_id': pre_id };
+							}
+							else {
+								for (j = 0; j < variations.length; j++) {
+									if ($.inArray(variations[j], filtered_mirs[label].variations) == -1) {
+										filtered_mirs[label]['variations'].push(variations[j]);		
+									} 
+								}
+							}
+						}
+					
+						i -= 1;	
+					}
+				}
+			}
+		} 
+		
+		for (var m in filtered_mirs) {
+			var line = '>' + filtered_mirs[m].mirna_id + ' ' + filtered_mirs[m].pre_id + '\n' + filtered_mirs[m].seq + '\n';
+			if (filtered_mirs[m].variations.length) {
+				line = '>' + filtered_mirs[m].mirna_id + ' ' + filtered_mirs[m].pre_id + ' ' + filtered_mirs[m].variations.join(';') + '\n' + filtered_mirs[m].seq + '\n';
+			}
+			filtered_cnt += line;
+		}
+		
+		$('textarea[name="pred_mirnas_list"]').val(filtered_cnt);
+	}
+	
+	
+	
+	function get_pred_mirnas_input_filtering(txt_cnt) {
+		var mirs = [];
+		var filtered_cnt = '';
+		var merged_cnt = $.trim(txt_cnt);
+		var filtered_mirs = [];
+		
+		if ($.trim(merged_cnt) !== '') {
+			mirs = merged_cnt.split('\n');
+
+			for (i = 0; i < mirs.length; i++) {
+				if ($.trim(mirs[i]) !== '' ) {
+					var matches = mirs[i].match(/^>.*(hsa\-[^\s]+)\s+(hsa\-[^\s]+)\s*([^\s]*)\s*$/);
+					var matches1 = mirs[i].match(/^>.*(hsa\-[^\s]+)\s+(hsa\-[^\s]+)\s*([^\s]*)\s*$/);
+					if (matches) {
+						var mirna_id = $.trim(matches[1]);
+						var pre_id = $.trim(matches[2]);
+						var label = mirna_id + '__' + pre_id;
+						var variations = [];
+						
+						if ($.trim(matches[3]) !== '') {
+							var vars = matches[3].replace(/([\-\+]*[^1-9;]0{1,}\|[\-\+]*[^1-9;]0{1,})/gm, '');
+							variations = $.trim(vars.replace(/;{2,}/gm, ';')).split(';');
+							variations = variations.filter(function (n) { return n !== ''});
+						}
+						
+						var seq = '';
+						i += 1;
+						while (i < mirs.length && mirs[i] !== undefined && mirs[i].match(/^>.*(hsa\-[^\s]+)\s+(hsa\-[^\s]+)\s*([^\s]*)\s*$/) === null) {
+							seq += $.trim(mirs[i]);
+							i += 1;
+						}	
+						
+						if ($.trim(seq) !== '') {
+							
+							if (!filtered_mirs.hasOwnProperty(label)) {
+								filtered_mirs[label] = { 'mirna_id': mirna_id, 'variations': variations, 'seq': seq, 'pre_id': pre_id };
+							}
+							else {
+								for (j = 0; j < variations.length; j++) {
+									if ($.inArray(variations[j], filtered_mirs[label].variations) === -1) {
+										filtered_mirs[label]['variations'].push(variations[j]);		
+									} 
+								}
+							}
+						}
+					
+						i -= 1;	
+					}
+					else if (matches1) {
+						var mirna_id = $.trim(matches1[1]);
+						var pre_id = $.trim(matches1[2]);
+						var label = mirna_id + '__' + pre_id;
+						var variations = [];
+						
+						var seq = '';
+						i += 1;
+						while (i < mirs.length && mirs[i] !== undefined && mirs[i].match(/^>.*(hsa\-[^\s]+)\s+(hsa\-[^\s]+)\s*$/) === null) {
+							seq += $.trim(mirs[i]);
+							i += 1;
+						}	
+						
+						if ($.trim(seq) !== '') {
+							
+							if (!filtered_mirs.hasOwnProperty(label)) {
+								filtered_mirs[label] = { 'mirna_id': mirna_id, 'variations': variations, 'seq': seq, 'pre_id': pre_id };
+							}
+							else {
+								for (j = 0; j < variations.length; j++) {
+									if ($.inArray(variations[j], filtered_mirs[label].variations) == -1) {
+										filtered_mirs[label]['variations'].push(variations[j]);		
+									} 
+								}
+							}
+						}
+					
+						i -= 1;	
+					}
+				}
+			}
+		} 
+		
+		for (var m in filtered_mirs) {
+			var line = '>' + filtered_mirs[m].mirna_id + ' ' + filtered_mirs[m].pre_id + '\n' + filtered_mirs[m].seq + '\n';
+			if (filtered_mirs[m].variations.length) {
+				line = '>' + filtered_mirs[m].mirna_id + ' ' + filtered_mirs[m].pre_id + ' ' + filtered_mirs[m].variations.join(';') + '\n' + filtered_mirs[m].seq + '\n';
+			}
+			filtered_cnt += line;
+		}
+		
+		return filtered_cnt;
+	}
+	
+	function modal_error_notification(msg) {
+		// Update and show the modal
+		$('p#pred_form_check_error_content').html(msg);
+		$('div#pre_modal').modal('show');
+	}
+</script>
+{% endmacro %}
+
+
+
+
+
+
+{% macro render_mirna_pred_input_isomir_table(mirnas_list) %}
+	{% if mirnas_list|length > 0 %}
+		<div class="card">
+  			<div class="card-header">
+    			<b>isomiR</b>
+  			</div>
+  			<div class="card-block">
+  				<p></p>
+				<table id="pred_input_isomirs_table" class="display responsive nowrap" width="100%" style="font-size: 12px">
+				<thead>
+				<tr>
+					<th>miRNA</th>
+					<th>Type</th>
+					<th><center>5p</center></th>
+					<th><center>3p</center></th>
+					<th><center>Sequence</center></th>
+					<th><center>Length</center></th>
+				</tr>
+				</thead>
+				<tbody>
+				{% for mir in mirnas_list %}	
+					{% set mat_mirna_id = mir['identifier'] %}
+					<tr>
+						<td>{{ mat_mirna_id|safe }}</td>
+						<td>Wild Type</td>
+						<td align="center">-</td>
+						<td align="center">-</td>
+						<td align="center">{{ mir['seq']|safe }}</td>
+						<td align="center">{{ mir['length']|safe }}</td>				
+					</tr>
+					{% for i in mir['variations']['isomir'] %}
+						<tr>
+							<td>{{ mat_mirna_id|safe }}</td>
+							<td>isomiR</td>
+							<td align="center">{{ i['5p']|safe }}</td>
+							<td align="center">{{ i['3p']|safe }}</td>
+							<td align="center">{{ i['seq']|safe }}</td>
+							<td align="center">{{ i['length']|safe }}</td>				
+						</tr>
+					{% endfor %}
+				{% endfor %}	
+				</tbody>
+				</table>
+				<p></p>
+				<script type="text/javascript" >
+					$(function() {
+					    var table = $('table#pred_input_isomirs_table').DataTable({
+					        columnDefs: [
+					            { "visible": false, "targets": 0 }
+					        ],
+					        order: [[ 0, 'asc' ]],
+					        displayLength: 10,
+					        drawCallback: function ( settings ) {
+					            var api = this.api();
+					            var rows = api.rows( {page:'current'} ).nodes();
+					            var last=null;
+					 
+					            api.column(0, {page:'current'} ).data().each( function ( group, i ) {
+					                if ( last !== group ) {
+					                    $(rows).eq( i ).before(
+					                        '<tr class="group"><td colspan="5">'+group+'</td></tr>'
+					                    );
+					 
+					                    last = group;
+					                }
+					            });
+					        }
+					    });
+					 
+					    // Order by the grouping
+					    $('table#pred_input_isomirs_table tbody').on( 'click', 'tr.group', function () {
+					        var currentOrder = table.order()[0];
+					        if ( currentOrder[0] === 1 && currentOrder[1] === 'asc' ) {
+					            table.order( [ 0, 'desc' ] ).draw();
+					        }
+					        else {
+					            table.order( [ 0, 'asc' ] ).draw();
+					        }
+					    });
+					});
+				</script>
+  			</div>
+		</div>
+		<br>
+	{% endif %}
+{% endmacro %}
+
+
+
+{% macro render_mirna_pred_input_nt_variation_table(mirnas_list) %}
+	{% if mirnas_list|length > 0 %}
+		<div class="card">
+  			<div class="card-header">
+    			<b>Single nucleotide variation</b>
+  			</div>
+  			<div class="card-block">
+  				<p></p>
+				<table id="pred_input_nt_table" class="display responsive nowrap" width="100%" style="font-size: 12px">
+				<thead>
+				<tr>
+					<th>miRNA</th>
+					<th>Type</th>
+					<th><center>Position</center></th>
+					<th><center>Ref</center></th>
+					<th><center>Mod</center></th>
+					<th><center>Sequence</center></th>
+					<th><center>Length</center></th>
+				</tr>
+				</thead>
+				<tbody>
+				{% for mir in mirnas_list %}	
+					{% set mat_mirna_id = mir['identifier'] %}
+					<tr>
+						<td>{{ mat_mirna_id|safe }}</td>
+						<td>Wild Type</td>
+						<td align="center">-</td>
+						<td align="center">-</td>
+						<td align="center">-</td>
+						<td align="center">{{ mir['seq']|safe }}</td>
+						<td align="center">{{ mir['length']|safe }}</td>				
+					</tr>
+					{% for s in mir['variations']['substitution'] %}
+						<tr>
+							<td>{{ mat_mirna_id|safe }}</td>
+							<td>Substitution</td>
+							<td align="center">{{ s['position']|safe }}</td>
+							<td align="center">{{ s['ref']|safe }}</td>
+							<td align="center">{{ s['mod']|safe }}</td>
+							<td align="center">{{ s['seq']|safe }}</td>
+							<td align="center">{{ s['length']|safe }}</td>				
+						</tr>
+					{% endfor %}
+				{% endfor %}	
+				</tbody>
+				</table>
+				<p></p>
+				<script type="text/javascript" >
+					$(function() {
+					    var table = $('table#pred_input_nt_table').DataTable({
+					        columnDefs: [
+					            { "visible": false, "targets": 0 }
+					        ],
+					        order: [[ 0, 'asc' ]],
+					        displayLength: 10,
+					        drawCallback: function ( settings ) {
+					            var api = this.api();
+					            var rows = api.rows( {page:'current'} ).nodes();
+					            var last=null;
+					 
+					            api.column(0, {page:'current'} ).data().each( function ( group, i ) {
+					                if ( last !== group ) {
+					                    $(rows).eq( i ).before(
+					                        '<tr class="group"><td colspan="6">'+group+'</td></tr>'
+					                    );
+					 
+					                    last = group;
+					                }
+					            });
+					        }
+					    });
+					 
+					    // Order by the grouping
+					    $('table#pred_input_nt_table tbody').on( 'click', 'tr.group', function () {
+					        var currentOrder = table.order()[0];
+					        if ( currentOrder[0] === 1 && currentOrder[1] === 'asc' ) {
+					            table.order( [ 0, 'desc' ] ).draw();
+					        }
+					        else {
+					            table.order( [ 0, 'asc' ] ).draw();
+					        }
+					    });
+					});
+				</script>
+  			</div>
+		</div>
+		<br>
+	{% endif %}
+{% endmacro %}
+
+
+
+{% macro render_mirna_pred_input_wt_table(mirnas_list) %}
+	{% if mirnas_list|length > 0 %}
+		<div class="card">
+  			<div class="card-header">
+    			<b>Wild Type</b>
+  			</div>
+  			<div class="card-block">
+  				<p></p>
+				<table id="pred_input_wt_table" class="display responsive nowrap" width="100%" style="font-size: 12px">
+				<thead>
+				<tr>
+					<th>miRNA</th>
+					<th><center>Sequence</center></th>
+					<th><center>Length</center></th>
+				</tr>
+				</thead>
+				<tbody>
+				{% for mir in mirnas_list %}	
+					{% set mat_mirna_id = mir['identifier'] %}
+					<tr>
+						<td>{{ mat_mirna_id|safe }}</td>
+						<td align="center">{{ mir['seq']|safe }}</td>
+						<td align="center">{{ mir['length']|safe }}</td>				
+					</tr>
+				{% endfor %}	
+				</tbody>
+				</table>
+				<p></p>
+				<script type="text/javascript" >
+					$(function() {
+					    var table = $('table#pred_input_wt_table').DataTable({
+					        order: [[ 0, 'asc' ]],
+					        displayLength: 10
+					    });
+					});
+				</script>
+  			</div>
+		</div>
+	{% endif %}
+{% endmacro %}
+
+
+
+
+
+{% macro render_mirna_pred_results_nt_variation_table(mirnas_list) %}
+	{% if mirnas_list|length > 0 %}
+		<div class="card">
+  			<div class="card-header">
+    			<b>Single nucleotide variation</b>
+  			</div>
+  			<div class="card-block">
+  				<p></p>
+				<table id="pred_nt_results_table" class="display responsive nowrap" width="100%" style="font-size: 12px">
+				<thead>
+				<tr>
+					<th>miRNA</th>
+					<th>Type</th>
+					<th><center>Position</center></th>
+					<th><center>Ref</center></th>
+					<th><center>Mod</center></th>
+					<th><center>Targets</center></th>
+					<th><center>miRanda</center></th>
+					<th><center>miRmap</center></th>
+					<th><center>TargetScan</center></th>
+					<th><center>RNAhybrid</center></th>
+					<th><center>PITA</center></th>
+					<th><center>Statistics</center></th>
+				</tr>
+				</thead>
+				<tbody>
+				{% for mir, value in mirnas_list.items() %}
+					{% if value['variations']['substitution']|length > 0 %}	
+						{% set mat_mirna_id = mir %}
+						<tr>
+							<td>
+								{{ mat_mirna_id|safe }}
+							</td>
+							<td>
+								<span class="pred_row_type">
+									Wild Type
+								</span>
+								<span style="display: none;" class="pred_row_mirna_id">{{ mat_mirna_id|safe }}</span>
+							</td>
+							<td align="center">
+								<span class="pred_row_pos">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="pred_row_ref">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="pred_row_mod">
+									-
+								</span>
+							</td>
+							<td align="center">
+								{% if value['predictions']['targets']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_targets">
+										{{ value['predictions']['targets']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['predictions']['miRanda']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_miRanda">
+										{{ value['predictions']['miRanda']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['predictions']['miRmap']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_miRmap">
+										{{ value['predictions']['miRmap']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['predictions']['TargetScan']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_TargetScan">
+										{{ value['predictions']['TargetScan']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['predictions']['RNAhybrid']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_RNAhybrid">
+										{{ value['predictions']['RNAhybrid']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['predictions']['PITA']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_PITA">
+										{{ value['predictions']['PITA']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								<a href="#" class="btn btn-sm pred_statistics_btn">
+									<i class="fas fa-chart-area" aria-hidden="true"></i>
+								</a>
+							</td>
+						</tr>
+						{% for s in value['variations']['substitution'] %}
+							<tr>
+								<td>
+										{{ mat_mirna_id|safe }}
+								</td>
+								<td>
+									<span class="pred_row_type">
+										Substitution
+									</span>
+									<span style="display: none;" class="pred_row_mirna_id">{{ mat_mirna_id|safe }}</span>
+								</td>
+								<td align="center">
+									<span class="pred_row_pos">
+										{{ s['position']|safe }}
+									</span>
+								</td>
+								<td align="center">
+									<span class="pred_row_ref">
+										{{ s['ref']|safe }}
+									</span>
+								</td>
+								<td align="center">
+									<span class="pred_row_mod">
+										{{ s['mod']|safe }}
+									</span>
+								</td>
+								<td align="center">
+									{% if s['predictions']['targets']|length > 0 %}
+									<a href="#" class="pred_get_targets_table">
+										<span class="pred_row_targets">
+											{{ s['predictions']['targets']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['predictions']['miRanda']|length > 0 %}
+									<a href="#" class="pred_get_targets_table">
+										<span class="pred_row_miRanda">
+											{{ s['predictions']['miRanda']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['predictions']['miRmap']|length > 0 %}
+									<a href="#" class="pred_get_targets_table">
+										<span class="pred_row_miRmap">
+											{{ s['predictions']['miRmap']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['predictions']['TargetScan']|length > 0 %}
+									<a href="#" class="pred_get_targets_table">
+										<span class="pred_row_TargetScan">
+											{{ s['predictions']['TargetScan']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['predictions']['RNAhybrid']|length > 0 %}
+									<a href="#" class="pred_get_targets_table">
+										<span class="pred_row_RNAhybrid">
+											{{ s['predictions']['RNAhybrid']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['predictions']['PITA']|length > 0 %}
+									<a href="#" class="pred_get_targets_table">
+										<span class="pred_row_PITA">
+											{{ s['predictions']['PITA']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									<a href="#" class="btn btn-sm pred_statistics_btn">
+										<i class="fas fa-chart-area" aria-hidden="true"></i>
+									</a>
+								</td>
+							</tr>
+						{% endfor %}
+					{% endif %}
+				{% endfor %}	
+				</tbody>
+				</table>
+				<p></p>
+				<script type="text/javascript" >
+					$(function() {
+					    var table = $('table#pred_nt_results_table').DataTable({
+					        columnDefs: [
+					            { "visible": false, "targets": 0 }
+					        ],
+					        order: [[ 0, 'asc' ]],
+					        displayLength: 10,
+					        drawCallback: function ( settings ) {
+					            var api = this.api();
+					            var rows = api.rows( {page:'current'} ).nodes();
+					            var last=null;
+					 
+					            api.column(0, {page:'current'} ).data().each( function ( group, i ) {
+					                if ( last !== group ) {
+					                    $(rows).eq( i ).before(
+					                        '<tr class="group"><td colspan="11">'+group+'</td></tr>'
+					                    );
+					 
+					                    last = group;
+					                }
+					            });
+					        }
+					    });
+					 
+					    // Order by the grouping
+					    $('table#pred_nt_results_table tbody').on( 'click', 'tr.group', function () {
+					        var currentOrder = table.order()[0];
+					        if ( currentOrder[0] === 1 && currentOrder[1] === 'asc' ) {
+					            table.order( [ 0, 'desc' ] ).draw();
+					        }
+					        else {
+					            table.order( [ 0, 'asc' ] ).draw();
+					        }
+					    });
+					});
+				</script>
+  			</div>
+		</div>	
+		<br>	
+	{% endif %}
+{% endmacro %}
+
+
+{% macro render_mirna_pred_results_isomir_variation_table(mirnas_list) %}
+	{% if mirnas_list|length > 0 %}
+		<div class="card">
+  			<div class="card-header">
+    			<b>isomiR</b>
+  			</div>
+  			<div class="card-block">
+  				<p></p>
+				<table id="pred_isomir_results_table" class="display responsive nowrap" width="100%" style="font-size: 12px">
+				<thead>
+				<tr>
+					<th>miRNA</th>
+					<th>Type</th>
+					<th><center>5p</center></th>
+					<th><center>3p</center></th>
+					<th><center>Targets</center></th>
+					<th><center>miRanda</center></th>
+					<th><center>miRmap</center></th>
+					<th><center>TargetScan</center></th>
+					<th><center>RNAhybrid</center></th>
+					<th><center>PITA</center></th>
+					<th><center>Statistics</center></th>
+				</tr>
+				</thead>
+				<tbody>
+				{% for mir, value in mirnas_list.items() %}	
+					{% if value['variations']['isomir']|length > 0 %}
+						{% set mat_mirna_id = mir %}
+						<tr>
+							<td>
+								{{ mat_mirna_id|safe }}
+							</td>
+							<td>
+								<span class="pred_row_type">
+									Wild Type
+								</span>
+								<span style="display: none;" class="pred_row_mirna_id">{{ mat_mirna_id|safe }}</span>
+							</td>
+							<td align="center">
+								<span class="pred_row_5p">
+									-
+								</span>
+							</td>
+							<td align="center">
+								<span class="pred_row_3p">
+									-
+								</span>
+							</td>
+							<td align="center">
+								{% if value['predictions']['targets']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_targets">
+										{{ value['predictions']['targets']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['predictions']['miRanda']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_miRanda">
+										{{ value['predictions']['miRanda']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['predictions']['miRmap']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_miRmap">
+										{{ value['predictions']['miRmap']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['predictions']['TargetScan']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_TargetScan">
+										{{ value['predictions']['TargetScan']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['predictions']['RNAhybrid']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_RNAhybrid">
+										{{ value['predictions']['RNAhybrid']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['predictions']['PITA']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_PITA">
+										{{ value['predictions']['PITA']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								<a href="#" class="btn btn-sm pred_statistics_btn">
+									<i class="fas fa-chart-area" aria-hidden="true"></i>
+								</a>
+							</td>
+						</tr>
+						{% for s in value['variations']['isomir'] %}
+							<tr>
+								<td>
+										{{ mat_mirna_id|safe }}
+								</td>
+								<td>
+									<span class="pred_row_type">
+										isomiR
+									</span>
+									<span style="display: none;" class="pred_row_mirna_id">{{ mat_mirna_id|safe }}</span>
+								</td>
+								<td align="center">
+									<span class="pred_row_5p">
+										{{ s['5p']|safe }}
+									</span>
+								</td>
+								<td align="center">
+									<span class="pred_row_3p">
+										{{ s['3p']|safe }}
+									</span>
+								</td>
+								<td align="center">
+									{% if s['predictions']['targets']|length > 0 %}
+									<a href="#" class="pred_get_targets_table">
+										<span class="pred_row_targets">
+											{{ s['predictions']['targets']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['predictions']['miRanda']|length > 0 %}
+									<a href="#" class="pred_get_targets_table">
+										<span class="pred_row_miRanda">
+											{{ s['predictions']['miRanda']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['predictions']['miRmap']|length > 0 %}
+									<a href="#" class="pred_get_targets_table">
+										<span class="pred_row_miRmap">
+											{{ s['predictions']['miRmap']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['predictions']['TargetScan']|length > 0 %}
+									<a href="#" class="pred_get_targets_table">
+										<span class="pred_row_TargetScan">
+											{{ s['predictions']['TargetScan']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['predictions']['RNAhybrid']|length > 0 %}
+									<a href="#" class="pred_get_targets_table">
+										<span class="pred_row_RNAhybrid">
+											{{ s['predictions']['RNAhybrid']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									{% if s['predictions']['PITA']|length > 0 %}
+									<a href="#" class="pred_get_targets_table">
+										<span class="pred_row_PITA">
+											{{ s['predictions']['PITA']|length }}
+										</span>
+									</a>
+									{% else %}
+									0
+									{% endif %}
+								</td>
+								<td align="center">
+									<a href="#" class="btn btn-sm pred_statistics_btn">
+										<i class="fas fa-chart-area" aria-hidden="true"></i>
+									</a>
+								</td>
+							</tr>
+						{% endfor %}
+					{% endif %}
+				{% endfor %}	
+				</tbody>
+				</table>
+				<p></p>
+				<script type="text/javascript" >
+					$(function() {
+					    var table = $('table#pred_isomir_results_table').DataTable({
+					        columnDefs: [
+					            { "visible": false, "targets": 0 },
+					            { "className": "dt-body-center", "targets": [ 0 ] }
+					        ],
+					        order: [[ 0, 'asc' ]],
+					        displayLength: 10,
+					        drawCallback: function ( settings ) {
+					            var api = this.api();
+					            var rows = api.rows( {page:'current'} ).nodes();
+					            var last=null;
+					 
+					            api.column(0, {page:'current'} ).data().each( function ( group, i ) {
+					                if ( last !== group ) {
+					                    $(rows).eq( i ).before(
+					                        '<tr class="group"><td colspan="10">'+group+'</td></tr>'
+					                    );
+					 
+					                    last = group;
+					                }
+					            });
+					        }
+					    });
+					 
+					    // Order by the grouping
+					    $('table#pred_isomir_results_table tbody').on( 'click', 'tr.group', function () {
+					        var currentOrder = table.order()[0];
+					        if ( currentOrder[0] === 1 && currentOrder[1] === 'asc' ) {
+					            table.order( [ 0, 'desc' ] ).draw();
+					        }
+					        else {
+					            table.order( [ 0, 'asc' ] ).draw();
+					        }
+					    });
+					});
+				</script>
+  			</div>
+		</div>
+		<br>
+	{% endif %}
+{% endmacro %}
+
+
+
+{% macro render_mirna_pred_results_wt_table(mirnas_list) %}
+	{% if mirnas_list|length > 0 %}
+		<div class="card">
+  			<div class="card-header">
+    			<b>Wild Type</b>
+  			</div>
+  			<div class="card-block">
+  				<p></p>
+				<table id="pred_wt_results_table" class="display responsive nowrap" width="100%" style="font-size: 12px">
+				<thead>
+				<tr>
+					<th>miRNA</th>
+					<th>Type</th>
+					<th><center>Targets</center></th>
+					<th><center>miRanda</center></th>
+					<th><center>miRmap</center></th>
+					<th><center>TargetScan</center></th>
+					<th><center>RNAhybrid</center></th>
+					<th><center>PITA</center></th>
+					<th><center>Statistics</center></th>
+				</tr>
+				</thead>
+				<tbody>
+				{% for mir, value in mirnas_list.items() %}	
+					{% if value['variations']['isomir']|length == 0 and value['variations']['substitution']|length == 0 %}
+						{% set mat_mirna_id = mir %}
+						<tr>
+							<td>
+								{{ mat_mirna_id|safe }}
+							</td>
+							<td>
+								<span class="pred_row_type">
+									Wild Type
+								</span>
+								<span style="display: none;" class="pred_row_mirna_id">{{ mat_mirna_id|safe }}</span>
+							</td>
+							<td align="center">
+								{% if value['predictions']['targets']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_targets">
+										{{ value['predictions']['targets']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['predictions']['miRanda']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_miRanda">
+										{{ value['predictions']['miRanda']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['predictions']['miRmap']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_miRmap">
+										{{ value['predictions']['miRmap']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['predictions']['TargetScan']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_TargetScan">
+										{{ value['predictions']['TargetScan']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['predictions']['RNAhybrid']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_RNAhybrid">
+										{{ value['predictions']['RNAhybrid']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								{% if value['predictions']['PITA']|length > 0 %}
+								<a href="#" class="pred_get_targets_table">
+									<span class="pred_row_PITA">
+										{{ value['predictions']['PITA']|length }}
+									</span>
+								</a>
+								{% else %}
+								0
+								{% endif %}
+							</td>
+							<td align="center">
+								<a href="#" class="btn btn-sm pred_statistics_btn">
+									<i class="fas fa-chart-area" aria-hidden="true"></i>
+								</a>
+							</td>
+						</tr>
+					{% endif %}
+				{% endfor %}	
+				</tbody>
+				</table>
+				<p></p>
+				<script type="text/javascript" >
+					$(function() {
+					    var table = $('table#pred_wt_results_table').DataTable({
+					        order: [[ 0, 'asc' ]],
+					        displayLength: 10
+					    });
+					 
+					});
+				</script>
+  			</div>
+		</div>		
+	{% endif %}
+{% endmacro %}
+
+
+
+
+{% macro render_mirna_pred_statistics_js() %}
+			
+	<script type="text/javascript" >
+		$(function() {
+		 
+		   $(document).on('click', 'a.pred_statistics_btn', function (e) {
+		   	e.preventDefault();
+		   	
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+				var targets = new Array();
+				var venn_data = new Array();
+				
+				var mirna_id = '';
+				var vtype = '';
+				
+				var v3p = '';
+				var v5p = '';
+				
+				var vref = '';
+				var vmod = '';
+				var vpos = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					
+					if ($(value).attr('class') === 'pred_row_mirna_id') {
+						mirna_id = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'pred_row_type') {
+						vtype = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'pred_row_3p'){
+						v3p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'pred_row_5p'){
+						v5p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'pred_row_pos'){
+						vpos = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'pred_row_ref'){
+						vref = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'pred_row_mod'){
+						vmod = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+							if ($(value).attr('class') === 'pred_row_mirna_id') {
+								mirna_id = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'pred_row_type') {
+								vtype = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'pred_row_3p'){
+								v3p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'pred_row_5p'){
+								v5p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'pred_row_pos'){
+								vpos = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'pred_row_ref'){
+								vref = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'pred_row_mod'){
+								vmod = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(mirna_id) && 
+	    			 checkVariableExistance(vtype) && 
+	    			 mirna_id !== '' && 
+	    			 vtype !== '') {
+	    			$.ajax({
+	         			url: '/prediction_analysis_variation_statistics',
+	         			beforeSend: function(xhr, settings) {
+	         				if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             				xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         				}
+	     				},
+	      			data: { 
+	      				mirna_id: mirna_id, 
+	      				vtype: vtype, 
+	      				v3p: v3p, 
+	      				v5p: v5p, 
+	      				vpos: vpos, 
+	      				vref: vref, 
+	      				vmod: vmod 
+	      			},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+		       				var variation = vpos !== '' ? ' (position: ' + vpos + ', ref: ' + vref + ', mod: ' + vmod + ')' : ' (5p: ' + v5p + ', 3p: ' + v3p + ')';
+		       				if (vtype === 'Wild Type') {
+		       					variation = '';
+		       				}
+		       				$('h5#pred_statistics_modal_label').text(vtype + ': ' + mirna_id + variation);
+	      					$('div#pred_statistics_modal_content').html(data);
+	          				$('div#pred_statistics_modal').modal('show');	
+	      				}
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+		
+		       			modal_error_notification('An error occurred' + msg);
+	      			}
+	     			});
+	    		}
+	    		
+		   });
+		});
+	</script>
+
+{% endmacro %}
+
+
+
+{% macro render_mirna_pred_stats_table(data, id, filename) %}
+	{% if data|length > 0 %}
+		<table id="{{id|safe}}" class="table table-striped table-bordered" style="font-size: 12px">
+		<thead>
+			<th>Gene Name</th>
+			<th>Gene ID</th>
+			<th>Accession Number</th>
+		</thead>
+		<tbody>
+		{% for row in data %}	
+			<tr>
+				<td>
+					<a href="http://www.genecards.org/cgi-bin/carddisp.pl?gene={{ row['gene_name']|e }}" target="_blank">{{ row['gene_name']|e }}</a>
+				</td>
+				<td>
+					<a href="https://www.ncbi.nlm.nih.gov/gene/{{ row['gene_id']|e }}" target="_blank">{{ row['gene_id']|e }}</a>
+				</td>
+				<td>
+					<a href="https://www.ncbi.nlm.nih.gov/gene/?term={{ row['accession_number']|e }}" target="_blank">{{ row['accession_number']|e }}</a>
+				</td>
+			</tr>
+		{% endfor %}	
+		</tbody>
+		</table>
+		
+		<script type="text/javascript" >
+			$(function() {
+			    $('table#{{id|e}}').DataTable({
+			        order: [[ 0, 'asc' ]],
+			        displayLength: 5,
+			        lengthMenu: [[5, 10, 25, 50, -1], [5, 10, 25, 50, "All"]],
+			        dom: 'Bfrtip',
+					  buttons: [{
+							extend: 'copy',
+							title : '{{filename|e}}' 					  
+					  },{
+							extend: 'csv',
+							text: 'TSV',
+							title : '{{filename|e}}',
+							fieldSeparator: '\t', 
+							extension: '.tsv'					  
+					  },{
+							extend: 'excel',
+							title : '{{filename|e}}' 					  
+					  },{
+							extend: 'pdf',
+							title : '{{filename|e}}',
+							orientation: 'landscape',
+               		pageSize: 'LEGAL'			 					  
+					  },{
+							extend: 'print',
+							title : '{{filename|e}}' 					  
+					  }]
+			    });
+			});
+		</script>
+	{% endif %}
+{% endmacro %}
+
+
+{% macro render_variations_db_table(mirnas_list, var_type) %}
+	{% if mirnas_list|length > 0 %}
+		{% if var_type == 'edit_db' %}
+			<table id="variations_table" class="table datatable responsive" width="100%" cellspacing="0" style="font-size: 10px">
+			<thead>
+			<tr>
+				<th></th>
+				<th>Mature miRNA</th>
+				<th>Pre-miRNA</th>
+				<th>Mature miRNA pos.</th>
+				<th>Pre-miRNA pos.</th>
+				<th>Mod type</th>
+				<th>Sequence</th>
+				<th>Length</th>
+				<th>PubMed ID</th>
+			</tr>
+			</thead>
+			<tbody>
+			{% for mir in mirnas_list %}	
+				{% set pubids = mir['pubmed_id'].split(',') %}
+				<tr>
+					<td>
+						<label class="custom-control custom-checkbox">
+					    	<input class="custom-control-input" type="checkbox" name="mir_edit_site[]" id="mir_edit_site{{ loop.index }}" value=">{{mir['mat_mirna']|safe}} {{mir['pre_mirna']|safe}} {{mir['mat_mirna_pos']|safe}}:A|G\n{{mir['sequence']|safe}}">
+					    	<span class="custom-control-indicator"></span>
+					  	</label>
+					</td>
+					<td>
+							<a href="http://www.mirbase.org/cgi-bin/mature.pl?mature_acc={{ mir['mat_mirna_acc']|safe }}" target="_blank" title="Go to miRBase">{{ mir['mat_mirna']|safe }}</a>
+					</td>
+					<td>
+							<a href="http://www.mirbase.org/cgi-bin/mirna_entry.pl?acc={{ mir['pre_mirna_acc']|safe }}" target="_blank" title="Go to miRBase">{{ mir['pre_mirna']|safe }}</a>
+					</td>
+					<td>
+							{{ mir['mat_mirna_pos']|safe }}
+					</td>
+					<td>
+							{{ mir['pre_mirna_pos']|safe }}
+					</td>
+					<td>
+							{{ mir['mod_type']|safe }}
+					</td>
+					<td>
+							{{ mir['sequence_h']|safe }}
+					</td>
+					<td>
+							{{ mir['length']|safe }}
+					</td>
+					<td>
+						{% for p in pubids %}<a href="https://www.ncbi.nlm.nih.gov/pubmed/{{ p|safe }}" target="_blank" title="Got to PubMed">{{ p|safe }}</a>{{ ', ' if not loop.last }}{% endfor %}
+					</td>
+				</tr>
+			{% endfor %}	
+			</tbody>
+			<tfoot>
+         <tr>
+            <th></th>
+				<th>Mature miRNA</th>
+				<th>Pre-miRNA</th>
+				<th>Mature miRNA pos.</th>
+				<th>Pre-miRNA pos.</th>
+				<th>Mod type</th>
+				<th>Sequence</th>
+				<th>Length</th>
+				<th>PubMed ID</th>
+         </tr>
+        	</tfoot>
+			</table>
+		{% else %}
+			<table id="variations_table" class="table datatable responsive" width="100%" cellspacing="0" style="font-size: 10px">
+			<thead>
+			<tr>
+				<th></th>
+				<th>Mature miRNA</th>
+				<th>Pre-miRNA</th>
+				<th>Mature miRNA pos.</th>
+				<th>Pre-miRNA pos.</th>
+				<th>Mod type</th>
+				<th>Sequence</th>
+				<th>Length</th>
+				<th>SNP ID</th>
+			</tr>
+			</thead>
+			<tbody>
+			{% for mir in mirnas_list %}	
+				<tr>
+					<td>
+						<label class="custom-control custom-checkbox">
+					    	<input class="custom-control-input" type="checkbox" name="mir_edit_site[]" id="mir_edit_site{{ loop.index }}" value=">{{mir['mat_mirna']|safe}} {{mir['pre_mirna']|safe}} {{mir['mat_mirna_pos']|safe}}:{{ mir['final_mod']|replace('-to-', '|') }}\n{{mir['sequence']|safe}}">
+					    	<span class="custom-control-indicator"></span>
+					  	</label>
+					</td>
+					<td>
+							<a href="http://www.mirbase.org/cgi-bin/mature.pl?mature_acc={{ mir['mat_mirna_acc']|safe }}" target="_blank" title="Go to miRBase">{{ mir['mat_mirna']|safe }}</a>
+					</td>
+					<td>
+							<a href="http://www.mirbase.org/cgi-bin/mirna_entry.pl?acc={{ mir['pre_mirna_acc']|safe }}" target="_blank" title="Go to miRBase">{{ mir['pre_mirna']|safe }}</a>
+					</td>
+					<td>
+							{{ mir['mat_mirna_pos']|safe }}
+					</td>
+					<td>
+							{{ mir['pre_mirna_pos']|safe }}
+					</td>
+					<td>
+							{{ mir['final_mod']|safe }}
+					</td>
+					<td>
+							{{ mir['sequence_h']|safe }}
+					</td>
+					<td>
+							{{ mir['length']|safe }}
+					</td>
+					<td>
+						<a href="https://www.ncbi.nlm.nih.gov/projects/SNP/snp_ref.cgi?rs={{ mir['snp_id']|replace('rs', '') }}" target="_blank" title="Got to DB SNP">{{ mir['snp_id']|safe }}</a>
+					</td>
+				</tr>
+			{% endfor %}	
+			</tbody>
+			<tfoot>
+         <tr>
+            <th></th>
+				<th>Mature miRNA</th>
+				<th>Pre-miRNA</th>
+				<th>Mature miRNA pos.</th>
+				<th>Pre-miRNA pos.</th>
+				<th>Mod type</th>
+				<th>Sequence</th>
+				<th>Length</th>
+				<th>SNP ID</th>
+         </tr>
+        	</tfoot>
+			</table>
+		{% endif %}
+	{% endif %}
+{% endmacro %}

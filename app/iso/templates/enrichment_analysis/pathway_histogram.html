@@ -1,0 +1,17 @@
+{% import 'enrichment_analysis/macros/enrich_input.html' as enrich_macro %}
+
+<center><p class="lead">{{section_title}}</p></center>
+
+{% if hist_data|length > 0 %}
+	{% if not comparison %}
+		{% for item in hist_data %}
+			{% set filename = pdf_filename+item['label'] %}
+			{{ enrich_macro.render_pathway_enrich_histogram(item['x_labels'], item['wt_data'], item['var_data'], item['label'], item['threshold'], target, filename, entity_label1, entity_label2) }}
+		{% endfor %}
+	{% else %}
+		{% for item in hist_data %}
+			{% set filename = pdf_filename+item['label'] %}
+			{{ enrich_macro.render_pathway_enrich_comp_histogram(item['x_labels'], item['wt_data'], item['var_data'], item['inter_data'], item['label'], item['threshold'], target, filename, entity_label1, entity_label2) }}
+		{% endfor %}
+	{% endif %}
+{% endif %}

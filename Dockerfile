@@ -10,7 +10,7 @@ LABEl edu.osumc.dept="Department of Cancer Biology and Genetics - The Ohio State
 
 ADD tools /opt/
 COPY v2/*.py /opt/v2/
-COPY v2/opt/human /opt/human
+COPY v2/opt/reference_files /opt/reference_files
 COPY v2/opt/resources /opt/resources
 
 
@@ -45,6 +45,11 @@ RUN python2.7 -m pip install --no-cache-dir --upgrade "pip==20.3.4" "setuptools=
 	&& python2.7 -m pip install --no-cache-dir "numpy==1.16.6" \
 	&& python2.7 -m pip install --no-cache-dir "dendropy==4.3.0" \
 	&& python2.7 -m pip install --no-cache-dir -r /opt/requirements.txt
+
+# Setup app_v1
+COPY app_v1 /app_v1
+RUN python3.6 -m pip install --no-cache-dir -r /app_v1/requirements.txt \
+    && mkdir -p /app/logs/celery
 
 # Setup Vienna-rna
 RUN cd /opt \

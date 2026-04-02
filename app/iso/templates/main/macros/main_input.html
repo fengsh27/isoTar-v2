@@ -1,0 +1,165 @@
+{% macro render_variations_db_table(mirnas_list, var_type) %}
+	{% if mirnas_list|length > 0 %}
+		<div class="card">
+  			<div class="card-header">
+    			<a href="#" class="btn btn-warning btn-sm" id="export_mirna_list_btn">Check miRNA(s) you would like to export</a>
+  			</div>
+  			<div class="card-block">
+  				<p></p>
+				{% if var_type == 'edit_db' %}
+					<table id="variations_table" class="table datatable responsive" width="100%" cellspacing="0" style="font-size: 10px">
+					<thead>
+					<tr>
+						<th></th>
+						<th>Mature miRNA</th>
+						<th>Pre-miRNA</th>
+						<th>Mature miRNA pos.</th>
+						<th>Pre-miRNA pos.</th>
+						<th>Mod type</th>
+						<th>Sequence</th>
+						<th>Length</th>
+						<th>PubMed ID</th>
+					</tr>
+					</thead>
+					<tbody>
+					{% for mir in mirnas_list %}	
+						{% set pubids = mir['pubmed_id'].split(',') %}
+						<tr>
+							<td>
+								<label class="custom-control custom-checkbox">
+							    	<input class="custom-control-input" type="checkbox" name="mir_var_site[]" id="mir_var_site{{ loop.index }}" value=">{{mir['mat_mirna']|safe}} {{mir['pre_mirna']|safe}} {{mir['mat_mirna_pos']|safe}}:A|G<br>{{mir['sequence']|safe}}">
+							    	<span class="custom-control-indicator"></span>
+							  	</label>
+							</td>
+							<td>
+									<a href="http://www.mirbase.org/cgi-bin/mature.pl?mature_acc={{ mir['mat_mirna_acc']|safe }}" target="_blank" title="Go to miRBase">{{ mir['mat_mirna']|safe }}</a>
+							</td>
+							<td>
+									<a href="http://www.mirbase.org/cgi-bin/mirna_entry.pl?acc={{ mir['pre_mirna_acc']|safe }}" target="_blank" title="Go to miRBase">{{ mir['pre_mirna']|safe }}</a>
+							</td>
+							<td>
+									{{ mir['mat_mirna_pos']|safe }}
+							</td>
+							<td>
+									{{ mir['pre_mirna_pos']|safe }}
+							</td>
+							<td>
+									{{ mir['mod_type']|safe }}
+							</td>
+							<td>
+									{{ mir['sequence_h']|safe }}
+							</td>
+							<td>
+									{{ mir['length']|safe }}
+							</td>
+							<td>
+								{% for p in pubids %}<a href="https://www.ncbi.nlm.nih.gov/pubmed/{{ p|safe }}" target="_blank" title="Got to PubMed">{{ p|safe }}</a>{{ ', ' if not loop.last }}{% endfor %}
+							</td>
+						</tr>
+					{% endfor %}	
+					</tbody>
+					<tfoot>
+		         <tr>
+		            <th></th>
+						<th>Mature miRNA</th>
+						<th>Pre-miRNA</th>
+						<th>Mature miRNA pos.</th>
+						<th>Pre-miRNA pos.</th>
+						<th>Mod type</th>
+						<th>Sequence</th>
+						<th>Length</th>
+						<th>PubMed ID</th>
+		         </tr>
+		        	</tfoot>
+					</table>
+				{% else %}
+					<table id="variations_table" class="table datatable responsive" width="100%" cellspacing="0" style="font-size: 10px">
+					<thead>
+					<tr>
+						<th></th>
+						<th>Mature miRNA</th>
+						<th>Pre-miRNA</th>
+						<th>Mature miRNA pos.</th>
+						<th>Pre-miRNA pos.</th>
+						<th>Mod type</th>
+						<th>Sequence</th>
+						<th>Length</th>
+						<th>SNP ID</th>
+					</tr>
+					</thead>
+					<tbody>
+					{% for mir in mirnas_list %}	
+						<tr>
+							<td>
+								<label class="custom-control custom-checkbox">
+							    	<input class="custom-control-input" type="checkbox" name="mir_var_site[]" id="mir_var_site{{ loop.index }}" value=">{{mir['mat_mirna']|safe}} {{mir['pre_mirna']|safe}} {{mir['mat_mirna_pos']|safe}}:{{ mir['final_mod']|replace('-to-', '|') }}<br>{{mir['sequence']|safe}}">
+							    	<span class="custom-control-indicator"></span>
+							  	</label>
+							</td>
+							<td>
+									<a href="http://www.mirbase.org/cgi-bin/mature.pl?mature_acc={{ mir['mat_mirna_acc']|safe }}" target="_blank" title="Go to miRBase">{{ mir['mat_mirna']|safe }}</a>
+							</td>
+							<td>
+									<a href="http://www.mirbase.org/cgi-bin/mirna_entry.pl?acc={{ mir['pre_mirna_acc']|safe }}" target="_blank" title="Go to miRBase">{{ mir['pre_mirna']|safe }}</a>
+							</td>
+							<td>
+									{{ mir['mat_mirna_pos']|safe }}
+							</td>
+							<td>
+									{{ mir['pre_mirna_pos']|safe }}
+							</td>
+							<td>
+									{{ mir['final_mod']|safe }}
+							</td>
+							<td>
+									{{ mir['sequence_h']|safe }}
+							</td>
+							<td>
+									{{ mir['length']|safe }}
+							</td>
+							<td>
+								<a href="https://www.ncbi.nlm.nih.gov/projects/SNP/snp_ref.cgi?rs={{ mir['snp_id']|replace('rs', '') }}" target="_blank" title="Got to DB SNP">{{ mir['snp_id']|safe }}</a>
+							</td>
+						</tr>
+					{% endfor %}	
+					</tbody>
+					<tfoot>
+		         <tr>
+		            <th></th>
+						<th>Mature miRNA</th>
+						<th>Pre-miRNA</th>
+						<th>Mature miRNA pos.</th>
+						<th>Pre-miRNA pos.</th>
+						<th>Mod type</th>
+						<th>Sequence</th>
+						<th>Length</th>
+						<th>SNP ID</th>
+		         </tr>
+		        	</tfoot>
+					</table>
+				{% endif %}
+				<p></p>
+  			</div>
+		</div>
+		<br>		
+		<!-- Modal -->
+		<div class="modal fade" id="var_db_modal" tabindex="-1" role="dialog" aria-labelledby="var_db_modal_label" aria-hidden="true">
+		  	<div class="modal-dialog" role="document">
+		    	<div class="modal-content"  style="width: 600px">
+		      	<div class="modal-header">
+		      		<h5 class="modal-title">Copy and paste the following miRNA(s) list</h5>
+		        		<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+		          		<span aria-hidden="true">&times;</span>
+		        		</button>
+		      	</div>
+		      	<div class="modal-body">
+		      		<div id="var_db_modal_content" style="font-size: 10px"></div>
+		      	</div>
+		      	<div class="modal-footer">
+		        		<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+		      	</div>
+		   	</div>
+		  	</div>
+		</div>
+	{% endif %}
+{% endmacro %}

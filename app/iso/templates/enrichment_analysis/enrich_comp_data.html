@@ -1,0 +1,683 @@
+{% import 'enrichment_analysis/macros/enrich_input.html' as enrich_macro %}
+
+<ul class="nav nav-tabs mb-3" id="enrich-opts-tab" role="tablist">
+	{% for resource in resources_list %}
+		<li class="nav-item">
+	   	<a class="nav-link {{'active' if loop.first}}" id="tabs-{{resource|e}}-term-content-tab" data-toggle="tab" href="#tabs-{{resource|e}}-term-content" role="tab" aria-controls="tabs-{{resource|e}}-term-content" aria-selected="true">
+	   		{% if resource == 'go' %}<i class="fas fa-flask"></i> Go term{% elif resource == 'kegg' %}<i class="fab fa-hubspot"></i> KEGG{% elif resource == 'reactome' %}<i class="fab fa-hubspot"></i> Reactome{% endif %}
+	   	</a>
+	  	</li>
+  	{% endfor %}
+</ul>
+<div class="tab-content" id="enrich-opts-tab-content">
+	{% for resource in resources_list %}
+		<div class="tab-pane fade {{'show active' if loop.first}}" id="tabs-{{resource|e}}-term-content" role="tabpanel" aria-labelledby="tabs-{{resource|e}}-term-content-tab">
+		
+			{% if resource == 'go' %}
+				{% if comparison_analysis_table_content[resource] %}
+					{{ enrich_macro.render_enrich_comp_results_table(enrich_data[resource], resource) }}
+				{% endif %}
+			{% else %}
+				{% if comparison_analysis_table_content[resource] %}
+					{{ enrich_macro.render_enrich_pathway_comp_results_table(enrich_data[resource], resource) }}
+				{% endif %}
+			{% endif %}
+	  	</div>
+  	{% endfor %}
+</div>
+
+
+<!-- Modal -->
+<div class="modal fade" id="enrich_go_tree_colors_legend_modal" tabindex="-1" role="dialog" aria-labelledby="enrich_go_tree_colors_legend_modal_label" aria-hidden="true">
+  	<div class="modal-dialog" role="document">
+    	<div class="modal-content">
+      	<div class="modal-header">
+        		<h5 class="modal-title">GO term tree's node colors</h5>
+        		<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          		<span aria-hidden="true">&times;</span>
+        		</button>
+      	</div>
+      	<div class="modal-body">
+      		{{ enrich_macro.render_go_tree_legend('List n&deg;1', 'List n&deg;2') }}
+      	</div>
+      	<div class="modal-footer">
+        		<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+      	</div>
+   	</div>
+  	</div>
+</div>
+
+
+<script type="text/javascript" >
+	$(function() {
+	
+		///////////////////////////////////////////////////////////////////////////////////////////
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// GO term section 
+		///////////////////////////////////////////////////////////////////////////////////////////
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$('a.go_tree_colors_legend_btn').on('click', function (e) {
+	   	e.preventDefault();
+			$('div#enrich_go_tree_colors_legend_modal').modal('show');
+	   });
+	
+	
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// List1 or list2 histogram
+		///////////////////////////////////////////////////////////////////////////////////////////
+	   
+	   $(document).on('click', 'a.enrich_comp_wt_var_stats_btn', function (e) {
+	   	e.preventDefault();
+	   	
+	   	// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+				var list_id = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					
+					if ($(value).attr('class') === 'enrich_row_list_id') {
+						list_id = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_list_id') {
+								list_id = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(list_id) && 
+	    			 checkVariableExistance(resource) && 
+	    			 list_id !== '' && 
+	    			 resource !== '') {
+	    			 
+	    			 $('div#' + resource + '_enrich_comp_hist_container').css('display', 'block');
+	    			 $('div#' + resource + '_comp_hist_loading_status').css('display', 'block');
+	    			 
+	    			 $.ajax({
+	         		url: '/enrichment_analysis_variation_histograms',
+	         		beforeSend: function(xhr, settings) {
+	         			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         			}
+	     				},
+	      			data: { 
+	      				list_id: list_id, 
+	      				resource: resource,
+	      				analysis_type: 'comparison'
+	      			},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	          				$('div#' + resource + '_enrich_comp_hist_content').html(data);
+	          			}
+							$('div#' + resource + '_comp_hist_loading_status').css('display', 'none');
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400) {
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				}
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+		       			$('div#' + resource + '_comp_hist_loading_status').css('display', 'none');
+	      			}
+	     			});
+	    		}
+	    		e.handled = true;
+			}
+			
+	   	return false;
+	   });
+	   
+	   
+	   ///////////////////////////////////////////////////////////////////////////////////////////
+		// List1 vs. list2 histogram
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$(document).on('click', 'a.enrich_comp_comp_stats_btn', function (e) {
+	   	e.preventDefault();
+	   	
+	   	// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+				var list_id = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					
+					if ($(value).attr('class') === 'enrich_row_list_id') {
+						list_id = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		console.log(row)
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_list_id') {
+								list_id = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(list_id) && 
+	    			 checkVariableExistance(resource) && 
+	    			 list_id !== '' && 
+	    			 resource !== '') {
+	    			 
+	    			 $('div#' + resource + '_enrich_comp_hist_container').css('display', 'block');
+	    			 $('div#' + resource + '_comp_hist_loading_status').css('display', 'block');
+	    			 	 
+	    			 $.ajax({
+	         		url: '/enrichment_analysis_variation_comp_histograms',
+	         		beforeSend: function(xhr, settings) {
+	         			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         			}
+	     				},
+	      			data: { 
+	      				list_id: list_id, 
+	      				resource: resource,
+	      				analysis_type: 'comparison' 
+	      			},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	          				$('div#' + resource + '_enrich_comp_hist_content').html(data);
+	          			}
+							$('div#' + resource + '_comp_hist_loading_status').css('display', 'none');
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+							$('div#' + resource + '_comp_hist_loading_status').css('display', 'none');
+	      			}
+	     			});
+		   	}
+		   	e.handled = true;
+			}
+			
+	   	return false;
+	   });
+	    
+	   
+	   ///////////////////////////////////////////////////////////////////////////////////////////
+		// Close GO term histograms 
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$('a.enrich_comp_hist_close_btn').on('click', function (e) {
+	   	e.preventDefault();
+	   	var resource = $(this).attr('id');
+	   	$('div#' + resource + '_enrich_comp_hist_container').css('display', 'none');
+	   	$('div#' + resource + '_enrich_comp_hist_content').html('');
+	   	return false;
+	   });
+	   
+	   
+	   ///////////////////////////////////////////////////////////////////////////////////////////
+		// GO terms table
+		///////////////////////////////////////////////////////////////////////////////////////////
+	   
+	   $(document).on('click', 'a.enrich_get_go_term_table', function (e) {
+	   	e.preventDefault();
+	   	
+	   	// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var data_tab = $(this).find('span').attr('class');
+				var list_id = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					if ($(value).attr('class') === 'enrich_row_list_id') {
+						list_id = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_list_id') {
+								list_id = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+		 			 checkVariableExistance(list_id) && 
+		 			 checkVariableExistance(data_tab) && 
+		 			 list_id !== '' && 
+		 			 data_tab !== '') {
+		 			 
+		 			$.ajax({
+		      			url: '/enrichment_analysis_variation_statistics',
+		      			beforeSend: function(xhr, settings) {
+		      				if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+		          				xhr.setRequestHeader("X-CSRFToken", csrf_token);
+		      				}
+		  				},
+		   			data: { 
+		   				list_id: list_id, 
+							analysis_type: 'comparison',
+		   				data_tab: data_tab 
+		   			},
+		   			type: 'POST',
+		   			dataType: 'html',
+		   			success: function(data) {
+		   				if (data !== null) {
+		       				$('div#enrich_statistics_modal_content').html(data);
+		       				var entity = '';
+		       				var tab = data_tab.replace('enrich_row_', '');
+		       				
+		       				switch(tab) {
+		       					case 'bp_wt_o':
+		       						entity = 'List n°1 only according to BP';
+		       						break;
+		       					case 'cc_wt_o':
+		       						entity = 'List n°1 only according to CC';
+		       						break;
+		       					case 'mf_wt_o':
+		       						entity = 'List n°1 only according to MF';
+		       						break;
+		       					case 'bp_var_o':
+		       						entity = 'List n°2 only according to BP';
+		       						break;
+		       					case 'cc_var_o':
+		       						entity = 'List n°2 only according to CC';
+		       						break;
+		       					case 'mf_var_o':
+		       						entity = 'List n°2 only according to MF';
+		       						break;
+		       					case 'bp_ins':
+		       						entity = 'Intersection between List n°1 and List n°2 according to BP';
+		       						break;
+		       					case 'cc_ins':
+		       						entity = 'Intersection between List n°1 and List n°2 according to CC';
+		       						break;
+		       					case 'mf_ins':
+		       						entity = 'Intersection between List n°1 and List n°2 according to MF';
+		       						break;
+		       					case 'bp':
+		       						entity = list_id === 'list1' ? 'List n°1 according to BP' : 'List n°2 according to BP';
+		       						break;
+		       					case 'cc':
+		       						entity = list_id === 'list1' ? 'List n°1 according to CC' : 'List n°2 according to CC';
+		       						break;
+		       					case 'mf':
+		       						entity = list_id === 'list1' ? 'List n°1 according to MF' : 'List n°2 according to MF';
+		       						break;	
+		       				}
+		       				
+		       				$('h5#enrich_statistics_modal_label').text(entity);
+		       			}
+		       			$('div#enrich_statistics_modal').modal('show');
+		   			},
+		   			error: function(error) {
+		   				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+		
+		       			modal_error_notification('An error occurred' + msg);
+		   			}
+		  			});
+		 		}
+		 		
+	 			e.handled = true;
+			}
+	 		return false;
+	   });	
+	   
+	   
+	   ///////////////////////////////////////////////////////////////////////////////////////////
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Pathway section 
+		///////////////////////////////////////////////////////////////////////////////////////////
+		///////////////////////////////////////////////////////////////////////////////////////////	
+		
+		
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Pathways table
+		///////////////////////////////////////////////////////////////////////////////////////////
+	   
+	   $(document).on('click', 'a.enrich_get_pathway_table', function (e) {
+	   	e.preventDefault();
+	   	
+	   	// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+		   	var data_tab = $(this).find('span').attr('class');
+				var list_id = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					if ($(value).attr('class') === 'enrich_row_list_id') {
+						list_id = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_list_id') {
+								list_id = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+		 			 checkVariableExistance(list_id) && 
+		 			 checkVariableExistance(data_tab) && 
+		 			 checkVariableExistance(resource) && 
+		 			 list_id !== '' && 
+		 			 data_tab !== '' && 
+		 			 resource !== '') {
+		 			 
+		 			$.ajax({
+		      			url: '/pathway_enrichment_analysis_variation_statistics',
+		      			beforeSend: function(xhr, settings) {
+		      				if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+		          				xhr.setRequestHeader("X-CSRFToken", csrf_token);
+		      				}
+		  				},
+		   			data: { 
+		   				list_id: list_id, 
+							analysis_type: 'comparison',
+							resource: resource,
+		   				data_tab: data_tab
+		   			},
+		   			type: 'POST',
+		   			dataType: 'html',
+		   			success: function(data) {
+		   				if (data !== null) {
+		       				$('div#enrich_statistics_modal_content').html(data);
+
+		       				var tab = data_tab.replace('enrich_row_pathway_', '');
+		       				var res = resource === 'kegg' ? 'KEGG' : 'Reactome';
+		       				var entity = list_id === 'list1' ? 'List n°1 according to ' + res : 'List n°2 according to ' + res;
+		       				
+		       				switch(tab) {
+		       					case 'wt_o':
+		       						entity = 'List n°1 only according to ' + res;
+		       						break;
+		       					case 'var_o':
+		       						entity = 'List n°2 only according to ' + res;
+		       						break;
+		       					case 'ins':
+		       						entity = 'Intersection between List n°1 and List n°2 according to ' + res;
+		       						break;
+		       				}
+		       				
+		       				$('h5#enrich_statistics_modal_label').text(entity);
+		       			}
+		       			$('div#enrich_statistics_modal').modal('show');
+		   			},
+		   			error: function(error) {
+		   				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+		
+		       			modal_error_notification('An error occurred' + msg);
+		   			}
+		  			});
+		 		}
+		 		
+	 			e.handled = true;
+			}
+	 		return false;
+	   });
+	   
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// List1 or list2 histogram
+		///////////////////////////////////////////////////////////////////////////////////////////
+	   
+	   $(document).on('click', 'a.enrich_pathway_comp_wt_var_stats_btn', function (e) {
+	   	e.preventDefault();
+	   	
+	   	// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+				var list_id = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					
+					if ($(value).attr('class') === 'enrich_row_list_id') {
+						list_id = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_list_id') {
+								list_id = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(list_id) && 
+	    			 checkVariableExistance(resource) && 
+	    			 list_id !== '' && 
+	    			 resource !== '') {
+	    			 
+	    			 $('div#' + resource + '_enrich_comp_hist_container').css('display', 'block');
+	    			 $('div#' + resource + '_comp_hist_loading_status').css('display', 'block');
+	    			 
+	    			 $.ajax({
+	         		url: '/pathway_enrichment_analysis_variation_histograms',
+	         		beforeSend: function(xhr, settings) {
+	         			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         			}
+	     				},
+	      			data: { 
+	      				list_id: list_id, 
+	      				resource: resource,
+	      				analysis_type: 'comparison'
+	      			},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	          				$('div#' + resource + '_enrich_comp_hist_content').html(data);
+	          			}
+							$('div#' + resource + '_comp_hist_loading_status').css('display', 'none');
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400) {
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				}
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+		       			$('div#' + resource + '_comp_hist_loading_status').css('display', 'none');
+	      			}
+	     			});
+	    		}
+	    		e.handled = true;
+			}
+			
+	   	return false;
+	   });	
+	   
+	   
+	   ///////////////////////////////////////////////////////////////////////////////////////////
+		// List1 vs. list2 histogram
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$(document).on('click', 'a.enrich_pathway_comp_comp_stats_btn', function (e) {
+	   	e.preventDefault();
+	   	
+	   	// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+				var list_id = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					
+					if ($(value).attr('class') === 'enrich_row_list_id') {
+						list_id = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_list_id') {
+								list_id = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(list_id) && 
+	    			 checkVariableExistance(resource) && 
+	    			 list_id !== '' && 
+	    			 resource !== '') {
+	    			 
+	    			 $('div#' + resource + '_enrich_comp_hist_container').css('display', 'block');
+	    			 $('div#' + resource + '_comp_hist_loading_status').css('display', 'block');
+	    			 	 
+	    			 $.ajax({
+	         		url: '/pathway_enrichment_analysis_variation_comp_histograms',
+	         		beforeSend: function(xhr, settings) {
+	         			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         			}
+	     				},
+	      			data: { 
+	      				list_id: list_id, 
+	      				resource: resource,
+	      				analysis_type: 'comparison' 
+	      			},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	          				$('div#' + resource + '_enrich_comp_hist_content').html(data);
+	          			}
+							$('div#' + resource + '_comp_hist_loading_status').css('display', 'none');
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+							$('div#' + resource + '_comp_hist_loading_status').css('display', 'none');
+	      			}
+	     			});
+		   	}
+		   	e.handled = true;
+			}
+			
+	   	return false;
+	   });	   
+	   
+	});
+</script>

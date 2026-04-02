@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<!--[if lt IE 7]>      <html class="no-js lt-ie9 lt-ie8 lt-ie7"> <![endif]-->
+<!--[if IE 7]>         <html class="no-js lt-ie9 lt-ie8"> <![endif]-->
+<!--[if IE 8]>         <html class="no-js lt-ie9"> <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js"> <!--<![endif]-->
+<head>
+	<title>{% block title %}{% endblock %}</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<meta name="_csrf_token" content="{{ csrf_token() }}">
+        
+	{% block meta %}
+		<meta name="description" content="">
+		<meta name="Rosario Distefano" content="">
+	{% endblock %}
+
+	{% assets "common_css" %}
+		<link rel="stylesheet" type="text/css" href="{{ ASSET_URL }}" />
+	{% endassets %}
+
+	{% block css %}
+		<link rel='stylesheet' type='text/css' 
+		href='http://fonts.googleapis.com/css?family=Open+Sans:400italic,700,300,400'>
+	{% endblock %}
+
+	<script src="{{ url_for('static', filename='js/vendor/modernizr.js') }}"></script>
+	
+</head>
+
+<body>
+	{% block navbar %}
+		<nav class="navbar navbar-inner fixed-top navbar-expand-lg navbar-light bg-light" style="border-bottom: 1px solid rgba(0, 0, 0, 0.125); margin-top: 0">
+
+  			<button style="top: 10px" class="navbar-toggler" type="button" data-toggle="collapse" data-target="#main_navbar" aria-controls="main_navbar" aria-expanded="false" aria-label="Toggle navigation">
+    			<span class="navbar-toggler-icon"></span>
+  			</button>
+
+  			<div class="collapse navbar-collapse" id="main_navbar">
+    			<ul class="navbar-nav mr-auto">
+      			<li class="nav-item{% if request.endpoint == 'homepage.index' %} active{% endif %}">
+        				<a class="nav-link" href="{{ url_for('homepage.index', _external=False) }}" title="Go to the Homepage">
+        					<i class="fas fa-home"></i> <b><i>i</i>soTar</b> <span class="sr-only">(current)</span>
+        				</a>
+      			</li>
+      			<li class="nav-item dropdown">
+        				<a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+          				<i class="fas fa-code-branch"></i> Analysis workflow
+        				</a>
+        				<div class="dropdown-menu" aria-labelledby="navbarDropdown">
+          				<a class="dropdown-item" href="{{ url_for('prediction_analysis.index_prediction_analysis', _external=False) }}">
+          					<i class="fas fa-cogs"></i> Consensus Prediction + Functional Analysis 
+          				</a>
+         				<a class="dropdown-item" href="{{ url_for('enrichment_analysis.index_enrichment_analysis', _external=False) }}">
+         					<i class="fas fa-cogs"></i> Functional Enrichment Analysis only
+         				</a>
+        				</div>
+      			</li>
+      			<li class="nav-item dropdown">
+        				<a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+          				<i class="fas fa-database"></i> Databases
+        				</a>
+        				<div class="dropdown-menu" aria-labelledby="navbarDropdown">
+          				<a class="dropdown-item" href="{{ url_for('main.editing_db', _external=False) }}">
+          					Known A-to-I Mature miRNA Editing Sites
+          				</a>
+          				<a class="dropdown-item" href="{{ url_for('main.snp_db', _external=False) }}">
+          					SNPs in Mature miRNA
+          				</a>
+        				</div>
+      			</li> 
+      			<li class="nav-item{% if request.endpoint == 'main.doc' %} active{% endif %}">
+            		<a class="nav-link" href="{{ url_for('main.doc', _external=False) }}">
+            			<i class="far fa-file-alt"></i> Documentation
+            		</a>
+            	</li>   
+            	<li class="nav-item{% if request.endpoint == 'main.contact' %} active{% endif %}">
+            		<a class="nav-link" href="{{ url_for('main.contact', _external=False) }}">
+            			<i class="fas fa-users" aria-hidden="true"></i> Contact
+            		</a>
+            	</li>
+    			</ul>
+    			<span class="navbar-text">
+    				<a href="https://wexnermedical.osu.edu" title="Ohio State University - Wexner Medical Center" target="_blank">
+      				<img src="{{ url_for('static', filename='public/images/vendor/osu_wmc.png', _external=True) }}" class="img-responsive" height="40px" alt="Ohio State University - Wexner Medical Center" >
+					</a> 
+					<a href="https://www.vcu.edu" title="Virginia Commonwealth University" target="_blank">
+      				<img src="{{ url_for('static', filename='public/images/vendor/vcu.png', _external=True) }}" class="img-responsive" height="30px" alt="Virginia Commonwealth University" >
+					</a>    			
+    			</span>
+  			</div>
+		</nav>
+	{% endblock %}
+
+	{% block content %}
+		<br><br><br><br>
+		<div class="container-fluid" style="padding-left: 25px; padding-right: 25px;">
+			{% block page_content %}{% endblock %}	
+		</div>
+	{% endblock %}
+	
+	{% assets "common_js" %}
+		<script type="text/javascript" src="{{ ASSET_URL }}"></script>
+	{% endassets %}
+        
+	{% block scripts %}
+	{% endblock %}
+    </body>
+</html>

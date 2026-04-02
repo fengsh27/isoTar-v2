@@ -1,8 +1,19 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 import os
 import re
 import json
 import csv
 import sys
+
+# Matches Ensembl (ENST00000284637) or RefSeq mRNA (NM_001164664), stripping version suffix
+_TRANSCRIPT_RE = re.compile(r'(ENST\d+|NM_\d+)(?:\.\d+)?')
+
+def _extract_transcript_id(text):
+    """Return ENST or NM_ transcript ID from text, without version suffix. None if not found."""
+    m = _TRANSCRIPT_RE.search(text)
+    return m.group(1) if m else None
+
 
 def read_sequences_from_json(json_file):
     # Read sequences from a JSON file.
@@ -67,16 +78,14 @@ def parsePITAResults(output_f_path, result_dict):
     if os.path.exists(output_f_path):
         with open(output_f_path, 'r') as f:        
             handler = csv.reader(f, delimiter='\t')
-            for line in handler:  
+            for line in handler:
                 if len(line) == 13:
-                    # Target
-                    matchObj = re.match(r".*(ENST\d+).*", line[0], re.I)
-                    if matchObj:
-                        tar = matchObj.group(1)
+                    tar = _extract_transcript_id(line[0])
+                    if tar:
                         ddG = float(line[12])
                         if ddG <= -10.0:
                             if tar not in results:
-                                results.append(tar)        
+                                results.append(tar)
     if 'prediction' not in result_dict:
         result_dict["prediction"] = {}
     result_dict["prediction"]['PITA'] = results
@@ -88,12 +97,10 @@ def parseRnahybridResults(output_f_path, result_dict):
     if os.path.exists(output_f_path):
         with open(output_f_path, 'r') as f:        
             handler = csv.reader(f, delimiter=':')
-            for line in handler:  
+            for line in handler:
                 if len(line) == 11:
-                    # Target
-                    matchObj = re.match(r".*(ENST\d+).*", line[0], re.I)
-                    if matchObj:
-                        tar = matchObj.group(1) 
+                    tar = _extract_transcript_id(line[0])
+                    if tar:
                         # Get the seed region 2-7
                         target_seq = line[8][-8:-1]
                         mirna_seq = line[9][-8:-1]
@@ -127,9 +134,9 @@ def parseMirmapResults(output_f_path, result_dict):
             lines = f.readlines()
             for i in range(0, len(lines)):
                 # miRNA - Target
-                matchObj = re.match(r'^>[^,]+,.*?\s+([A-Za-z0-9]+)(?:\.[0-9]+)?\s*$', lines[i], re.M|re.I)
+                matchObj = re.match(r'^>[^,]+,.*?\s+(\S+)\s*$', lines[i], re.M|re.I)
                 if matchObj:
-                    tar = matchObj.group(1)  # Now group(1) = ENST00000409913
+                    tar = _extract_transcript_id(matchObj.group(1))
                     i += 2
                     if i < len(lines):
                         matchObj = re.match(r'.*[0-9]+.*', lines[i], re.M|re.I) # check this line contain any number
@@ -170,10 +177,10 @@ def parseMirandaResults(output_f_path, result_dict):
                                 i += 5
                                 # miRNA - Target
                                 if i < len(lines):
-                                    matchObj2 = re.match(r'^>([^\s]+)\s+[^_]+_[^_]+_([A-Za-z0-9]+)(?:\.[0-9]+)?\s+.*$', lines[i], re.M|re.I)
+                                    matchObj2 = re.match(r'^>([^\s]+)\s+(\S+)', lines[i], re.M|re.I)
                                     if matchObj2:
-                                        tar = matchObj2.group(2)
-                                        if tar not in results:
+                                        tar = _extract_transcript_id(matchObj2.group(2))
+                                        if tar and tar not in results:
                                             results.append(tar)
     if 'prediction' not in result_dict:
         result_dict["prediction"] = {}
@@ -216,15 +223,50 @@ def process_sequence(sequence, result_dir):
         }
         raise Exception("Error processing sequence: {}".format(json.dumps(error_context, indent=2)))
 
+def _build_label_map(ref_db_path):
+    """Return dict mapping raw_id -> symbol from reference_mapping.db, or {} if unavailable."""
+    import sqlite3
+    label_map = {}
+    candidates = [ref_db_path]
+    # Fallback: Docker path
+    if not os.path.exists(ref_db_path):
+        candidates.append("/app_v1/reference_mapping.db")
+    for path in candidates:
+        if os.path.exists(path):
+            conn = sqlite3.connect(path)
+            try:
+                c = conn.cursor()
+                c.execute("SELECT raw_id, symbol FROM gene_mapping WHERE symbol IS NOT NULL")
+                for raw_id, symbol in c.fetchall():
+                    label_map[raw_id] = symbol
+            finally:
+                conn.close()
+            break
+    return label_map
+
+
 def main():
     import argparse
-    
+
     parser = argparse.ArgumentParser(description='Process miRNA sequences and generate prediction results')
     parser.add_argument('result_dir', help='Path to miRNA prediction results')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output')
+    parser.add_argument('--gene-label', action='store_true',
+                        help='Replace gene IDs with gene labels (symbols) from reference_mapping.db')
     args = parser.parse_args()
     result_dir = args.result_dir
     output_dir = os.path.join(result_dir, "miRNA_prediction_results")
+
+    # Build label map if --gene-label requested
+    label_map = {}
+    if args.gene_label:
+        _default_ref_db = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "app_v1", "reference_mapping.db"
+        )
+        ref_db = os.environ.get("ISOTAR_REFERENCE_MAPPING_DB", _default_ref_db)
+        label_map = _build_label_map(ref_db)
+        if not label_map:
+            print("Warning: --gene-label requested but reference_mapping.db not found or empty")
     try:
         # Create output directory if it doesn't exist
         if not os.path.exists(output_dir):
@@ -243,11 +285,19 @@ def main():
         for sequence in sequences:
             try:
                 prediction_results = process_sequence(sequence, result_dir)
-                
+
+                # Replace gene IDs with gene labels if requested
+                if label_map and "prediction" in prediction_results:
+                    for tool in prediction_results["prediction"]:
+                        prediction_results["prediction"][tool] = [
+                            label_map.get(gid, gid)
+                            for gid in prediction_results["prediction"][tool]
+                        ]
+
                 # Generate output filename
                 output_filename = "{}_results.json".format(sequence['header'])
                 output_path = os.path.join(output_dir, output_filename)
-                
+
                 # Write results to file
                 with open(output_path, 'w') as file:
                     json.dump(prediction_results, file, indent=4)

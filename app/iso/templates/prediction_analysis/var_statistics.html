@@ -1,0 +1,76 @@
+{% import 'prediction_analysis/macros/pred_input.html' as pred_macro %}
+
+{% if tool_tab == '' %}
+	<p>Predicted targets according to the selected tools. Click on the number to show the targets list.</p>
+	<div class="row">
+		<div class="col-xs-12 col-sm-12 col-md-8 col-lg-8">
+			<div id="pred_venn_content"></div>
+		</div>
+		<div class="col-xs-12 col-sm-12 col-md-4 col-lg-4">
+			<div class="card" style="display: none;" id="pred_venn_targets_list_card_content">
+				<div class="card-header"><b>Targets list</b></div>
+				<div class="card-body">
+					<div id="pred_venn_targets_list" style="height: 500px; overflow: auto;"></div>
+				</div>
+				<div class="card-footer">
+					<a href="#" id="pred_venn_targets_list_btn" class="btn btn-primary btn-sm"><i class="fas fa-times" aria-hidden="true"></i> Close</a>
+				</div>
+			</div>
+		</div>
+	</div>
+	
+	<script type="text/javascript" >
+		$(function() {
+			
+			$('div#pred_venn_content').jvenn({
+		     	displayMode: 'classic',
+				displayStat: true,
+				displaySwitch: true,
+				shortNumber: true,
+				fontSize: "11px",
+		   	series: {{venn_data|safe}},
+		   	fnClickCallback: function() {
+					var value = '';
+					if (this.listnames.length == 1) {
+						value += 'Elements only in';
+					} else {
+						value += 'Common elements in';
+					}
+					for (name in this.listnames) {
+						value += ' ' + this.listnames[name] + ',';
+					}
+					value = value.replace(/,\s*$/, '');
+					value += ':<br><br>';
+					for (val in this.list) {
+						value += this.list[val] + "<br>";
+					}
+					
+					$('div#pred_venn_targets_list').html(value);
+					$('div#pred_venn_targets_list_card_content').show();
+				}
+		  	});
+			 	
+			$('a#pred_venn_targets_list_btn').on('click', function (e) {
+				e.preventDefault();
+				$("div#pred_venn_targets_list").html('');
+				$('div#pred_venn_targets_list_card_content').hide();
+			});
+		});
+	</script>
+{% else %}
+	{% if tool_tab == 'targets' %}
+		{% if main_table_data|length > 0 %}
+			{% set table_id = 'pred_main_table' %}
+			{{ pred_macro.render_mirna_pred_stats_table(main_table_data, table_id, filename) }}
+		{% endif %}
+	{% else %}
+		{% if table_data|length > 0 %}
+			{% for tool in table_data %}
+				{% if tool_tab == tool['name'] %}
+					{% set table_id = 'pred_' + tool['name'] + '_table' %}
+					{{ pred_macro.render_mirna_pred_stats_table(tool['data'], table_id, filename) }}
+				{% endif %}
+			{% endfor %}
+		{% endif %}
+	{% endif %}
+{% endif %}

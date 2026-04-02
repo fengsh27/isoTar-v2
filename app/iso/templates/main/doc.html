@@ -1,0 +1,803 @@
+{% extends "base.html" %}
+
+{% block title %}Documentation{% endblock %}
+
+{% block page_content %}
+<div class="page-header">
+	<p class="muted">How to</p>
+</div>
+<div class="page-content">
+
+  		<p class="lead" align="justify">
+		<em>Consensus Prediction + Functional Analysis</em>, as well as <em>Functional Enrichment Analysis only</em> input setups are available through the corresponding button.<br>
+  		</p>
+  		<center><h3>Input setup</h3></center>
+  		<hr>
+  		<p>
+  			<a class="btn btn-primary" data-toggle="collapse" href="#pred_tutorial" role="button" aria-expanded="false" aria-controls="pred_tutorial">
+ 				Consensus Prediction + Functional Analysis
+  			</a>
+  			<a class="btn btn-success" data-toggle="collapse" href="#enrich_tutorial" role="button" aria-expanded="false" aria-controls="enrich_tutorial">
+ 				Functional Enrichment Analysis only
+  			</a>
+	</p>
+	<div class="collapse" id="pred_tutorial">
+  			<div class="card card-body">
+  						
+			<ul class="nav nav-tabs" id="how_to_pred" role="tablist">
+			  	<li class="nav-item">
+			    	<a class="nav-link active" id="how-to-pred-analysis-tab" data-toggle="tab" href="#how_to_pred_analysis" role="tab" aria-controls="how-to-pred-analysis" aria-selected="true">
+			    		Consensus Prediction
+			    	</a>
+			  	</li>
+			  	<li class="nav-item">
+			    	<a class="nav-link" id="how-to-enrich-analysis-tab" data-toggle="tab" href="#how_to_enrich_analysis" role="tab" aria-controls="how-to-enrich-analysis" aria-selected="false">
+			    		Functional Analysis
+			    	</a>
+			  	</li>
+			</ul>
+			<div class="tab-content" id="how_to_pred_content">
+			  	<div class="tab-pane fade show active" id="how_to_pred_analysis" role="tabpanel" aria-labelledby="how-to-pred-analysis-tab">
+			  		<p>
+			  			<br>
+						<b><span class="badge badge-pill badge-primary">STEP 1</span> miRNA(s) setup</b>
+					</p>
+					<hr>
+					<p align="justify">
+						There are three ways to load a list of miRNA(s) and their variation(s):				
+ 						</p>
+ 						<ol>
+						<li>Using the <em>"Search and customize a miRNA"</em> form (<code>[Option 1]</code>)</li>
+						<li>Using the <em>"Known Variations Databases"</em> button (<code>[Option 2]</code>)</li>
+						<li>Pasting them directly into the <em>"textarea"</em> (<code>[Option 3]</code>)</li>    						
+ 						</ol>
+ 						<p>
+						These options are shown in the following figure:     						
+ 						</p>
+ 						<center><img src="{{ url_for('static', filename='public/images/docs/pred_s1_module.png', _external=True) }}" class="img-fluid" alt="Prediction input module" width="60%"></center>
+					<br>		    						
+ 						<p>
+						Each option requires specific steps in order to generate the correct input format for the analysis. Whatever option is chosen, each miRNA specification must be compliant with the
+						<i>i</i>soTar format (see below).
+					</p>
+					<div class="row">
+						<div class="col-xs-12 col-sm-12 col-md-12 col-lg-6">
+							<div class="bd-callout bd-callout-warning">
+								<b>Input format</b><br>
+								<code>
+									>hsa-miR-XXX hsa-[mir/let]-XXX &lt;variations list&gt;<br>
+									mature miRNA sequence
+								</code>
+							</div>
+						</div><!-- /.col-xs-12 col-sm-12 col-md-12 col-lg-6 -->
+						<div class="col-xs-12 col-sm-12 col-md-12 col-lg-6">
+							<div class="bd-callout bd-callout-danger">
+								<b>Input format example</b><br>
+								<code>
+									>hsa-let-7c-5p hsa-let-7c 17:A|G;+1|-2<br>
+									UGAGGUAGUAGGUUGUAUGGUU								
+								</code>
+							</div>
+						</div><!-- /.col-xs-12 col-sm-12 col-md-12 col-lg-6 -->							
+					</div><!-- /.row -->
+					<p>   		
+						<code>hsa-let-7c-5p</code>, <code>hsa-let-7c</code>, <code>17:A|G;+1|-2</code>, and <code>UGAGGUAGUAGGUUGUAUGGUU</code> represent, respectively,  
+						the mature miRNA name (Human only), the pre-miRNA name (Human only), the variations list (in this example, a nucleotide and an isomiR modification), 
+						and the mature miRNA reference sequence (Human only).<br><br>
+					</p>
+					
+					<div class="bd-callout bd-callout-success">
+						<p>	
+							<code>[Option 1]</code> <b>Search and customize a miRNA</b><br>
+							Using this module, it is possible to search for a specific mature miRNA. It shows a list of miRNA(s) and their pre-miRNA(s).
+ 						</p>
+ 						<center><img src="{{ url_for('static', filename='public/images/docs/pred_s1_form.png', _external=True) }}" class="img-fluid" alt="Search and customize form" width="60%"></center>
+						<br>
+ 						<p>
+							Once a miRNA has been selected, click on the <em>Search</em> button in order to open the customization module (figure below).		    						
+ 						</p>
+ 						<br>
+ 						<center><img src="{{ url_for('static', filename='public/images/docs/pred_s1_add_module.png', _external=True) }}" class="img-fluid" alt="Customization module" width="60%"></center>
+ 						<br>
+ 						<p>
+							Two distinct variations are shown in the following figure:		    						
+ 						</p>
+ 						<ul>
+							<li>
+								A single nucleotide variation at position <code>6</code> that changes the nucleotide from <code>A</code> (<em>Ref</em>) to 
+								<code>G</code> (<em>Mod</em>)	
+							</li>
+							<li>
+								A single isomiR variation that adds one nucleotide at <code>5p</code> end, resulting in an extension of the miRNA sequence. 
+								Added nucleotides are retrieved from the pre-miRNA which the selected miRNA originates from.	
+							</li>		    						
+ 						</ul>
+ 						<center><img src="{{ url_for('static', filename='public/images/docs/pred_s1_add_example.png', _external=True) }}" class="img-fluid" alt="An example of vatiations" width="60%"></center>
+ 						<p>
+							Once finished, press the <b>&lt;Add customized miRNA&gt;</b> button to add all variations to the textarea. The textarea will look like this:		    						
+ 						</p>
+ 						<center><img src="{{ url_for('static', filename='public/images/docs/pred_s1_textarea.png', _external=True) }}" class="img-fluid" alt="miRNA's variations" width="60%"></center>
+ 					</div><!-- /.bd-callout bd-callout-success -->
+ 					
+ 					<div class="bd-callout bd-callout-primary">
+						<p>	
+							<code>[Option 2]</code> <b>Known Variations Databases</b><br>
+							An alternative way to specify miRNA variations is to select them using one or more of the databases provided with <i>i</i>soTar. 
+							These databases can be selected using the following dropdown menu (figure below).
+						</p>
+						<center><img src="{{ url_for('static', filename='public/images/docs/pred_s1_databases.png', _external=True) }}" class="img-fluid" alt="isoTar Known Variation Databases" width="60%"></center>
+						<br>
+						<p>
+							Each database can be consulted through a user-friendly interface which lists variations in a tabular form.
+ 						</p>
+ 						<center><img src="{{ url_for('static', filename='public/images/docs/pred_s1_db_modal.png', _external=True) }}" class="img-fluid" alt="Variation List" width="60%"></center>
+						
+ 					</div><!-- /.bd-callout bd-callout-primary -->
+ 					
+ 					<p>
+			  			<br>
+						<b><span class="badge badge-pill badge-success">STEP 2</span> Tools selection and Minimum Consensus</b>
+					</p>
+					<hr>
+					<p align="justify">
+						Before performing any prediction analysis, it is necessary to select which tools should be executed and, possibly, their combination 
+						by specifying the <b>AND/OR</b> option (if one or more tools must/can identify the same predicted target). In addition, a Minimum Consensus has to be 
+						provided as well. It corresponds to the <i>minimum number</i> of tools that must or can identify the same predicted target. The following figure shows these notions:			
+ 						</p>
+ 					<center><img src="{{ url_for('static', filename='public/images/docs/pred_s2_tools.png', _external=True) }}" class="img-fluid" alt="isoTar databases" width="60%"></center>
+ 					
+ 					<p>
+			  			<br>
+						<b><span class="badge badge-pill badge-warning">STEP 3</span> CPU cores selection</b>
+					</p>
+					<hr>
+					<p align="justify">
+						It is possible to perform all the analyses using a single core CPU or taking advantage of a multiple CPU cores. In this latter case, tools and the analysis
+						are executed in parallel in order to optimize execution time, hiding the underlying complexity to the user.<br>
+						The following figure shows a hypothetical system equipped with 8 CPU cores, as well as a dropdown menu reporting all selectable CPU cores. 
+						In this example, it is possible to select from <code>1</code> to <code>8</code> cores.		
+ 						</p>
+ 					<center><img src="{{ url_for('static', filename='public/images/docs/pred_s3_cores.png', _external=True) }}" class="img-fluid" alt="CPU cores selection" width="60%"></center>
+ 					<p></p>
+ 					<hr>
+ 					<center><p class="lead">Consensus Prediction input submission &amp; analysis execution</p></center>
+ 					<hr>
+ 					<p align="justify">
+ 						Click on the <span class="badge badge-warning btn-sm"><i class="fas fa-cogs"></i> Submit</span> button to start 
+ 						input verification (the button is located below the <b><span class="badge badge-pill badge-warning">STEP 3</span></b> box). Then, <i>i</i>soTar will show you a summary of all submitted miRNA(s) and their variation(s). 
+ 						Results are grouped according to the specified variation types, such as single nucleotide variation, isomiR, and/or wild type miRNA (no variation specified).
+ 						The figure below shows variations grouped for <i>Single nucleotide variation</i> and <i>isomiR</i>.
+ 					</p>
+ 					<center><img src="{{ url_for('static', filename='public/images/docs/pred_r1_input_rew.png', _external=True) }}" class="img-fluid" alt="Consensus prediction input check" width="70%"></center>
+ 					<p></p>
+ 					<p align="justify">
+ 						Once you reviewed your input, click on the <span class="badge badge-warning btn-sm"><i class="fas fa-cogs"></i> Run</span> button to start the Prediction
+ 						Analysis. <i>i</i>soTar will show you a box reporting the analysis status, as well as the <i>stopping</i> button to shut down its execution (both shown below).  
+ 					</p>
+ 					<center><img src="{{ url_for('static', filename='public/images/docs/pred_r1_running_stop_job.png', _external=True) }}" class="img-fluid" alt="Running & stopping statuses" width="60%"></center>
+			  	</div>
+			  	
+			  	
+			  	<div class="tab-pane fade" id="how_to_enrich_analysis" role="tabpanel" aria-labelledby="how-to-enrich-analysis-tab">
+			  		<p>
+			  			<br>
+						<b><span class="badge badge-pill badge-primary">STEP 1</span> P-value specifics</b>
+					</p>
+					<hr>
+					<p align="justify">
+			  			Results generated through the Functional Analysis are filtered according to the user-specified <em>P-value</em>:
+					</p>
+					<ul>
+						<li><em>Type</em>, which represents the type of the P-value that must be taken into account in the filtering. A user can
+			  			choose to filter on: (Raw P-value)-based filter or (Adjusted P-value)-based filter (Benjamini and Hochberg).</li>
+						<li><em>Threshold</em>, which represents the upper bound limit value for the set of P-values the user wishes to display.</li>									
+					</ul>			
+					<p align="justify">
+						The figure below shows the module which allows to set the P-value type and threshold.
+					</p>				  		
+			  		<center><img src="{{ url_for('static', filename='public/images/docs/enrich_s1_pvalue.png', _external=True) }}" class="img-fluid" alt="P-value specifics module" width="60%"></center>
+			  		
+					<p>
+			  			<br>
+						<b><span class="badge badge-pill badge-success">STEP 2</span> Resources selection</b>
+					</p>
+					<hr>
+			  		<p align="justify">
+			  			The Functional Analysis can be performed using different resources:
+			  		</p>
+			  		<ul>
+						<li><a href="http://amigo.geneontology.org/amigo" class="badge badge-pill badge-info" target="_blank" title="Go to Gene Ontology">Link</a> Gene Ontology (GO terms)</li>
+						<li><a href="http://www.genome.jp/kegg/" class="badge badge-pill badge-info" target="_blank" title="Go to KEGG">Link</a> KEGG (Pathways)</li>
+						<li><a href="https://reactome.org/" class="badge badge-pill badge-info" target="_blank" title="Go to Reactome">Link</a> Reactome (Pathways)</li>							  		
+			  		</ul>
+			  		<p align="justify">Select the resources in the Functional Analysis to be considered, as shown in the following figure:</p>
+			  		<center><img src="{{ url_for('static', filename='public/images/docs/enrich_s2_resources.png', _external=True) }}" class="img-fluid" alt="P-value specifics module" width="60%"></center>
+			  		
+			  		<p>
+			  			<br>
+						<b><span class="badge badge-pill badge-warning">STEP 3</span> CPU cores selection</b>
+					</p>
+					<hr>
+					<p align="justify">
+						It is possible to perform all the analyses using a single core CPU or taking advantage of a multiple CPU cores. In this latter case, tools and the analysis
+						are executed in parallel in order to optimize execution time, hiding the underlying complexity to the user.<br>
+						The following figure shows a hypothetical system equipped with 8 CPU cores, as well as a dropdown menu reporting all selectable CPU cores. 
+						In this example, it is possible to select from <code>1</code> to <code>8</code> cores.		
+ 						</p>
+ 					<center><img src="{{ url_for('static', filename='public/images/docs/pred_s3_cores.png', _external=True) }}" class="img-fluid" alt="CPU cores selection" width="60%"></center>
+ 					<p></p>
+ 					<hr>
+ 					<center><p class="lead">Analysis execution</p></center>
+ 					<hr>
+ 					<p align="justify">
+ 						Click on the <span class="badge badge-warning btn-sm"><i class="fas fa-cogs"></i> Submit</span> button to start the Functional Analysis. <i>i</i>soTar will 
+ 						show you a box reporting the analysis status, as well as the <i>stopping</i> button to shut down its execution (both shown below).  
+ 					</p>
+ 					<center><img src="{{ url_for('static', filename='public/images/docs/pred_r1_running_stop_job.png', _external=True) }}" class="img-fluid" alt="Running & stopping statuses" width="60%"></center>
+			  	</div>
+			</div>
+
+  						</div><!-- /.card card-body -->
+  						<p></p>
+	</div><!-- /pred_tutorial -->
+	<br>
+	<div class="collapse" id="enrich_tutorial">
+  			<div class="card card-body">
+  				<p>
+	  			<br>
+				<b><span class="badge badge-pill badge-dark">STEP 1</span> Gene list(s)</b>
+			</p>
+			<hr>
+			<p align="justify">
+	  			This module (the figure below) allows to specify whether the Functional Enrichment Analysis must be performed on one or two lists of genes, by specifying their 
+	  			<u>official gene name</u> (e.g.: PTEN) and/or <u>refseq ID</u> (e.g.: NM_000314). 
+	  			If two lists are specified, the analysis is performed by comparing both lists. As an example, a user could be interested in comparing two lists of genes, each one associated with a specific 
+	  			biological condition (e.g.: Wild Type vs. Knockout).<br>
+	  			Both the first label and the list of genes are mandatory. However, it is not necessary to specify the second set of label and genes list if no comparison must be performed.
+			</p>
+			<center><img src="{{ url_for('static', filename='public/images/docs/ind_enrich_s1_lists.png', _external=True) }}" class="img-fluid" alt="Gene list(s) module" width="60%"></center>
+			
+ 						<p>
+	  			<br>
+				<b><span class="badge badge-pill badge-primary">STEP 2</span> P-value specifics</b>
+			</p>
+			<hr>
+			<p align="justify">
+	  			Results generated through the Functional Analysis are filtered according to the user-specified <em>P-value</em>:
+			</p>
+			<ul>
+				<li><em>Type</em>, which represents the type of the P-value that must be taken into account in the filtering. A user can
+	  			choose to filter on: (Raw P-value)-based filter or (Adjusted P-value)-based filter (Benjamini and Hochberg).</li>
+				<li><em>Threshold</em>, which represents the upper bound limit value for the set of P-values the user wishes to display.</li>									
+			</ul>			
+			<p align="justify">
+				The figure below shows the module which allows to set the P-value type and threshold.
+			</p>				  		
+	  		<center><img src="{{ url_for('static', filename='public/images/docs/enrich_s1_pvalue.png', _external=True) }}" class="img-fluid" alt="P-value specifics module" width="60%"></center>
+	  		
+			<p>
+	  			<br>
+				<b><span class="badge badge-pill badge-success">STEP 3</span> Resources selection</b>
+			</p>
+			<hr>
+	  		<p align="justify">
+	  			The Functional Analysis can be performed using different resources:
+	  		</p>
+	  		<ul>
+				<li><a href="http://amigo.geneontology.org/amigo" class="badge badge-pill badge-info" target="_blank" title="Go to Gene Ontology">Link</a> Gene Ontology (GO terms)</li>
+				<li><a href="http://www.genome.jp/kegg/" class="badge badge-pill badge-info" target="_blank" title="Go to KEGG">Link</a> KEGG (Pathways)</li>
+				<li><a href="https://reactome.org/" class="badge badge-pill badge-info" target="_blank" title="Go to Reactome">Link</a> Reactome (Pathways)</li>							  		
+	  		</ul>
+	  		<p align="justify">Select the resources in the Functional Analysis to be considered, as shown in the following figure:</p>
+	  		<center><img src="{{ url_for('static', filename='public/images/docs/enrich_s2_resources.png', _external=True) }}" class="img-fluid" alt="P-value specifics module" width="60%"></center>
+	  		
+	  		<p>
+	  			<br>
+				<b><span class="badge badge-pill badge-warning">STEP 4</span> CPU cores selection</b>
+			</p>
+			<hr>
+			<p align="justify">
+				It is possible to perform all the analyses using a single core CPU or taking advantage of a multiple CPU cores. In this latter case, tools and the analysis
+				are executed in parallel in order to optimize execution time, hiding the underlying complexity to the user.<br>
+				The following figure shows a hypothetical system equipped with 8 CPU cores, as well as a dropdown menu reporting all selectable CPU cores. 
+				In this example, it is possible to select from <code>1</code> to <code>8</code> cores.		
+ 						</p>
+ 					<center><img src="{{ url_for('static', filename='public/images/docs/pred_s3_cores.png', _external=True) }}" class="img-fluid" alt="CPU cores selection" width="60%"></center>
+  			</div>
+	</div>
+  	
+  	
+  	
+  	
+  		<br>
+	<center><h3>Results explanation</h3></center>
+  		<hr>
+  		<p>
+  			<a class="btn btn-primary" data-toggle="collapse" href="#pred_res_tutorial" role="button" aria-expanded="false" aria-controls="pred_res_tutorial">
+ 				Consensus Prediction + Functional Analysis
+  			</a>
+  			<a class="btn btn-success" data-toggle="collapse" href="#enrich_res_tutorial" role="button" aria-expanded="false" aria-controls="enrich_res_tutorial">
+ 				Functional Enrichment Analysis only
+  			</a>
+	</p>    
+	<div class="collapse" id="pred_res_tutorial">
+		<div class="card card-body">
+  						
+			<ul class="nav nav-tabs" id="how_to_pred" role="tablist">
+			  	<li class="nav-item">
+			    	<a class="nav-link active" id="how-to-pred-res-analysis-tab" data-toggle="tab" href="#how_to_pred_res_analysis" role="tab" aria-controls="how-to-pred-res-analysis" aria-selected="true">
+			    		Consensus Prediction
+			    	</a>
+			  	</li>
+			  	<li class="nav-item">
+			    	<a class="nav-link" id="how-to-enrich-res-analysis-tab" data-toggle="tab" href="#how_to_enrich_res_analysis" role="tab" aria-controls="how-to-enrich-res-analysis" aria-selected="false">
+			    		Functional Analysis
+			    	</a>
+			  	</li>
+			</ul>
+			<div class="tab-content" id="how_to_pred_content">
+				<br>
+			  	<div class="tab-pane fade show active" id="how_to_pred_res_analysis" role="tabpanel" aria-labelledby="how-to-pred-res-analysis-tab">
+			  		<p align="justify">
+						After the conclusion of the analysis, prediction results will be shown in a new tab panel (named <i>Results</i>), as shown below:							  		
+			  		</p>
+			  		<center><img src="{{ url_for('static', filename='public/images/docs/pred_r1_tab.png', _external=True) }}" class="img-fluid" alt="Prediction results" width="70%"></center>
+			  		<p></p>
+ 					<p align="justify">
+						As shown above, <i>i</i>soTar adopts the same criterion for results visualization. In fact, prediction results are grouped per variation type, 
+						and results for each selected prediction tool are displayed. Each specified variation is associated with: 						  		
+			  		</p>
+			  		<ul>
+						<li>Variation details, such as its type (i.e., Substitution or isomiR), position (for Substitution), and so on;</li>
+						<li>The number of targets (named <i>Targets</i>), in which predicted targets are reported according to the specified minimum consensus, 
+						(<i>0</i> in case there are none);</li>
+						<li>The number of targets conclusion by each selected prediction tool (<i>0</i> in case there are none);</li>
+						<li>A Venn diagram reporting the targets intersection among all selected prediction tools.</li>
+			  		</ul>
+			  		<p align="justify">
+			  			Each number (colored in blue) represents the number of targets for a specific variation (i.e., Substitution or isomiR) and prediction tool/consensus. By clicking on it, 
+			  			the system will show you a modal box (figure below) reporting the targets list supplied with additional information. Results can be downloaded in different 
+			  			data formats, such as Excel, PDF, TSV, and so forth.  						  		
+			  		</p>
+			  		<center><img src="{{ url_for('static', filename='public/images/docs/pred_r1_miranda_sub.png', _external=True) }}" class="img-fluid" alt="miRanda predicted targets" width="70%"></center>
+			  		
+					<p align="justify">
+			  			A Venn diagram is also provided, reporting the targets intersection among selected prediction tools, together with the histogram representing
+			  			the targets distribution among such tools.  						  		
+			  		</p>
+			  		<center><img src="{{ url_for('static', filename='public/images/docs/pred_r1_venn_targets_view.png', _external=True) }}" class="img-fluid" alt="Venn diagram" width="70%"></center>
+			  		
+			  	</div>
+			  	
+			  	
+			  	<div class="tab-pane fade" id="how_to_enrich_res_analysis" role="tabpanel" aria-labelledby="how-to-enrich-res-analysis-tab">
+			  		<p align="justify">
+						After the conclusion of the analysis (<u>based on predicted targets</u>), results are grouped according to each selected resource 
+						(i.e., <i>GO term</i>, <i>KEGG</i>, <i>Reactome</i>), and details are displayed by variation type (i.e., Substitution, isomiR).<br>							  		
+ 						For each resource, the Functional Analysis is performed considering <i>wild type</i>, <i>variation</i>, and <i>wild type vs. variation</i> (comparison). Depending on which resource is
+ 						selected, <i>i</i>soTar provides different details. Below, we report results for the three main resources here available.
+ 					</p>
+ 					<h4>GO term</h4>
+ 					<p align="justify">
+ 						The <i>GO term</i>-based Functional Analysis is performed for each pair <i>wild type</i>-<i>variation</i>, specified as input for the Prediction Analysis. 
+ 						 Then, results are grouped per <i>Ontology</i> category: 
+ 					</p>
+ 					<ul>
+						<li><i>Biological Process</i> (<b>BP</b>);</li>
+						<li><i>Cellular Component</i> (<b>CC</b>);</li>
+						<li><i>Molecular Function</i> (<b>MF</b>).</li>			    					
+ 					</ul>
+ 					<p align="justify">
+ 						A typical analysis provides information according to:
+ 					</p>
+ 					<ul>
+						<li>
+							<p align="justify">
+								<i>Wild Type</i><br>
+								A GO term list for <b>BP</b>, <b>CC</b>, and <b>MF</b>, respectively, is supplied with additional details. Such GO terms are identified 
+								considering all the consensus predicted targets associated to the wild type miRNA;
+							</p>										
+						</li>
+						<li>
+							<p align="justify">	
+								<i>Variation</i><br>
+								A GO term list for <b>BP</b>, <b>CC</b>, and <b>MF</b>, respectively, is supplied with additional details. Such GO terms are identified 
+								considering all the consensus predicted targets associated to the variation miRNA;
+	    					</p>	
+						</li>
+						<li>
+							<i>Wild Type vs. Variation</i><br>
+							<ul>
+								<li>
+									<p align="justify">
+										A GO term list for each of the GO category (<b>BP</b>, <b>CC</b>, and <b>MF</b>) is supplied with additional details. GO terms 
+										are identified considering those consensus predicted targets that are <u>associated with each of the following</u>:
+									</p>
+									<ul>
+										<li><i><span style="color: #1e90ff">Wild type only</span></i></li>
+										<li><i><span style="color: #ff6347">Variation only</span></i></li>
+										<li><i><span style="color: #3cb371">Wild type-variation intersection</span></i></li>
+									</ul>
+								</li>
+							</ul>
+						</li>
+ 					</ul>
+ 					<center><img src="{{ url_for('static', filename='public/images/docs/enrich_r1_go_tab1.png', _external=True) }}" class="img-fluid" alt="(GO term)-based Functional Analysis results" width="70%"></center>
+ 					<center><img src="{{ url_for('static', filename='public/images/docs/enrich_r1_go_tab2.png', _external=True) }}" class="img-fluid" alt="(GO term)-based Functional Analysis results" width="70%"></center>
+ 					<p></p>
+ 					<p align="justify">
+ 						Results are displayed adopting the same format employed when displaying prediction results. Results are grouped per variation type and ontology category 
+ 						(i.e., BP, CC, MF). Each specified variation is associated with:
+ 					</p>
+ 					<ul>
+						<li>
+							Variation details, such as type (i.e., Substitution or isomiR), position (for Substitution), and so on;
+						</li>
+						<li>
+							The number of identified GO terms (filtered per P-value type and threshold) for each ontology category, supplied with GO term trees and histograms;
+						</li>
+						<li>
+							The number of GO terms (per ontology category) considering only those predicted targets associated to the wild type, variation, and their 
+							intersection, respectively. GO term trees and histograms are provided as well;
+						</li>    					
+ 					</ul>
+ 					<p align="justify">
+						Each number (colored in blue) represents the number of GO terms for a specific wild type or variation (i.e., Substitution or isomiR) and ontology 
+						category (i.e., BP, CC, MF). By clicking on it, the system will show you a modal box (figure below) reporting the GO terms list supplied with 
+						additional information. Results can be downloaded in different data formats, such as Excel, PDF, TSV, and so forth.			    					
+ 					</p>
+ 					<center><img src="{{ url_for('static', filename='public/images/docs/enrich_r1_go_modal.png', _external=True) }}" class="img-fluid" alt="GO terms modal box" width="70%"></center>
+ 					<p></p>
+ 					<p align="justify">
+ 						<b><i class="fas fa-chart-bar"></i></b> Histograms are available for each ontology category. They report:
+ 					</p>
+ 					<hr>
+ 					<ul>
+						<li>
+							<b>Comparison between wild type and variation</b>. As an example, we report (figure below) a histogram associated with the wild type and the variation at 
+							position <i>6</i> according to the ontology category <i>CC</i> (wild type in blue and variation in red);<br><br>
+							<center><img src="{{ url_for('static', filename='public/images/docs/hsa-miR-214-3p__nt_var_6_A_G_go_cc.png', _external=True) }}" class="img-fluid" alt="Histogram wild type-variation according to CC" width="100%"></center>
+						</li>
+						<li>
+							<b>Comparison between wild type only, variation only, and their intersection</b>. As an example, we report (figure below) a histogram associated with the comparison between the wild type and the variation (wild type only, variation only, and their intersection) at 
+							position <i>6</i> according to the ontology category <i>CC</i> (wild type in blue, variation in red, and intersection in green);<br><br>
+							<center><img src="{{ url_for('static', filename='public/images/docs/hsa-miR-214-3p__nt_var_6_A_G_go_cc_comp.png', _external=True) }}" class="img-fluid" alt="Histogram comparison between wild type variation according to CC" width="100%"></center>
+						</li>  					
+ 					</ul>
+ 					<p align="justify">
+ 						Histograms can be downloaded in different formats, such as PDF, PNG, JPEG, and SVG. <br><br>
+ 					</p>
+ 					<hr>
+ 					<p align="justify">
+ 						<b><i class="fas fa-sitemap"></i></b> GO term trees are available for each ontology type. They are associated with:
+ 					</p>
+ 					<ul>
+						<li>
+							<b>Each wild type and their variation(s)</b>. As an example, we report (figure below) two GO term trees associated with the wild type and the variation at 
+							position <i>6</i>, respectively, according to the ontology type <i>CC</i> (in green, the GO term nodes for which the P-value is also reported);<br><br>
+							<center>Wild Type</center>
+							<center><img src="{{ url_for('static', filename='public/images/docs/go_tree_wt.jpg', _external=True) }}" class="img-fluid" alt="Wild type GO term tree according to CC" width="100%"></center>
+							<p></p>
+							<center>Variation</center>
+							<center><img src="{{ url_for('static', filename='public/images/docs/go_tree_var.jpg', _external=True) }}" class="img-fluid" alt="Variation GO term tree according to CC" width="100%"></center>
+							<p></p>
+						</li>
+						<li>
+							<b>Comparison between wild type only, variation only, and their intersection</b>. As an example, we report (figure below) the GO term tree associated with the comparison 
+							between the wild type and the variation (wild type only, variation only, and their intersection) at position <i>6</i> according to the ontology type <i>CC</i>;<br><br>
+							<center>Wild Type vs. Variation</center>											
+							<center><img src="{{ url_for('static', filename='public/images/docs/go_tree_wt_var.jpg', _external=True) }}" class="img-fluid" alt="Wild type vs. variation GO term tree according to CC" width="100%"></center>
+							<p></p>											
+							<p align="justify">
+								Colors are used to highlight GO term nodes, according to all possible combinations among all possible intersection subsets. A table
+								reporting the adopted colors is provided as well (figure below).											
+							</p>	
+							<p></p>	
+							<center><img src="{{ url_for('static', filename='public/images/docs/go_term_colors_legend.png', _external=True) }}" class="img-fluid" alt="GO term tree's node colors legend" width="100%" style="max-width: 500px"></center>								
+						</li>  					
+ 					</ul>
+ 					<p></p>
+ 					<p align="justify">
+ 						GO term trees can be downloaded in PDF format. <br>
+ 					</p>
+ 					<p></p>
+ 					
+ 					
+ 					
+ 					<h4>KEGG &amp; Reactome</h4>
+ 					The Pathway-based Functional Analysis is performed for each pair <i>wild type-variation</i>, specified as input for the Prediction Analysis. A typical analysis
+ 					provides information according to:
+ 					<ul>
+						<li>
+							<p align="justify">
+								<i>Wild Type</i><br>
+								A pathways list is supplied with additional details. Pathways are identified considering all consensus predicted targets associated to the wild type;
+							</p>										
+						</li>
+						<li>
+							<p align="justify">	
+								<i>Variation</i><br>
+								A pathways list is supplied with additional details. Pathways are identified considering all consensus predicted targets associated to the variation;
+	    					</p>	
+						</li>
+						<li>
+							<i>Wild Type vs. Variation</i><br>
+							<ul>
+								<li>
+									<p align="justify">
+										A pathways list is supplied with additional details. Pathways are identified considering those consensus predicted targets that are respectively 
+										<u>associated only to</u>:
+									</p>
+									<ul>
+										<li><i><span style="color: #1e90ff">Wild type</span></i></li>
+										<li><i><span style="color: #ff6347">Variation</span></i></li>
+										<li><i><span style="color: #3cb371">Wild type-variation intersection</span></i></li>
+									</ul>
+								</li>
+							</ul>
+						</li>
+ 					</ul>
+ 					<center><img src="{{ url_for('static', filename='public/images/docs/enrich_r1_pathway_tab.png', _external=True) }}" class="img-fluid" alt="Pathway-based Functional Analysis results" width="70%"></center>
+					<p align="justify">
+ 						Results are displayed adopting the same format employed when displaying prediction results (grouped per variation type). Each specified variation 
+ 						is associated with:
+ 					</p>
+ 					<ul>
+						<li>
+							Variation details, such as type (i.e., Substitution or isomiR), position (Substitution only), and so on;
+						</li>
+						<li>
+							The number of identified pathways (filtered by P-value type and threshold), supplied with histograms;
+						</li>
+						<li>
+							The number of pathways considering only those predicted targets associated with the wild type, variation, and their intersection, respectively. 
+							Histograms are provided as well;
+						</li>    					
+ 					</ul>
+ 					<p align="justify">
+						Each number (colored in blue) represents the number of pathways for a specific variation (i.e., Substitution or isomiR). 
+						By clicking on it, the system will show you a modal box (figure below) reporting the pathways list supplied with additional information. Results can be downloaded in 
+						different data formats, such as Excel, PDF, TSV, and so forth.			    					
+ 					</p>
+ 					<center><img src="{{ url_for('static', filename='public/images/docs/enrich_r1_pathway_modal.png', _external=True) }}" class="img-fluid" alt="Pathways modal box" width="70%"></center>
+ 					<p></p>
+ 					<hr>
+ 					<p align="justify">
+ 						<b><i class="fas fa-chart-bar"></i></b> Histograms report:
+ 					</p>
+ 					<ul>
+						<li>
+							<b>Comparison between wild type and variation</b>. As an example, we report (figure below) a histogram associated with the wild type and the variation at 
+							position <i>6</i> according to <i>KEGG</i> (wild type in blue and variation in red);<br><br>
+							<center><img src="{{ url_for('static', filename='public/images/docs/hsa-miR-214-3p__nt_var_6_A_G_kegg.png', _external=True) }}" class="img-fluid" alt="Histogram wild type-variation according to KEGG" width="100%"></center>
+						</li>
+						<li>
+							<b>Comparison between wild type only, variation only, and their intersection</b>. As an example, we report (figure below) a histogram associated with the comparison between the wild type and the variation (wild type only, variation only, and their intersection) at 
+							position <i>6</i> according to <i>KEGG</i> (wild type in blue, variation in red, and intersection in green);<br><br>
+							<center><img src="{{ url_for('static', filename='public/images/docs/hsa-miR-214-3p__nt_var_6_A_G_kegg_comp.png', _external=True) }}" class="img-fluid" alt="Histogram comparison between wild type variation according to KEGG" width="100%"></center>
+						</li>  					
+ 					</ul>
+ 					<p align="justify">
+ 						Histograms can be downloaded in different formats, such as PDF, PNG, JPEG, and SVG. <br><br>
+ 						What is described above is valid for Reactome results al well.
+ 					</p>
+ 					
+ 					
+			  	</div><!-- /how_to_enrich_res_analysis -->
+			</div>
+
+  			</div><!-- /.card card-body -->
+  			<p></p>
+	</div> 	
+	<div class="collapse" id="enrich_res_tutorial">
+		<div class="card card-body">
+			<p align="justify">
+				When performing Functional Analysis without leveraging on consensus predicted targets, one or two user-specified lists of targets may be provided. In this section, 
+				we describe results for two lists of targets. For clarity, we named the first list <i>wild_type</i> (<i>List_1</i>) and the second one <i>variation</i> 
+				(<i>List_2</i>). After the conclusion of the analysis, results are grouped according to each selected resource (i.e., <i>GO term</i>, <i>KEGG</i>, <i>Reactome</i>).<br>							  		
+ 						For each resource, the Functional Analysis is performed considering <i>List_1</i>, <i>List_2</i>, and <i>List_1 vs. List_2</i> (comparison). Depending on which resource is
+ 						selected, <i>i</i>soTar provides different details. Below, we report results for the three main resources here available.
+ 					</p>
+ 					<h4>GO term</h4>
+ 					<p align="justify">
+ 						The <i>GO term</i>-based Functional Analysis is performed for <i>List_1</i> and <i>List_2</i>. Then, the results are grouped per <i>Ontology</i> category: 
+ 					</p>
+ 					<ul>
+				<li><i>Biological Process</i> (<b>BP</b>);</li>
+				<li><i>Cellular Component</i> (<b>CC</b>);</li>
+				<li><i>Molecular Function</i> (<b>MF</b>).</li>			    					
+ 					</ul>
+ 					<p align="justify">
+ 						A typical analysis provides information according to:
+ 					</p>
+ 					<ul>
+				<li>
+					<p align="justify">
+						<i>List_1</i><br>
+						A GO terms list for <b>BP</b>, <b>CC</b>, and <b>MF</b>, respectively, is supplied with additional details. Such GO terms are identified considering all 
+						List_1 targets;
+					</p>										
+				</li>
+				<li>
+					<p align="justify">	
+						<i>List_2</i><br>
+						A GO terms list for <b>BP</b>, <b>CC</b>, and <b>MF</b>, respectively, is supplied with additional details. Such GO terms are identified considering all 
+						List_2 targets;
+ 					</p>	
+				</li>
+				<li>
+					<i>List_1 vs. List_2</i><br>
+					<ul>
+						<li>
+							<p align="justify">
+								A GO term list for each of the GO category (<b>BP</b>, <b>CC</b>, <b>MF</b>) is supplied with additional details. GO terms are identified considering those consensus 
+								predicted targets that are <u>associated with each of the following</u>:
+							</p>
+							<ul>
+								<li><i><span style="color: #1e90ff">List_1</span></i></li>
+								<li><i><span style="color: #ff6347">List_2</span></i></li>
+								<li><i><span style="color: #3cb371">List_1-List_2 intersection</span></i></li>
+							</ul>
+						</li>
+					</ul>
+				</li>
+ 					</ul>
+ 					<center><img src="{{ url_for('static', filename='public/images/docs/enrich_r2_go_tab.png', _external=True) }}" class="img-fluid" alt="(GO term)-based Functional Analysis results" width="70%"></center>
+ 					<p></p>
+ 					<p align="justify">
+ 						Results are displayed adopting the same format employed when displaying prediction results. Results are grouped per ontology category (i.e., BP, CC, MF). 
+ 						List_2 is associated with:
+ 					</p>
+ 					<ul>
+				<li>
+					The number of identified GO terms (filtered per P-value type and threshold) for each ontology category, supplied with GO term trees and histograms;
+				</li>
+				<li>
+					The number of GO terms (per ontology category) considering only those targets associated to the List_1, List_2, and their intersection, respectively. 
+					GO term trees and histograms are provided as well.
+				</li>    					
+ 					</ul>
+ 					<p align="justify">
+				Each number (colored in blue) represents the number of GO terms for List_1 or List_2 and ontology category (i.e., BP, CC, MF). 
+				By clicking on it, the system will show you a modal box (figure below) reporting the GO terms list supplied with additional information. 
+				Results can be downloaded in different data formats, such as Excel, PDF, TSV, and so forth.			    					
+ 					</p>
+ 					<center><img src="{{ url_for('static', filename='public/images/docs/enrich_r2_go_modal.png', _external=True) }}" class="img-fluid" alt="GO terms modal box" width="70%"></center>
+ 					<p></p>
+ 					<hr>
+ 					<p align="justify">
+ 						<b><i class="fas fa-chart-bar"></i></b> Histograms are available for each ontology category. They report:
+ 					</p>
+ 					<ul>
+				<li>
+					<b>Comparison between List_1 and List_2</b>. As an example, we report (figure below) a histogram associated with List_1 and List_2 according to
+					the ontology category <i>CC</i> (wild type in blue and variation in red);<br><br>
+					<center><img src="{{ url_for('static', filename='public/images/docs/wild_type_variation_go_cc.png', _external=True) }}" class="img-fluid" alt="Histogram List_1-List_2 according to CC"></center>
+				</li>
+				<li>
+					<b>Comparison between List_1 only, List_2 only, and their intersection</b>. As an example, we report (figure below) a histogram associated with the 
+					comparison between the List_1 and the List_2 (wild type only, variation only, and their intersection) according to the ontology category <i>CC</i> 
+					(wild type in blue, variation in red, and intersection in green);<br><br>
+					<center><img src="{{ url_for('static', filename='public/images/docs/wild_type_variation_go_cc_comp.png', _external=True) }}" class="img-fluid" alt="Histogram comparison between List_1 and List_2 according to CC"></center>
+				</li>  					
+ 					</ul>
+ 					<p align="justify">
+ 						Histograms can be downloaded in different formats, such as PDF, PNG, JPEG, and SVG. <br><br>
+ 					</p>
+ 					<hr>
+ 					<p align="justify">
+ 						<b><i class="fas fa-sitemap"></i></b> GO term trees are available for each ontology category. They are associated with:
+ 					</p>
+ 					<ul>
+				<li>
+					<b>List_1 and List_2</b>. As an example, we report (figure below) two GO term trees associated with List_1 and List_2, respectively, according to 
+					the ontology category <i>CC</i> (in green, the GO term nodes for which the P-value is also reported);<br><br>
+					<center>List_1</center>
+					<center><img src="{{ url_for('static', filename='public/images/docs/wild_type_go_tree_cc.jpg', _external=True) }}" class="img-fluid" alt="List_1 GO term tree according to CC" width="100%"></center>
+					<p></p>
+					<center>List_2</center>
+					<center><img src="{{ url_for('static', filename='public/images/docs/variation_go_tree_cc.jpg', _external=True) }}" class="img-fluid" alt="List_2 GO term tree according to CC" width="100%"></center>
+					<p></p>
+				</li>
+				<li>
+					<b>Comparison between List_1 only, List_1 only, and their intersection</b>. As an example, we report (figure below) the GO term tree associated with the 
+					comparison between List_1 and List_2 (List_1 only, List_2 only, and their intersection) according to the ontology category <i>CC</i>;<br><br>
+					<center>List_1 vs. List_2</center>											
+					<center><img src="{{ url_for('static', filename='public/images/docs/go_tree_comp_cc.jpg', _external=True) }}" class="img-fluid" alt="List_1 vs. List_2 GO term tree according to CC" width="100%"></center>
+					<p></p>											
+					<p align="justify">
+						Colors are used to highlight GO term nodes, according to all possible combinations among all possible intersection subsets. A table
+						reporting the adopted colors is provided as well (figure below).											
+					</p>	
+					<p></p>	
+					<center><img src="{{ url_for('static', filename='public/images/docs/go_term_colors_legend_comp.png', _external=True) }}" class="img-fluid" alt="GO term tree's node colors legend" width="100%" style="max-width: 500px"></center>								
+				</li>  					
+ 					</ul>
+ 					<p></p>
+ 					<p align="justify">
+ 						GO term trees can be downloaded in PDF format. <br>
+ 					</p>
+ 					<p></p>
+			
+			
+			<h4>KEGG &amp; Reactome</h4>
+			<p align="justify">
+ 						The Pathway-based Functional Analysis is performed considering the pair <i>List_1-List_2</i>. A typical analysis
+ 						provides information according to:
+ 					</p>
+ 					<ul>
+				<li>
+					<p align="justify">
+						<i>List_1</i><br>
+						A pathways list is supplied with additional details. Pathways are identified considering all List_1 targets;
+					</p>										
+				</li>
+				<li>
+					<p align="justify">	
+						<i>List_2</i><br>
+						A pathways list is supplied with additional details. Pathways are identified considering all List_2 targets;
+ 					</p>	
+				</li>
+				<li>
+					<i>List_1 vs. List_2</i><br>
+					<ul>
+						<li>
+							<p align="justify">
+								A pathways list is supplied with additional details. Pathways are identified considering those consensus predicted targets that are respectively 
+								<u>associated only to</u>:
+							</p>
+							<ul>
+								<li><i><span style="color: #1e90ff">List_1</span></i></li>
+								<li><i><span style="color: #ff6347">List_2</span></i></li>
+								<li><i><span style="color: #3cb371">List_1-List_2 intersection</span></i></li>
+							</ul>
+						</li>
+					</ul>
+				</li>
+ 					</ul>
+ 				<center><img src="{{ url_for('static', filename='public/images/docs/enrich_r2_pathway_tab.png', _external=True) }}" class="img-fluid" alt="Pathway-based Functional Analysis results" width="70%"></center>
+			<p align="justify">
+ 						List_2 is associated with:
+ 					</p>
+ 					<ul>
+				<li>
+					The number of identified pathways (filtered per P-value type and threshold), supplied with histograms;
+				</li>
+				<li>
+					The number of pathways considering only those targets associated with List_1, List_2, and their intersection. 
+					Histograms are provided as well;
+				</li>    					
+ 					</ul>
+ 					<p align="justify">
+				Each number (colored in blue) represents the number of pathways. 
+				By clicking on it, the system will show you a modal box (figure below) reporting the pathways list supplied with additional information. Results can be downloaded in 
+				different data formats, such as Excel, PDF, TSV, and so forth.			    					
+ 					</p>
+ 					<center><img src="{{ url_for('static', filename='public/images/docs/enrich_r2_pathway_modal.png', _external=True) }}" class="img-fluid" alt="Pathways modal box" width="70%"></center>
+ 					<p></p>
+ 					<hr>
+ 					<p align="justify">
+ 						<b><i class="fas fa-chart-bar"></i></b> Histograms report:
+ 					</p>
+ 					<ul>
+				<li>
+					<b>Comparison between List_1 and List_2</b>. As an example, we report (figure below) a histogram associated with List_1 and List_2 according to <i>KEGG</i> 
+					(List_1 in blue and List_2 in red);<br><br>
+					<center><img src="{{ url_for('static', filename='public/images/docs/wild_type_variation_kegg.png', _external=True) }}" class="img-fluid" alt="Histogram List_1-List_2 according to KEGG"></center>
+				</li>
+				<li>
+					<b>Comparison between List_1 only, List_2 only, and their intersection</b>. As an example, we report (figure below) a histogram associated with the comparison 
+					between List_1 and List_2 (List_1 only, List_2 only, and their intersection) according to <i>KEGG</i> (List_1 in blue, List_2 in red, and intersection in green);<br><br>
+					<center><img src="{{ url_for('static', filename='public/images/docs/wild_type_variation_kegg_comp.png', _external=True) }}" class="img-fluid" alt="Histogram comparison between List_1 and List_2 according to KEGG"></center>
+				</li>  					
+ 					</ul>
+ 					<p align="justify">
+ 						Histograms can be downloaded in different formats, such as PDF, PNG, JPEG, and SVG. <br><br>
+ 						What is described above is valid for Reactome results as well.
+ 					</p>							
+			
+		</div><!-- /.card card-body -->
+	</div><!-- /enrich_res_tutorial -->	
+	
+</div>
+{% endblock %}

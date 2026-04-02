@@ -1,0 +1,1800 @@
+{% import 'enrichment_analysis/macros/enrich_input.html' as enrich_macro %}
+
+<ul class="nav nav-tabs mb-3" id="enrich-opts-tab" role="tablist">
+	{% for resource in resources_list %}
+		<li class="nav-item">
+	   	<a class="nav-link {{'active' if loop.first}}" id="tabs-{{resource|e}}-term-content-tab" data-toggle="tab" href="#tabs-{{resource|e}}-term-content" role="tab" aria-controls="tabs-{{resource|e}}-term-content" aria-selected="true">
+	   		{% if resource == 'go' %}<i class="fas fa-flask"></i> Go term{% elif resource == 'kegg' %}<i class="fab fa-hubspot"></i> KEGG{% elif resource == 'reactome' %}<i class="fab fa-hubspot"></i> Reactome{% endif %}
+	   	</a>
+	  	</li>
+  	{% endfor %}
+</ul>
+<div class="tab-content" id="enrich-opts-tab-content">
+	{% for resource in resources_list %}
+		<div class="tab-pane fade {{'show active' if loop.first}}" id="tabs-{{resource|e}}-term-content" role="tabpanel" aria-labelledby="tabs-{{resource|e}}-term-content-tab">
+		
+			{% if resource == 'go' %}
+				{% if single_analysis_table_content[resource]['isomir'] %}
+					{{ enrich_macro.render_mirna_enrich_results_isomir_table(enrich_data[resource], resource) }}
+				{% endif %}
+				
+				{% if single_analysis_table_content[resource]['nt_var'] %}
+					{{ enrich_macro.render_mirna_enrich_results_nt_variation_table(enrich_data[resource], resource) }}
+				{% endif %}
+				
+				{% if single_analysis_table_content[resource]['wt'] %}
+					{{ enrich_macro.render_mirna_enrich_results_wt_table(enrich_data[resource], resource) }}
+				{% endif %}
+			{% else %}
+				{% if single_analysis_table_content[resource]['isomir'] %}
+					{{ enrich_macro.render_mirna_enrich_pathway_results_isomir_table(enrich_data[resource], resource) }}
+				{% endif %}	
+				
+				{% if single_analysis_table_content[resource]['nt_var'] %}
+					{{ enrich_macro.render_mirna_enrich_pathway_results_nt_variation_table(enrich_data[resource], resource) }}
+				{% endif %}
+				
+				{% if single_analysis_table_content[resource]['wt'] %}
+					{{ enrich_macro.render_mirna_enrich_pathway_results_wt_table(enrich_data[resource], resource) }}
+				{% endif %}
+			{% endif %}
+	  	</div>
+  	{% endfor %}
+</div>
+
+
+
+<!-- Modal -->
+<div class="modal fade" id="enrich_go_tree_colors_legend_modal" tabindex="-1" role="dialog" aria-labelledby="enrich_go_tree_colors_legend_modal_label" aria-hidden="true">
+  	<div class="modal-dialog" role="document">
+    	<div class="modal-content">
+      	<div class="modal-header">
+        		<h5 class="modal-title">GO term tree node colors</h5>
+        		<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          		<span aria-hidden="true">&times;</span>
+        		</button>
+      	</div>
+      	<div class="modal-body">
+      		{{ enrich_macro.render_go_tree_legend('Wild Type', 'Variation') }}
+      		<p></p>
+      		<p><b>N.B.</b> If the number of GO terms of a specific category (<i>BP</i>, <i>CC</i>, <i>MF</i>) exceed 500, no Go terms tree will be generated.</p>
+      	</div>
+      	<div class="modal-footer">
+        		<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+      	</div>
+   	</div>
+  	</div>
+</div>
+
+
+<script type="text/javascript" >
+	$(function() {
+
+		///////////////////////////////////////////////////////////////////////////////////////////
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// GO term section 
+		///////////////////////////////////////////////////////////////////////////////////////////
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$('a.go_tree_colors_legend_btn').on('click', function (e) {
+	   	e.preventDefault();
+			$('div#enrich_go_tree_colors_legend_modal').modal('show');
+	   });
+	   
+	   ///////////////////////////////////////////////////////////////////////////////////////////
+		// Close wild type histograms 
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$('a.enrich_wt_hist_close_btn').on('click', function (e) {
+	   	e.preventDefault();
+	   	var resource = $(this).attr('id');
+	   	$('div#' + resource + '_enrich_wt_hist_container').css('display', 'none');
+	   	$('div#' + resource + '_enrich_wt_hist_content').html('');
+	   });
+	   
+	   //=========================================================================================
+		//=========================================================================================
+		// Wild Type
+		//=========================================================================================
+		$(document).on( 'click', 'a.enrich_wt_stats_btn', function (e) {
+	   	e.preventDefault();
+	   	
+			// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+				var mirna_id = '';
+				var vtype = '';
+
+				$.each($(row).find('span'), function (index, value) {
+					
+					if ($(value).attr('class') === 'enrich_row_mirna_id') {
+						mirna_id = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_type') {
+						vtype = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(mirna_id) && 
+	    			 checkVariableExistance(vtype) && 
+	    			 checkVariableExistance(resource) && 
+	    			 mirna_id !== '' && 
+	    			 vtype !== '' && 
+	    			 resource !== '') {
+	    			 
+	    			 $('div#' + resource + '_enrich_wt_hist_container').css('display', 'block');
+	    			 $('div#' + resource + '_wt_hist_loading_status').css('display', 'block');
+	 
+	    			 $.ajax({
+	         		url: '/enrichment_analysis_variation_histograms',
+	         		beforeSend: function(xhr, settings) {
+	         			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         			}
+	     				},
+	      			data: { 
+	      				mirna_id: mirna_id, 
+	      				vtype: vtype,
+	      				resource: resource,
+	      				analysis_type: 'single'
+	      			},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	      					$('div#' + resource + '_enrich_wt_hist_content').html(data);	
+	      				}
+							$('div#' + resource + '_wt_hist_loading_status').css('display', 'none');
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+		       			$('div#' + resource + '_wt_hist_loading_status').css('display', 'none');
+	      			}
+	     			});
+		   	}		
+				e.handled = true;
+			}
+	   	
+	   	return false;
+	   });
+	   
+	   
+	   
+		//=========================================================================================
+		//=========================================================================================
+		// Substitution
+		//=========================================================================================
+		
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Wild Type or Variation histogram
+		///////////////////////////////////////////////////////////////////////////////////////////
+
+		$(document).on( 'click', 'a.enrich_nt_var_wt_var_stats_btn', function (e) {
+	   	e.preventDefault();
+	   	
+			// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+				var mirna_id = '';
+				var vtype = '';
+				var v3p = '';
+				var v5p = '';
+				var vref = '';
+				var vmod = '';
+				var vpos = '';
+			
+				$.each($(row).find('span'), function (index, value) {
+					
+					if ($(value).attr('class') === 'enrich_row_mirna_id') {
+						mirna_id = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_type') {
+						vtype = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_3p'){
+						v3p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_5p'){
+						v5p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_pos'){
+						vpos = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_ref'){
+						vref = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_mod'){
+						vmod = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_mirna_id') {
+								mirna_id = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_type') {
+								vtype = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_3p'){
+								v3p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_5p'){
+								v5p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_pos'){
+								vpos = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_ref'){
+								vref = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_mod'){
+								vmod = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		 
+		   	if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(mirna_id) && 
+	    			 checkVariableExistance(vtype) && 
+	    			 checkVariableExistance(resource) && 
+	    			 mirna_id !== '' && 
+	    			 vtype !== '' && 
+	    			 resource !== '') {
+	    			 
+	    			 $('div#' + resource + '_enrich_nt_var_hist_container').css('display', 'block');
+	    			 $('div#' + resource + '_nt_var_hist_loading_status').css('display', 'block');
+	 
+	    			 $.ajax({
+	         		url: '/enrichment_analysis_variation_histograms',
+	         		beforeSend: function(xhr, settings) {
+	         			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         			}
+	     				},
+	      			data: { 
+	      				mirna_id: mirna_id, 
+	      				vtype: vtype, 
+	      				v3p: v3p, 
+	      				v5p: v5p, 
+	      				vpos: vpos, 
+	      				vref: vref, 
+	      				vmod: vmod,
+	      				resource: resource,
+	      				analysis_type: 'single'
+	      			},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	      					$('div#' + resource + '_enrich_nt_var_hist_content').html(data);	
+	      				}
+							$('div#' + resource + '_nt_var_hist_loading_status').css('display', 'none');
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+		       			$('div#' + resource + '_nt_var_hist_loading_status').css('display', 'none');
+	      			}
+	     			});
+		   	}		
+				e.handled = true;
+			}
+	   	
+	   	return false;
+	   });
+					   
+		
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Wild Type vs. Variation histogram
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$(document).on('click', 'a.enrich_nt_var_comp_stats_btn', function (e) { 
+	   	e.preventDefault();
+	   	
+	   	// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+		   	   	
+				var mirna_id = '';
+				var vtype = '';
+				var v3p = '';
+				var v5p = '';
+				var vref = '';
+				var vmod = '';
+				var vpos = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					
+					if ($(value).attr('class') === 'enrich_row_mirna_id') {
+						mirna_id = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_type') {
+						vtype = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_3p'){
+						v3p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_5p'){
+						v5p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_pos'){
+						vpos = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_ref'){
+						vref = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_mod'){
+						vmod = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_mirna_id') {
+								mirna_id = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_type') {
+								vtype = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_3p'){
+								v3p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_5p'){
+								v5p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_pos'){
+								vpos = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_ref'){
+								vref = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_mod'){
+								vmod = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	var res = '';
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(mirna_id) && 
+	    			 checkVariableExistance(vtype) && 
+	    			 checkVariableExistance(resource) && 
+	    			 mirna_id !== '' && 
+	    			 vtype !== '' && 
+	    			 resource !== '') {
+	    			 
+	    			 $('div#' + resource + '_enrich_nt_var_hist_container').css('display', 'block');
+	    			 $('div#' + resource + '_nt_var_hist_loading_status').css('display', 'block');
+	    			 
+	    			 $.ajax({
+	         		url: '/enrichment_analysis_variation_comp_histograms',
+	         		beforeSend: function(xhr, settings) {
+	         			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         			}
+	     				},
+	      			data: { 
+	      				mirna_id: mirna_id, 
+	      				vtype: vtype, 
+	      				v3p: v3p, 
+	      				v5p: v5p, 
+	      				vpos: vpos, 
+	      				vref: vref, 
+	      				vmod: vmod,
+	      				resource: resource,
+	      				analysis_type: 'single'
+	      			},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	          				$('div#' + resource + '_enrich_nt_var_hist_content').html(data);
+	          			}
+	          			$('div#' + resource + '_nt_var_hist_loading_status').css('display', 'none');
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+		       			$('div#' + resource + '_nt_var_hist_loading_status').css('display', 'none');
+	      			}
+	     			});
+		   	}
+		   	e.handled = true;
+			}
+	   });
+	    
+	   
+	   ///////////////////////////////////////////////////////////////////////////////////////////
+		// Close nucleotide variation histograms 
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$('a.enrich_nt_var_hist_close_btn').on('click', function (e) {
+	   	e.preventDefault();
+	   	var resource = $(this).attr('id');
+	   	$('div#' + resource + '_enrich_nt_var_hist_container').css('display', 'none');
+	   	$('div#' + resource + '_enrich_nt_var_hist_content').html('');
+	   	return false;
+	   });
+	   
+	   
+	   // ========================================================================================
+		// ========================================================================================
+		// isomiR
+		// ========================================================================================
+		
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Wild Type or Variation histogram
+		///////////////////////////////////////////////////////////////////////////////////////////
+	   
+	   $(document).on('click', 'a.enrich_isomir_wt_var_stats_btn', function (e) {
+	   	e.preventDefault();
+	   	
+	   	// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+				var mirna_id = '';
+				var vtype = '';
+				var v3p = '';
+				var v5p = '';
+				var vref = '';
+				var vmod = '';
+				var vpos = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					
+					if ($(value).attr('class') === 'enrich_row_mirna_id') {
+						mirna_id = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_type') {
+						vtype = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_3p'){
+						v3p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_5p'){
+						v5p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_pos'){
+						vpos = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_ref'){
+						vref = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_mod'){
+						vmod = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_mirna_id') {
+								mirna_id = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_type') {
+								vtype = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_3p'){
+								v3p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_5p'){
+								v5p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_pos'){
+								vpos = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_ref'){
+								vref = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_mod'){
+								vmod = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(mirna_id) && 
+	    			 checkVariableExistance(vtype) && 
+	    			 checkVariableExistance(resource) && 
+	    			 mirna_id !== '' && 
+	    			 vtype !== '' && 
+	    			 resource !== '') {
+	    			 
+	    			 $('div#' + resource + '_enrich_isomir_hist_container').css('display', 'block');
+	    			 $('div#' + resource + '_isomir_hist_loading_status').css('display', 'block');
+	    			 
+	    			 $.ajax({
+	         		url: '/enrichment_analysis_variation_histograms',
+	         		beforeSend: function(xhr, settings) {
+	         			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         			}
+	     				},
+	      			data: { 
+	      				mirna_id: mirna_id, 
+	      				vtype: vtype, 
+	      				v3p: v3p, 
+	      				v5p: v5p, 
+	      				vpos: vpos, 
+	      				vref: vref, 
+	      				vmod: vmod,
+	      				resource: resource,
+	      				analysis_type: 'single' 
+	      			},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	          				$('div#' + resource + '_enrich_isomir_hist_content').html(data);
+	          			}
+							$('div#' + resource + '_isomir_hist_loading_status').css('display', 'none');
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400) {
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				}
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+		       			$('div#' + resource + '_isomir_hist_loading_status').css('display', 'none');
+	      			}
+	     			});
+	    		}
+	    		e.handled = true;
+			}
+			
+	   	return false;
+	   });
+	   
+	   
+	   ///////////////////////////////////////////////////////////////////////////////////////////
+		// Wild Type vs. Variation histogram
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$(document).on('click', 'a.enrich_isomir_comp_stats_btn', function (e) {
+	   	e.preventDefault();
+	   	
+	   	// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+				var mirna_id = '';
+				var vtype = '';
+				var v3p = '';
+				var v5p = '';
+				var vref = '';
+				var vmod = '';
+				var vpos = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					
+					if ($(value).attr('class') === 'enrich_row_mirna_id') {
+						mirna_id = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_type') {
+						vtype = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_3p'){
+						v3p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_5p'){
+						v5p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_pos'){
+						vpos = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_ref'){
+						vref = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_mod'){
+						vmod = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_mirna_id') {
+								mirna_id = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_type') {
+								vtype = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_3p'){
+								v3p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_5p'){
+								v5p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_pos'){
+								vpos = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_ref'){
+								vref = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_mod'){
+								vmod = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(mirna_id) && 
+	    			 checkVariableExistance(vtype) && 
+	    			 checkVariableExistance(resource) && 
+	    			 mirna_id !== '' && 
+	    			 vtype !== '' && 
+	    			 resource !== '') {
+	    			 
+	    			 $('div#' + resource + '_enrich_isomir_hist_container').css('display', 'block');
+	    			 $('div#' + resource + '_isomir_hist_loading_status').css('display', 'block');
+	    			 	 
+	    			 $.ajax({
+	         		url: '/enrichment_analysis_variation_comp_histograms',
+	         		beforeSend: function(xhr, settings) {
+	         			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         			}
+	     				},
+	      			data: { 
+	      				mirna_id: mirna_id, 
+	      				vtype: vtype, 
+	      				v3p: v3p, 
+	      				v5p: v5p, 
+	      				vpos: vpos, 
+	      				vref: vref, 
+	      				vmod: vmod,
+	      				resource: resource,
+	      				analysis_type: 'single' 
+	      			},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	          				$('div#' + resource + '_enrich_isomir_hist_content').html(data);
+	          			}
+	          			$('div#' + resource + '_isomir_hist_loading_status').css('display', 'none');
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+							$('div#' + resource + '_isomir_hist_loading_status').css('display', 'none');
+	      			}
+	     			});
+		   	}
+		   	e.handled = true;
+			}
+	   	return false;
+	   });
+	    
+	   
+	   ///////////////////////////////////////////////////////////////////////////////////////////
+		// Close isomiR histograms 
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$('a.enrich_isomir_hist_close_btn').on('click', function (e) {
+	   	e.preventDefault();
+	   	var resource = $(this).attr('id');
+	   	$('div#' + resource + '_enrich_isomir_hist_container').css('display', 'none');
+	   	$('div#' + resource + '_enrich_isomir_hist_content').html('');
+	   	return false;
+	   });
+	   
+	   
+	   ///////////////////////////////////////////////////////////////////////////////////////////
+		// GO terms table
+		///////////////////////////////////////////////////////////////////////////////////////////
+	   
+	   $(document).on('click', 'a.enrich_get_go_term_table', function (e) {
+	   	e.preventDefault();
+	   	
+	   	// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var data_tab = $(this).find('span').attr('class');
+				var mirna_id = '';
+				var vtype = '';
+				var v3p = '';
+				var v5p = '';
+				var vref = '';
+				var vmod = '';
+				var vpos = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					if ($(value).attr('class') === 'enrich_row_mirna_id') {
+						mirna_id = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_type') {
+						vtype = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_3p'){
+						v3p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_5p'){
+						v5p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_pos'){
+						vpos = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_ref'){
+						vref = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_mod'){
+						vmod = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_mirna_id') {
+								mirna_id = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_type') {
+								vtype = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_3p'){
+								v3p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_5p'){
+								v5p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_pos'){
+								vpos = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_ref'){
+								vref = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_mod'){
+								vmod = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+		 			 checkVariableExistance(mirna_id) && 
+		 			 checkVariableExistance(vtype) && 
+		 			 checkVariableExistance(data_tab) && 
+		 			 mirna_id !== '' && 
+		 			 vtype !== '' && 
+		 			 data_tab !== '') {
+		 			 
+		 			$.ajax({
+		      			url: '/enrichment_analysis_variation_statistics',
+		      			beforeSend: function(xhr, settings) {
+		      				if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+		          				xhr.setRequestHeader("X-CSRFToken", csrf_token);
+		      				}
+		  				},
+		   			data: { 
+		   				mirna_id: mirna_id, 
+		   				vtype: vtype, 
+		   				v3p: v3p, 
+		   				v5p: v5p, 
+		   				vpos: vpos, 
+		   				vref: vref, 
+		   				vmod: vmod, 
+		   				data_tab: data_tab,
+		   				analysis_type: 'single'
+		   			},
+		   			type: 'POST',
+		   			dataType: 'html',
+		   			success: function(data) {
+		   				if (data !== null) {
+		   					var entity = '';
+		   					var tab = data_tab.replace('enrich_row_', '');
+		   					
+								switch(tab) {
+		       					case 'bp_wt_o':
+		       						entity = ' - Wild Type only according to BP';
+		       						break;
+		       					case 'cc_wt_o':
+		       						entity = ' - Wild Type only according to CC';
+		       						break;
+		       					case 'mf_wt_o':
+		       						entity = ' - Wild Type only according to MF';
+		       						break;
+		       					case 'bp_var_o':
+		       						entity = ' - Variation only according to BP';
+		       						break;
+		       					case 'cc_var_o':
+		       						entity = ' - Variation only according to CC';
+		       						break;
+		       					case 'mf_var_o':
+		       						entity = ' - Variation only according to MF';
+		       						break;
+		       					case 'bp_ins':
+		       						entity = ' - Intersection between Wild Type and Variation according to BP';
+		       						break;
+		       					case 'cc_ins':
+		       						entity = ' - Intersection between Wild Type and Variation according to CC';
+		       						break;
+		       					case 'mf_ins':
+		       						entity = ' - Intersection between Wild Type and Variation according to MF';
+		       						break;
+		       					case 'bp':
+		       						entity = ' - According to BP';
+		       						break;
+		       					case 'cc':
+		       						entity = ' - According to CC';
+		       						break;
+		       					case 'mf':
+		       						entity = ' - According to MF';
+		       						break;	
+		       				}		   				
+		   				
+		       				$('div#enrich_statistics_modal_content').html(data);
+		       				var variation = vpos !== '' ? ' (position: ' + vpos + ', ref: ' + vref + ', mod: ' + vmod + ')' : ' (5p: ' + v5p + ', 3p: ' + v3p + ')';
+		       				if (vtype === 'Wild Type') {
+		       					variation = '';
+		       				}
+		       				$('h5#enrich_statistics_modal_label').text(vtype + ': ' + mirna_id + variation + entity);
+		       			}
+		       			$('div#enrich_statistics_modal').modal('show');
+		   			},
+		   			error: function(error) {
+		   				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+		
+		       			modal_error_notification('An error occurred' + msg);
+		   			}
+		  			});
+		 		}
+		 		
+	 			e.handled = true;
+			}
+	 		return false;
+	   });		
+	   
+	   
+	   
+	   
+		///////////////////////////////////////////////////////////////////////////////////////////
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Pathway section 
+		///////////////////////////////////////////////////////////////////////////////////////////
+		///////////////////////////////////////////////////////////////////////////////////////////
+	   
+	   
+	   ///////////////////////////////////////////////////////////////////////////////////////////
+		// Pathways table
+		///////////////////////////////////////////////////////////////////////////////////////////
+	   
+	   $(document).on('click', 'a.enrich_get_pathway_table', function (e) {
+	   	e.preventDefault();
+	   	
+	   	// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+		   	var data_tab = $(this).find('span').attr('class');
+				var mirna_id = '';
+				var vtype = '';
+				var v3p = '';
+				var v5p = '';
+				var vref = '';
+				var vmod = '';
+				var vpos = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					if ($(value).attr('class') === 'enrich_row_mirna_id') {
+						mirna_id = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_type') {
+						vtype = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_3p'){
+						v3p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_5p'){
+						v5p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_pos'){
+						vpos = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_ref'){
+						vref = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_mod'){
+						vmod = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_mirna_id') {
+								mirna_id = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_type') {
+								vtype = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_3p'){
+								v3p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_5p'){
+								v5p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_pos'){
+								vpos = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_ref'){
+								vref = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_mod'){
+								vmod = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+		 			 checkVariableExistance(mirna_id) && 
+		 			 checkVariableExistance(vtype) && 
+		 			 checkVariableExistance(data_tab) && 
+		 			 checkVariableExistance(resource) && 
+		 			 mirna_id !== '' && 
+		 			 vtype !== '' && 
+		 			 data_tab !== '' && 
+		 			 resource !== '') {
+		 			 
+		 			$.ajax({
+		      			url: '/pathway_enrichment_analysis_variation_statistics',
+		      			beforeSend: function(xhr, settings) {
+		      				if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+		          				xhr.setRequestHeader("X-CSRFToken", csrf_token);
+		      				}
+		  				},
+		   			data: { 
+		   				mirna_id: mirna_id, 
+		   				vtype: vtype, 
+		   				v3p: v3p, 
+		   				v5p: v5p, 
+		   				vpos: vpos, 
+		   				vref: vref, 
+		   				vmod: vmod, 
+		   				data_tab: data_tab,
+		   				resource: resource,
+		   				analysis_type: 'single'
+		   			},
+		   			type: 'POST',
+		   			dataType: 'html',
+		   			success: function(data) {
+		   				if (data !== null) {
+		       				$('div#enrich_statistics_modal_content').html(data);
+		       				
+		       				var tab = data_tab.replace('enrich_row_pathway_', '');
+		       				var res = resource === 'kegg' ? 'KEGG' : 'Reactome';
+		       				var entity = '';
+		       				
+		       				switch(tab) {
+		       					case 'wt_o':
+		       						entity = ' - Wild Type only according to ' + res;
+		       						break;
+		       					case 'var_o':
+		       						entity = ' - Variation only according to ' + res;
+		       						break;
+		       					case 'ins':
+		       						entity = ' - Intersection between Wild Type and Variation according to ' + res;
+		       						break;
+		       				}
+		       				
+		       				var variation = vpos !== '' ? ' (position: ' + vpos + ', ref: ' + vref + ', mod: ' + vmod + ')' : ' (5p: ' + v5p + ', 3p: ' + v3p + ')';
+		       				if (vtype === 'Wild Type') {
+		       					variation = '';
+		       				}
+		       				$('h5#enrich_statistics_modal_label').text(vtype + ': ' + mirna_id + variation + entity);
+		       			}
+		       			$('div#enrich_statistics_modal').modal('show');
+		   			},
+		   			error: function(error) {
+		   				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+		
+		       			modal_error_notification('An error occurred' + msg);
+		   			}
+		  			});
+		 		}
+		 		
+	 			e.handled = true;
+			}
+	 		return false;
+	   });
+	   
+	   
+	   //=========================================================================================
+		//=========================================================================================
+		// Substitution
+		//=========================================================================================
+		
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Wild Type or Variation histogram
+		///////////////////////////////////////////////////////////////////////////////////////////
+
+		$(document).on( 'click', 'a.enrich_pathway_nt_var_wt_var_stats_btn', function (e) {
+	   	e.preventDefault();
+	   	
+			// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+				var mirna_id = '';
+				var vtype = '';
+				var v3p = '';
+				var v5p = '';
+				var vref = '';
+				var vmod = '';
+				var vpos = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					
+					if ($(value).attr('class') === 'enrich_row_mirna_id') {
+						mirna_id = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_type') {
+						vtype = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_3p'){
+						v3p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_5p'){
+						v5p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_pos'){
+						vpos = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_ref'){
+						vref = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_mod'){
+						vmod = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_mirna_id') {
+								mirna_id = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_type') {
+								vtype = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_3p'){
+								v3p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_5p'){
+								v5p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_pos'){
+								vpos = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_ref'){
+								vref = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_mod'){
+								vmod = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+
+		 		
+		   	if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(mirna_id) && 
+	    			 checkVariableExistance(vtype) && 
+	    			 checkVariableExistance(resource) && 
+	    			 mirna_id !== '' && 
+	    			 vtype !== '' && 
+		 			 resource !== '') {
+		 			 	    			 
+	    			 $('div#' + resource + '_enrich_nt_var_hist_container').css('display', 'block');
+	    			 $('div#' + resource + '_nt_var_hist_loading_status').css('display', 'block');
+	 
+	    			 $.ajax({
+	         		url: '/pathway_enrichment_analysis_variation_histograms',
+	         		beforeSend: function(xhr, settings) {
+	         			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         			}
+	     				},
+	      			data: { 
+	      				mirna_id: mirna_id, 
+	      				vtype: vtype, 
+	      				v3p: v3p, 
+	      				v5p: v5p, 
+	      				vpos: vpos, 
+	      				vref: vref, 
+	      				vmod: vmod,
+	      				resource: resource,
+	      				analysis_type: 'single'
+	      			},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	      					$('div#' + resource + '_enrich_nt_var_hist_content').html(data);	
+	      				}
+							$('div#' + resource + '_nt_var_hist_loading_status').css('display', 'none');
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+		       			$('div#' + resource + '_nt_var_hist_loading_status').css('display', 'none');
+	      			}
+	     			});
+		   	}		
+				e.handled = true;
+			}
+	   	
+	   	return false;
+	   });
+					   
+		
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Wild Type vs. Variation histogram
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$(document).on('click', 'a.enrich_pathway_nt_var_comp_stats_btn', function (e) { 
+	   	e.preventDefault();
+	   	
+	   	// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+				var mirna_id = '';
+				var vtype = '';
+				var v3p = '';
+				var v5p = '';
+				var vref = '';
+				var vmod = '';
+				var vpos = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					
+					if ($(value).attr('class') === 'enrich_row_mirna_id') {
+						mirna_id = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_type') {
+						vtype = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_3p'){
+						v3p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_5p'){
+						v5p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_pos'){
+						vpos = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_ref'){
+						vref = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_mod'){
+						vmod = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_mirna_id') {
+								mirna_id = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_type') {
+								vtype = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_3p'){
+								v3p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_5p'){
+								v5p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_pos'){
+								vpos = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_ref'){
+								vref = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_mod'){
+								vmod = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	var res = '';
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(mirna_id) && 
+	    			 checkVariableExistance(vtype) && 
+	    			 checkVariableExistance(resource) && 
+	    			 mirna_id !== '' && 
+	    			 vtype !== '' && 
+		 			 resource !== '') {
+		 			 	    			 
+	    			 $('div#' + resource + '_enrich_nt_var_hist_container').css('display', 'block');
+	    			 $('div#' + resource + '_nt_var_hist_loading_status').css('display', 'block');
+	    			 
+	    			 $.ajax({
+	         		url: '/pathway_enrichment_analysis_variation_comp_histograms',
+	         		beforeSend: function(xhr, settings) {
+	         			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         			}
+	     				},
+	      			data: { 
+	      				mirna_id: mirna_id, 
+	      				vtype: vtype, 
+	      				v3p: v3p, 
+	      				v5p: v5p, 
+	      				vpos: vpos, 
+	      				vref: vref, 
+	      				vmod: vmod,
+	      				resource: resource,
+	      				analysis_type: 'single'
+	      			},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	      					$('div#' + resource + '_enrich_nt_var_hist_content').html(data);	
+	      				}
+							$('div#' + resource + '_nt_var_hist_loading_status').css('display', 'none');
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+		       			$('div#' + resource + 'nt_var_hist_loading_status').css('display', 'none');
+	      			}
+	     			});
+		   	}
+		   	e.handled = true;
+			}
+	   });	
+	   
+	   
+	   
+	   //=========================================================================================
+	   //=========================================================================================
+		// isomiR
+		//=========================================================================================
+		
+		
+		///////////////////////////////////////////////////////////////////////////////////////////
+		// Wild Type or Variation histogram
+		///////////////////////////////////////////////////////////////////////////////////////////
+	   
+	   $(document).on('click', 'a.enrich_pathway_isomir_wt_var_stats_btn', function (e) {
+	   	e.preventDefault();
+	   	
+	   	// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+				var mirna_id = '';
+				var vtype = '';
+				var v3p = '';
+				var v5p = '';
+				var vref = '';
+				var vmod = '';
+				var vpos = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					
+					if ($(value).attr('class') === 'enrich_row_mirna_id') {
+						mirna_id = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_type') {
+						vtype = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_3p'){
+						v3p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_5p'){
+						v5p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_pos'){
+						vpos = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_ref'){
+						vref = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_mod'){
+						vmod = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_mirna_id') {
+								mirna_id = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_type') {
+								vtype = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_3p'){
+								v3p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_5p'){
+								v5p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_pos'){
+								vpos = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_ref'){
+								vref = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_mod'){
+								vmod = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(mirna_id) && 
+	    			 checkVariableExistance(vtype) && 
+	    			 checkVariableExistance(resource) && 
+	    			 mirna_id !== '' && 
+	    			 vtype !== '' && 
+	    			 resource !== '') {
+	    			 
+	    			 $('div#' + resource + '_enrich_isomir_hist_container').css('display', 'block');
+	    			 $('div#' + resource + '_isomir_hist_loading_status').css('display', 'block');
+	    			 
+	    			 $.ajax({
+	         		url: '/pathway_enrichment_analysis_variation_histograms',
+	         		beforeSend: function(xhr, settings) {
+	         			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         			}
+	     				},
+	      			data: { 
+	      				mirna_id: mirna_id, 
+	      				vtype: vtype, 
+	      				v3p: v3p, 
+	      				v5p: v5p, 
+	      				vpos: vpos, 
+	      				vref: vref, 
+	      				vmod: vmod,
+	      				resource: resource,
+	      				analysis_type: 'single' 
+	      			},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	          				$('div#' + resource + '_enrich_isomir_hist_content').html(data);
+	          			}
+							$('div#' + resource + '_isomir_hist_loading_status').css('display', 'none');
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400) {
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				}
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+		       			$('div#' + resource + '_isomir_hist_loading_status').css('display', 'none');
+	      			}
+	     			});
+	    		}
+	    		e.handled = true;
+			}
+			
+	   	return false;
+	   });
+	   
+	   
+	   ///////////////////////////////////////////////////////////////////////////////////////////
+		// Wild Type vs. Variation histogram
+		///////////////////////////////////////////////////////////////////////////////////////////
+		
+		$(document).on('click', 'a.enrich_pathway_isomir_comp_stats_btn', function (e) {
+	   	e.preventDefault();
+	   	
+	   	// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+				var mirna_id = '';
+				var vtype = '';
+				var v3p = '';
+				var v5p = '';
+				var vref = '';
+				var vmod = '';
+				var vpos = '';
+				
+				$.each($(row).find('span'), function (index, value) {
+					
+					if ($(value).attr('class') === 'enrich_row_mirna_id') {
+						mirna_id = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_type') {
+						vtype = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_3p'){
+						v3p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_5p'){
+						v5p = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_pos'){
+						vpos = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_ref'){
+						vref = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_mod'){
+						vmod = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_mirna_id') {
+								mirna_id = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_type') {
+								vtype = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_3p'){
+								v3p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_5p'){
+								v5p = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_pos'){
+								vpos = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_ref'){
+								vref = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_mod'){
+								vmod = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(mirna_id) && 
+	    			 checkVariableExistance(vtype) && 
+	    			 checkVariableExistance(resource) && 
+	    			 mirna_id !== '' && 
+	    			 vtype !== '' && 
+	    			 resource !== '') {
+	    			 
+	    			 $('div#' + resource + '_enrich_isomir_hist_container').css('display', 'block');
+	    			 $('div#' + resource + '_isomir_hist_loading_status').css('display', 'block');
+	    			 	 
+	    			 $.ajax({
+	         		url: '/pathway_enrichment_analysis_variation_comp_histograms',
+	         		beforeSend: function(xhr, settings) {
+	         			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         			}
+	     				},
+	      			data: { 
+	      				mirna_id: mirna_id, 
+	      				vtype: vtype, 
+	      				v3p: v3p, 
+	      				v5p: v5p, 
+	      				vpos: vpos, 
+	      				vref: vref, 
+	      				vmod: vmod,
+	      				resource: resource,
+	      				analysis_type: 'single' 
+	      			},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	          				$('div#' + resource + '_enrich_isomir_hist_content').html(data);
+	          			}
+	          			$('div#' + resource + '_isomir_hist_loading_status').css('display', 'none');
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+							$('div#' + resource + '_isomir_hist_loading_status').css('display', 'none');
+	      			}
+	     			});
+		   	}
+		   	e.handled = true;
+			}
+	   	return false;
+	   });
+	   
+	   
+	   
+	   //=========================================================================================
+		//=========================================================================================
+		// Wild Type
+		//=========================================================================================
+		$(document).on( 'click', 'a.enrich_pathway_wt_stats_btn', function (e) {
+	   	e.preventDefault();
+	   	
+			// Prevent event triggering more then once
+			if(e.handled !== true) {
+				var csrf_token = $('meta[name=_csrf_token]').attr('content');
+		   	var row = $(this).closest('tr');
+		   	var resource = $(this).attr('id');
+				var mirna_id = '';
+				var vtype = '';
+
+				$.each($(row).find('span'), function (index, value) {
+					
+					if ($(value).attr('class') === 'enrich_row_mirna_id') {
+						mirna_id = $.trim($(value).text());
+					}
+					else if ($(value).attr('class') === 'enrich_row_type') {
+						vtype = $.trim($(value).text());
+					}
+		   	});
+		   	
+		   	// To handle event listeners in hidden columns (responsive dataTables issue)
+		   	var row_class = $(row).attr('class');
+		   	if (row_class === 'child') {
+		   		var closest_tr = $(this).closest('tr');
+		   		var row = $(closest_tr).prev();
+		   		
+		   		// Check for the "parent" class
+		   		if (row.hasClass('parent')) {
+		   			$.each($(row).find('span'), function (index, value) {
+					
+							if ($(value).attr('class') === 'enrich_row_mirna_id') {
+								mirna_id = $.trim($(value).text());
+							}
+							else if ($(value).attr('class') === 'enrich_row_type') {
+								vtype = $.trim($(value).text());
+							}
+				   	});
+		   		}
+		   	}
+		   	
+		   	if (checkVariableExistance(csrf_token) && 
+	    			 checkVariableExistance(mirna_id) && 
+	    			 checkVariableExistance(vtype) && 
+	    			 checkVariableExistance(resource) && 
+	    			 mirna_id !== '' && 
+	    			 vtype !== '' && 
+	    			 resource !== '') {
+	    			 
+	    			 $('div#' + resource + '_enrich_wt_hist_container').css('display', 'block');
+	    			 $('div#' + resource + '_wt_hist_loading_status').css('display', 'block');
+	 
+	    			 $.ajax({
+	         		url: '/pathway_enrichment_analysis_variation_histograms',
+	         		beforeSend: function(xhr, settings) {
+	         			if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+	             			xhr.setRequestHeader("X-CSRFToken", csrf_token);
+	         			}
+	     				},
+	      			data: { 
+	      				mirna_id: mirna_id, 
+	      				vtype: vtype,
+	      				resource: resource,
+	      				analysis_type: 'single'
+	      			},
+	      			type: 'POST',
+	      			dataType: 'html',
+	      			success: function(data) {
+	      				if (data !== null) {
+	      					$('div#' + resource + '_enrich_wt_hist_content').html(data);	
+	      				}
+							$('div#' + resource + '_wt_hist_loading_status').css('display', 'none');
+	      			},
+	      			error: function(error) {
+	      				var res = $.parseJSON(error.responseText);
+		   				var error_code = parseInt(error.status, 10);
+		   				var msg = '';
+		
+		   				if(error_code === 400)
+		   					msg = ': <i>' + res.error_msg + '</i>. Please reload the page.';
+		   				else if( error_code === 405) {
+		   					msg = ': <i>' + res.error_msg + '</i>.';
+		   				}		       			
+	
+		       			modal_error_notification('An error occurred' + msg);
+		       			$('div#' + resource + '_wt_hist_loading_status').css('display', 'none');
+	      			}
+	     			});
+		   	}		
+				e.handled = true;
+			}
+	   	
+	   	return false;
+	   });
+	       
+	});
+</script>

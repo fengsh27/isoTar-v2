@@ -1,0 +1,124 @@
+{% import 'prediction_analysis/macros/pred_input.html' as pred_macro %}
+
+{{ pred_macro.render_variations_db_table(variations_list, var_type) }}
+
+<script type="text/javascript" >
+		
+	$(function() {
+	
+		// Setup - add a text input to each footer cell
+  		$('table#variations_table tfoot th').each( function () {
+     		var title = $(this).text();
+     		if (title !== '') {
+     			$(this).html( '<input style="width:35px" type="text" placeholder="Search" />' );
+     		}
+  		});
+    		
+    		
+		var var_table = $('table#variations_table').DataTable({
+	   	order: [[ 1, 'asc' ]],
+	      displayLength: 5
+		});
+		
+		
+		// Apply the search
+	   var_table.columns().every( function () {
+	   	var that = this;
+	 
+	      $('input', this.footer()).on( 'keyup change', function () {
+	      	if(that.search() !== this.value){
+	         	that
+	            	.search( this.value )
+	               .draw();
+	         }
+	      });
+	   });
+		
+		
+		$('a#add_variations_list_btn').on('click', function (e) {
+			e.preventDefault();
+			// Prevent event triggering more then once
+			if(e.handled !== true) {
+				
+				var rows = new Array();
+									
+				var mirnas_checked = $('table#variations_table').DataTable()
+									      	.column(0)
+									        	.nodes()
+									        	.to$()
+									        	.find('input[name^=mir_edit_site]:checked');
+
+				$(mirnas_checked).each(function () {
+					rows.push($(this).val());
+				});
+			
+				if (rows.length > 0) {
+					pred_mirnas_input_filtering(rows.join('\n').replace(/\\n/g,"\n")); // Needed to avoid textarea escaping content 
+				}
+				e.handled = true;
+			}
+		});
+					   
+	});
+	
+	
+	function pred_mirnas_input_filtering(cnt) {
+		var txt_cnt = $('textarea[name="pred_mirnas_list"]').val();
+		var mirs = [];
+		var filtered_cnt = '';
+		var merged_cnt = $.trim(txt_cnt) + '\n' + $.trim(cnt);
+		var filtered_mirs = [];
+		
+		if ($.trim(merged_cnt) !== '') {
+			mirs = merged_cnt.split('\n');
+			
+			for (i = 0; i < mirs.length; i++) {
+				if ($.trim(mirs[i]) != '' ) {
+					var matches = mirs[i].match(/^>.*(hsa\-[^\s]+)\s+(hsa\-[^\s]+)\s*([^\s]*)\s*$/);
+					if (matches) {
+						var mirna_id = $.trim(matches[1]);
+						var pre_id = $.trim(matches[2]);
+						var variations = [];
+						
+						if ($.trim(matches[3]) !== '') {
+							variations = $.trim(matches[3]).split(';');
+						}
+						
+						var seq = '';
+						i += 1;
+						while (i < mirs.length && mirs[i] != undefined && mirs[i].match(/^>.*(hsa\-[^\s]+)\s+(hsa\-[^\s]+)\s*([^\s]*)\s*$/) == null) {
+							seq += $.trim(mirs[i]);
+							i += 1;
+						}	
+						
+						if ($.trim(seq) != '') {
+							
+							if (!filtered_mirs.hasOwnProperty(mirna_id)) {
+								filtered_mirs[mirna_id] = { 'mirna_id': mirna_id, 'variations': variations, 'seq': seq, 'pre_id': pre_id };
+							}
+							else {
+								for (j = 0; j < variations.length; j++) {
+									if ($.inArray(variations[j], filtered_mirs[mirna_id].variations) == -1) {
+										filtered_mirs[mirna_id]['variations'].push(variations[j]);		
+									} 
+								}
+							}
+						}
+					
+						i -= 1;	
+					}
+				}
+			}
+		} 
+		
+		for (var m in filtered_mirs) {
+			var line = '>' + filtered_mirs[m].mirna_id + ' ' + filtered_mirs[m].pre_id + '\n' + filtered_mirs[m].seq + '\n';
+			if (filtered_mirs[m].variations.length) {
+				line = '>' + filtered_mirs[m].mirna_id + ' ' + filtered_mirs[m].pre_id + ' ' + filtered_mirs[m].variations.join(';') + '\n' + filtered_mirs[m].seq + '\n';
+			}
+			filtered_cnt += line;
+		}
+		
+		$('textarea[name="pred_mirnas_list"]').val(filtered_cnt);
+	}
+</script>
