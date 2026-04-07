@@ -162,24 +162,26 @@ def _build_db(output_dir, db_path):
         raise
 
 
-def _venn_stats(cursor, gene_label_pattern=None):
+def _venn_stats(cursor, keyword_pattern=None):
     """Compute per-tool set sizes and all pairwise/higher-order intersections.
 
     Intersection semantics: |A∩B| counts genes found by BOTH A and B,
     regardless of other tools — the standard input for Venn diagram libraries.
 
-    gene_label_pattern: SQL LIKE pattern (e.g. '%TP53%') applied to gene_info.gene_label,
-                        or None for no filter.
+    keyword_pattern: SQL LIKE pattern (e.g. '%TP53%') matched against
+                     gene_label, gene_name, or tool name (OR logic). None = no filter.
     """
     cursor.execute("SELECT DISTINCT tool FROM gene_tools ORDER BY tool")
     tools = [row[0] for row in cursor.fetchall()]
 
-    if gene_label_pattern:
+    if keyword_pattern:
         gene_filter_sql = (
-            "AND gene_id IN "
-            "(SELECT gene_id FROM gene_info WHERE gene_label LIKE ?)"
+            "AND gene_id IN ("
+            "SELECT gt2.gene_id FROM gene_tools gt2 "
+            "LEFT JOIN gene_info gi2 ON gt2.gene_id = gi2.gene_id "
+            "WHERE gi2.gene_label LIKE ? OR gi2.gene_name LIKE ? OR gt2.tool LIKE ?)"
         )
-        gene_filter_arg = [gene_label_pattern]
+        gene_filter_arg = [keyword_pattern, keyword_pattern, keyword_pattern]
     else:
         gene_filter_sql = ""
         gene_filter_arg = []
@@ -229,15 +231,16 @@ def ensure_db(output_dir):
 
 
 def query_genes(db_path, sort_by="tool_count", order="desc", offset=0, number=20,
-                gene_label=None):
+                keyword=None):
     """Query the gene-tool database and return paginated results + Venn stats.
 
     Args:
-        sort_by:    "tool_count" | "gene_label"
-        order:      "asc" | "desc"
-        offset:     row offset for pagination
-        number:     page size
-        gene_label: optional substring to filter by gene_info.gene_label (case-insensitive)
+        sort_by:  "tool_count" | "gene_label"
+        order:    "asc" | "desc"
+        offset:   row offset for pagination
+        number:   page size
+        keyword:  optional substring matched (case-insensitive) against gene_label,
+                  gene_name, or tool name (OR logic)
 
     Returns a dict with keys: total_genes, total, genes, venn.
     Each gene entry contains: gene_id, gene_label, gene_name, tool_count, tools.
@@ -245,11 +248,14 @@ def query_genes(db_path, sort_by="tool_count", order="desc", offset=0, number=20
     sort_dir = "ASC" if order.lower() in ("asc", "ascend") else "DESC"
     sort_col = "tool_count" if sort_by == "tool_count" else "gi.gene_label"
 
-    filter_pattern = "%{}%".format(gene_label) if gene_label else None
+    filter_pattern = "%{}%".format(keyword) if keyword else None
 
     if filter_pattern:
-        where_sql  = "WHERE gi.gene_label LIKE ?"
-        where_args = [filter_pattern]
+        where_sql  = (
+            "WHERE (gi.gene_label LIKE ? OR gi.gene_name LIKE ? "
+            "OR gt.gene_id IN (SELECT gene_id FROM gene_tools WHERE tool LIKE ?))"
+        )
+        where_args = [filter_pattern, filter_pattern, filter_pattern]
     else:
         where_sql  = ""
         where_args = []
@@ -302,7 +308,7 @@ def query_genes(db_path, sort_by="tool_count", order="desc", offset=0, number=20
             for row in c.fetchall()
         ]
 
-        venn = _venn_stats(c, gene_label_pattern=filter_pattern)
+        venn = _venn_stats(c, keyword_pattern=filter_pattern)
 
     finally:
         conn.close()

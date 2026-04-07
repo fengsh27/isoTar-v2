@@ -219,9 +219,9 @@ def job_result(job_id):
         return jsonify({"error": "result not found"}), 404
 
     # Query parameters
-    sort_by    = request.args.get("sortBy", "tool_count")
-    order      = request.args.get("ascendOrDescend", "desc")
-    gene_label = request.args.get("geneLabel", "").strip() or None
+    sort_by = request.args.get("sortBy", "tool_count")
+    order   = request.args.get("ascendOrDescend", "desc")
+    keyword = request.args.get("keyword", "").strip() or None
     try:
         offset = int(request.args.get("offset", 0))
         number = int(request.args.get("number", 20))
@@ -238,21 +238,21 @@ def job_result(job_id):
     try:
         db_path = ensure_db(output_dir)
         data = query_genes(db_path, sort_by=sort_by, order=order,
-                           offset=offset, number=number, gene_label=gene_label)
+                           offset=offset, number=number, keyword=keyword)
     except Exception as e:
         logger.error("result processing failed job_id=%s error=%s", job_id, e)
         return jsonify({"error": "result processing failed: {}".format(str(e))}), 500
 
     data.update({
-        "job_id":     job_id,
-        "sort_by":    sort_by,
-        "order":      order,
-        "offset":     offset,
-        "number":     number,
-        "gene_label": gene_label,
+        "job_id":  job_id,
+        "sort_by": sort_by,
+        "order":   order,
+        "offset":  offset,
+        "number":  number,
+        "keyword": keyword,
     })
-    logger.info("result queried job_id=%s sort_by=%s order=%s offset=%d number=%d gene_label=%s total=%d total_genes=%d",
-                job_id, sort_by, order, offset, number, gene_label, data["total"], data["total_genes"])
+    logger.info("result queried job_id=%s sort_by=%s order=%s offset=%d number=%d keyword=%s total=%d total_genes=%d",
+                job_id, sort_by, order, offset, number, keyword, data["total"], data["total_genes"])
     return jsonify(data)
 
 
@@ -274,6 +274,54 @@ def job_result_download(job_id):
 
     logger.info("result downloaded job_id=%s", job_id)
     return send_file(archive_path, as_attachment=True, download_name="{}_result.zip".format(job_id))
+
+
+@app.route("/api/v1/jobs/<job_id>/enrichment", methods=["POST"])
+def job_enrichment(job_id):
+    if not os.path.exists(_job_meta_path(job_id)):
+        return jsonify({"error": "job not found"}), 404
+
+    data = request.get_json(force=True, silent=True) or {}
+    genes = data.get("genes", [])
+    organism = data.get("organism", "Human")
+    cutoff = data.get("cutoff", 0.05)
+
+    if not genes or not isinstance(genes, list):
+        return jsonify({"error": "genes must be a non-empty list of gene symbols"}), 400
+
+    try:
+        cutoff = float(cutoff)
+    except (TypeError, ValueError):
+        return jsonify({"error": "cutoff must be a number"}), 400
+
+    job_dir = _job_path(job_id)
+    gene_list_csv = os.path.join(job_dir, "gene_list.csv")
+
+    import csv
+    with open(gene_list_csv, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["gene_label"])
+        for gene in genes:
+            writer.writerow([gene])
+
+    logger.info("enrichment started job_id=%s genes=%d organism=%s cutoff=%s",
+                job_id, len(genes), organism, cutoff)
+
+    cmd = [
+        "python3.6", "/opt/v2/enrichment_analysis.py",
+        "-f", gene_list_csv,
+        "-o", organism,
+        "-c", str(cutoff),
+        "-d", job_dir,
+    ]
+    try:
+        subprocess.check_call(cmd)
+    except subprocess.CalledProcessError as e:
+        logger.error("enrichment failed job_id=%s error=%s", job_id, e)
+        return jsonify({"error": "enrichment analysis failed: {}".format(str(e))}), 500
+
+    logger.info("enrichment succeeded job_id=%s outdir=%s", job_id, job_dir)
+    return jsonify({"job_id": job_id, "outdir": job_dir})
 
 
 @app.route("/api/v1/jobs/<job_id>/kill", methods=["POST"])
