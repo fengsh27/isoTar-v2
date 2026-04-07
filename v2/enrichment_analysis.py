@@ -1,6 +1,7 @@
 # This script takes a list of gene symbols as input and performs enrichment analysis
 # against Gene Ontology (GO), KEGG, and Reactome pathway databases.
 
+import os
 import gseapy as gp
 import pandas as pd
 import logging
@@ -8,7 +9,7 @@ import logging
 # Suppress verbose logging from gseapy to keep the output clean
 logging.basicConfig(level=logging.WARNING)
 
-def perform_enrichment_analysis(gene_list, organism='Human', cutoff=0.05):
+def perform_enrichment_analysis(gene_list, organism='Human', cutoff=0.05, outdir='enrichment_results'):
     """
     Performs enrichment analysis on a given gene list using gseapy's enrichr function.
 
@@ -17,6 +18,7 @@ def perform_enrichment_analysis(gene_list, organism='Human', cutoff=0.05):
         organism (str):   Organism name passed to Enrichr. Options include 'Human',
                           'Mouse', 'Yeast', 'Fly', 'Fish', 'Worm'. Default: 'Human'.
         cutoff (float):   Adjusted p-value cutoff for filtering results. Default: 0.05.
+        outdir (str):     Directory to save result CSV files and dot plot. Default: 'enrichment_results'.
 
     Returns:
         None. Prints the results and saves them to CSV files.
@@ -43,7 +45,7 @@ def perform_enrichment_analysis(gene_list, organism='Human', cutoff=0.05):
         enr = gp.enrichr(gene_list=gene_list,
                          gene_sets=gene_sets,
                          organism=organism,
-                         outdir='enrichment_results', # Directory to save the results
+                         outdir=outdir,
                          cutoff=cutoff,
                          no_plot=True # We will generate a custom plot later
                         )
@@ -86,11 +88,12 @@ def perform_enrichment_analysis(gene_list, organism='Human', cutoff=0.05):
                 plot_title = "Top Enriched GO Biological Processes"
 
                 # The `dotplot` function can take the results DataFrame directly
+                dotplot_path = os.path.join(outdir, 'enrichment_dotplot.png')
                 ax = gp.dotplot(significant_go_bp.head(15), # Plot top 15 significant terms
                               title=plot_title,
-                              cutoff=0.05,
-                              ofname='enrichment_dotplot.png') # Save the plot
-                print("Dot plot saved as 'enrichment_dotplot.png'")
+                              cutoff=cutoff,
+                              ofname=dotplot_path)
+                print("Dot plot saved as '{}'".format(dotplot_path))
             else:
                 print("No significant GO Biological Process terms to plot.")
 
@@ -117,6 +120,8 @@ if __name__ == '__main__':
                         help='Organism for Enrichr (e.g. Human, Mouse, Fly, Fish, Worm). Default: Human')
     parser.add_argument('-c', '--cutoff', type=float, default=0.05,
                         help='Adjusted p-value cutoff for filtering results. Default: 0.05')
+    parser.add_argument('-d', '--outdir', type=str, default='enrichment_results',
+                        help='Output directory for result CSV files and dot plot. Default: enrichment_results')
 
     args = parser.parse_args()
 
@@ -130,4 +135,4 @@ if __name__ == '__main__':
     else:
         gene_list = args.genes
 
-    perform_enrichment_analysis(gene_list, organism=args.organism, cutoff=args.cutoff)
+    perform_enrichment_analysis(gene_list, organism=args.organism, cutoff=args.cutoff, outdir=args.outdir)
