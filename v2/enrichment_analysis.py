@@ -8,12 +8,15 @@ import logging
 # Suppress verbose logging from gseapy to keep the output clean
 logging.basicConfig(level=logging.WARNING)
 
-def perform_enrichment_analysis(gene_list):
+def perform_enrichment_analysis(gene_list, organism='Human', cutoff=0.05):
     """
     Performs enrichment analysis on a given gene list using gseapy's enrichr function.
 
     Args:
         gene_list (list): A list of gene symbols (e.g., ['STAT3', 'IL6', 'TNF']).
+        organism (str):   Organism name passed to Enrichr. Options include 'Human',
+                          'Mouse', 'Yeast', 'Fly', 'Fish', 'Worm'. Default: 'Human'.
+        cutoff (float):   Adjusted p-value cutoff for filtering results. Default: 0.05.
 
     Returns:
         None. Prints the results and saves them to CSV files.
@@ -22,7 +25,8 @@ def perform_enrichment_analysis(gene_list):
         print("The gene list is empty. Please provide a list of genes.")
         return
 
-    print("Starting enrichment analysis for {} genes...".format(len(gene_list)))
+    print("Starting enrichment analysis for {} genes (organism={}, cutoff={})...".format(
+        len(gene_list), organism, cutoff))
 
     # Define the databases you want to query.
     # You can find more libraries using: gp.get_library_name()
@@ -36,13 +40,11 @@ def perform_enrichment_analysis(gene_list):
 
     try:
         # Run the enrichment analysis using Enrichr
-        # organism='Human' is the default, but it's good to be explicit.
-        # Other options include 'Mouse', 'Yeast', 'Fly', 'Fish', 'Worm'.
         enr = gp.enrichr(gene_list=gene_list,
                          gene_sets=gene_sets,
-                         organism='Human',
+                         organism=organism,
                          outdir='enrichment_results', # Directory to save the results
-                         cutoff=0.05, # P-value cutoff
+                         cutoff=cutoff,
                          no_plot=True # We will generate a custom plot later
                         )
 
@@ -77,9 +79,7 @@ def perform_enrichment_analysis(gene_list):
         # Check if the key exists and has results
         go_bp_results = enr.results[enr.results['Gene_set'] == 'GO_Biological_Process_2023']
         if not go_bp_results.empty:
-            # You can also filter the results before plotting
-            # For example, plot only terms with adjusted p-value < 0.05
-            significant_go_bp = go_bp_results[go_bp_results['Adjusted P-value'] < 0.05]
+            significant_go_bp = go_bp_results[go_bp_results['Adjusted P-value'] < cutoff]
 
             if not significant_go_bp.empty:
                 # Let's create a custom title for the plot
@@ -100,12 +100,34 @@ def perform_enrichment_analysis(gene_list):
 
 
 if __name__ == '__main__':
-    # --- INPUT YOUR GENE LIST HERE ---
-    # This is a sample gene list related to the IL-6/JAK/STAT3 signaling pathway.
-    # Replace it with your own list of gene symbols.
-    my_gene_list = [
-        'STAT3', 'IL6', 'TNF', 'IL1B', 'CXCL8', 'VEGFA', 'EGF', 'EGFR', 'JAK1', 'JAK2',
-        'SOCS3', 'MAPK1', 'MAPK3', 'HIF1A', 'NFKB1', 'RELA', 'JUN', 'FOS', 'MYC', 'BCL2L1'
-    ]
+    import argparse
+    import sys
 
-    perform_enrichment_analysis(my_gene_list)
+    parser = argparse.ArgumentParser(
+        description='Perform gene set enrichment analysis using Enrichr.'
+    )
+
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument('-f', '--file', type=str,
+                        help='Path to a CSV file containing a "gene_label" column')
+    source.add_argument('-g', '--genes', type=str, nargs='+',
+                        help='Gene symbols to analyse (space-separated)')
+
+    parser.add_argument('-o', '--organism', type=str, default='Human',
+                        help='Organism for Enrichr (e.g. Human, Mouse, Fly, Fish, Worm). Default: Human')
+    parser.add_argument('-c', '--cutoff', type=float, default=0.05,
+                        help='Adjusted p-value cutoff for filtering results. Default: 0.05')
+
+    args = parser.parse_args()
+
+    if args.file:
+        df = pd.read_csv(args.file)
+        if 'gene_label' not in df.columns:
+            print("Error: CSV file must contain a 'gene_label' column.")
+            sys.exit(1)
+        gene_list = df['gene_label'].dropna().astype(str).str.strip()
+        gene_list = [g for g in gene_list if g]
+    else:
+        gene_list = args.genes
+
+    perform_enrichment_analysis(gene_list, organism=args.organism, cutoff=args.cutoff)
