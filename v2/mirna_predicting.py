@@ -287,6 +287,10 @@ def run_dmiso_with_params(params):
 def run_pita_with_params(params):
     return run_pita(*params)
 
+
+def run_targetscan_with_params(params):
+    return run_targetscan(*params)
+
 def targetscan_prep(sequence, header, out_dir):
     """TargetScan_prep"""
     # load mirR_Family_Info
@@ -850,11 +854,59 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 tool_statuses["PITA"]["finished_at"] = int(time.time())
                 _write_progress(output_folder, tools, tool_statuses)
             elif tool == "Targetscan":
+                # Create output directory for Targetscan
+                targetscan_out_dir = os.path.join(output_folder, "Targetscan")
+                # Define the output file paths
+                output_file1 = "{}/{}_Targetscan_results1.txt".format(targetscan_out_dir, seq['header'])
+                output_file2 = "{}/{}_Targetscan_results2.txt".format(targetscan_out_dir, seq['header'])
                 # Run the tool
                 print("Targetscan is processing {}".format(name_fasta))
                 tool_statuses["Targetscan"]["status"] = "running"
                 tool_statuses["Targetscan"]["started_at"] = int(time.time())
                 _write_progress(output_folder, tools, tool_statuses)
+                targetscan_prep(seq['sequence'], seq['header'], targetscan_out_dir)
+                # TargetScan Input File path
+                targetscan_input = "{}/{}_targetscan.txt".format(targetscan_out_dir, seq['header'])
+                # utr path
+                utr_path = "/opt/TargetScan/Datasets/3utr"
+                bln_bins_path = "/opt/TargetScan/Datasets/bln_bins"
+                # Prepare arguments for parallel run
+                args = []
+                for i in range(64):
+                    utr_file = os.path.join(utr_path, 'targetscan_utr_part_{}.txt'.format(i))
+                    output_file_1 = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, seq['header'], i)
+                    bln_bins_file = os.path.join(bln_bins_path, 'targetscan_median_bls_bins_part_{}.txt'.format(i))
+                    output_file_2 = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, seq['header'], i)
+                    args.append((targetscan_input, utr_file, output_file_1, bln_bins_file, output_file_2))
+                pool.map(run_targetscan_with_params, args)
+                # Merge results for first output file
+                with open(output_file1, 'w') as merged:
+                    first_file = "{}/{}_part_0_out1.txt".format(targetscan_out_dir, seq['header'])
+                    if os.path.exists(first_file):
+                        with open(first_file, 'r') as first:
+                            header = first.readline()
+                            merged.write(header)
+                    for i in range(64):
+                        part_file = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, seq['header'], i)
+                        if os.path.exists(part_file):
+                            with open(part_file, 'r') as pf:
+                                next(pf)
+                                merged.write(pf.read())
+                            os.remove(part_file)
+                # Merge results for second output file
+                with open(output_file2, 'w') as merged:
+                    first_file = "{}/{}_part_0_out2.txt".format(targetscan_out_dir, seq['header'])
+                    if os.path.exists(first_file):
+                        with open(first_file, 'r') as first:
+                            header = first.readline()
+                            merged.write(header)
+                    for i in range(64):
+                        part_file = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, seq['header'], i)
+                        if os.path.exists(part_file):
+                            with open(part_file, 'r') as pf:
+                                next(pf)
+                                merged.write(pf.read())
+                            os.remove(part_file)
                 tool_statuses["Targetscan"]["status"] = "done"
                 tool_statuses["Targetscan"]["finished_at"] = int(time.time())
                 _write_progress(output_folder, tools, tool_statuses)
