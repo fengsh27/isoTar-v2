@@ -1,3 +1,5 @@
+import csv
+import glob
 import json
 import os
 import shutil
@@ -297,7 +299,6 @@ def job_enrichment(job_id):
     job_dir = _job_path(job_id)
     gene_list_csv = os.path.join(job_dir, "gene_list.csv")
 
-    import csv
     with open(gene_list_csv, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["gene_label"])
@@ -322,6 +323,78 @@ def job_enrichment(job_id):
 
     logger.info("enrichment succeeded job_id=%s outdir=%s", job_id, job_dir)
     return jsonify({"job_id": job_id, "outdir": job_dir})
+
+
+def _parse_enrichr_report(path):
+    rows = []
+    with open(path, "r") as f:
+        reader = csv.DictReader(f, delimiter="\t")
+        for row in reader:
+            entry = {
+                "term": row.get("Term"),
+                "overlap": row.get("Overlap"),
+                "p_value": _to_float(row.get("P-value")),
+                "adjusted_p_value": _to_float(row.get("Adjusted P-value")),
+                "odds_ratio": _to_float(row.get("Odds Ratio")),
+                "combined_score": _to_float(row.get("Combined Score")),
+                "genes": [g for g in (row.get("Genes") or "").split(";") if g],
+            }
+            rows.append(entry)
+    return rows
+
+
+def _to_float(value):
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+@app.route("/api/v1/jobs/<job_id>/enrichment", methods=["GET"])
+def get_job_enrichment(job_id):
+    if not os.path.exists(_job_meta_path(job_id)):
+        return jsonify({"error": "job not found"}), 404
+
+    job_dir = _job_path(job_id)
+    gene_list_csv = os.path.join(job_dir, "gene_list.csv")
+    if not os.path.exists(gene_list_csv):
+        return jsonify({"error": "enrichment has not been run for this job"}), 404
+
+    report_paths = sorted(glob.glob(os.path.join(job_dir, "*.enrichr.reports.txt")))
+
+    databases = {}
+    for path in report_paths:
+        fname = os.path.basename(path)
+        gene_set = fname.split(".enrichr.reports.txt")[0]
+        if "." in gene_set:
+            gene_set = gene_set.rsplit(".", 1)[0]
+        try:
+            databases[gene_set] = _parse_enrichr_report(path)
+        except Exception as e:
+            logger.error("failed to parse enrichment report job_id=%s file=%s error=%s",
+                         job_id, fname, e)
+            databases[gene_set] = []
+
+    has_dotplot = os.path.exists(os.path.join(job_dir, "enrichment_dotplot.png"))
+    logger.info("enrichment results queried job_id=%s databases=%d",
+                job_id, len(databases))
+    return jsonify({
+        "job_id": job_id,
+        "databases": databases,
+        "has_dotplot": has_dotplot,
+    })
+
+
+@app.route("/api/v1/jobs/<job_id>/enrichment/dotplot", methods=["GET"])
+def get_job_enrichment_dotplot(job_id):
+    if not os.path.exists(_job_meta_path(job_id)):
+        return jsonify({"error": "job not found"}), 404
+    dotplot_path = os.path.join(_job_path(job_id), "enrichment_dotplot.png")
+    if not os.path.exists(dotplot_path):
+        return jsonify({"error": "dotplot not found"}), 404
+    return send_file(dotplot_path, mimetype="image/png")
 
 
 @app.route("/api/v1/jobs/<job_id>/kill", methods=["POST"])
