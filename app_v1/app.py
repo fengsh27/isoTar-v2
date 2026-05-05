@@ -8,6 +8,7 @@ import time
 import uuid
 
 from flask import Flask, jsonify, request, send_file
+from flask_cors import CORS
 
 from app_v1.celery_app import celery_app
 from app_v1.logger import get_logger
@@ -19,6 +20,11 @@ BASE_DIR = os.environ.get("ISOTAR_JOB_DIR", "/opt/out/jobs")
 os.makedirs(BASE_DIR, exist_ok=True)
 
 app = Flask(__name__)
+
+_cors_origins = os.environ.get("ISOTAR_CORS_ORIGINS", "*")
+if _cors_origins != "*":
+    _cors_origins = [o.strip() for o in _cors_origins.split(",") if o.strip()]
+CORS(app, resources={r"/api/*": {"origins": _cors_origins}})
 
 def _job_path(job_id):
     return os.path.join(BASE_DIR, job_id)
@@ -73,6 +79,7 @@ def run_job(self, job_id):
         modifications = meta.get("modifications", [])
         shift = meta.get("shift")
         pre_id = meta.get("pre_id")
+        target_file = meta.get("target_file")
 
         logger.info("job started job_id=%s mirna_id=%s tools=%s genome=%s cores=%s",
                     job_id, mirna_id, tools, genome, cores)
@@ -112,6 +119,8 @@ def run_job(self, job_id):
                 "-i", fasta_path,
                 "-t",
             ] + other_tools + ["-g", genome, "-o", output_dir]
+            if target_file:
+                cmd += ["-tf", target_file]
             subprocess.check_call(cmd)
 
         if "miRmap" in tools:
@@ -125,6 +134,8 @@ def run_job(self, job_id):
                 "-g", genome,
                 "-o", output_dir,
             ]
+            if target_file:
+                cmd += ["-tf", target_file]
             subprocess.check_call(cmd)
 
         meta["status"] = "succeeded"
@@ -154,6 +165,7 @@ def submit_job():
     modifications = data.get("modifications", [])
     shift = data.get("shift")
     pre_id = data.get("pre_id")
+    targets = data.get("targets")
 
     if not tools or not mirna_id:
         logger.warning("job rejected: missing tools or mirna_id")
@@ -167,9 +179,20 @@ def submit_job():
         logger.warning("job rejected: invalid shift mirna_id=%s shift=%s", mirna_id, shift)
         return jsonify({"error": "shift must be a string in format 'left|right' (e.g. '-4|-6')"}), 400
 
+    if targets is not None:
+        if not isinstance(targets, list) or not targets or not all(isinstance(g, str) for g in targets):
+            return jsonify({"error": "targets must be a non-empty list of gene symbol strings"}), 400
+
     job_id = str(uuid.uuid4())
     job_dir = _job_path(job_id)
     os.makedirs(job_dir, exist_ok=True)
+
+    target_file = None
+    if targets:
+        target_file = os.path.join(job_dir, "targets.txt")
+        with open(target_file, "w") as f:
+            for gene in targets:
+                f.write(gene + "\n")
 
     meta = {
         "job_id": job_id,
@@ -182,6 +205,7 @@ def submit_job():
         "modifications": modifications,
         "shift": shift,
         "pre_id": pre_id,
+        "target_file": target_file,
     }
     _write_meta(job_id, meta)
     task = run_job.delay(job_id)

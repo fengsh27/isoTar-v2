@@ -190,6 +190,26 @@ def process_3utr_fasta(utr_file, num_cores, temp_folder):
     subfile.close()
     print("3' UTR FASTA file splitting complete.")
 
+def filter_utr_fasta(utr_file, target_genes, output_path):
+    """Write a filtered copy of utr_file keeping only records whose gene symbol is in target_genes."""
+    target_set = set(g.strip() for g in target_genes if g.strip())
+    kept = 0
+    write = False
+    with open(utr_file, 'r') as fin, open(output_path, 'w') as fout:
+        for line in fin:
+            if line.startswith(">"):
+                parts = line.split(" ")[0]  # ">PREFIX1_PREFIX2_GENESYM_..."
+                gene_parts = parts.split("_")
+                gene = gene_parts[2] if len(gene_parts) > 2 else ""
+                write = gene in target_set
+                if write:
+                    kept += 1
+            if write:
+                fout.write(line)
+    print("Target filter: kept {} UTR records (target set size: {})".format(kept, len(target_set)))
+    return output_path
+
+
 def sanitize_output_path(output_file):
     """Sanitize output filename to avoid illegal characters."""
     # output_dir, filename = os.path.split(output_file)
@@ -888,6 +908,8 @@ def main():
                         choices=["hg19", "hg38", "cel", "cfa", "dme", "dre", "mdo", "mml", "mmu", "ptr", "rno"],
                         help="Reference genome/species code", required=True)
     parser.add_argument("-o", "--output", type=str, required=True, help="output folder name")
+    parser.add_argument("-tf", "--target_file", type=str, default=None,
+                        help="optional path to a text file with one target gene symbol per line; only 3' UTRs matching these genes will be scanned")
 
     args = parser.parse_args()
     # Parse arguments
@@ -934,6 +956,14 @@ def main():
         "rno":  NORWAYRAT_3UTR,
     }
     utr_file = _UTR_FILE_MAP[genome]
+
+    if args.target_file:
+        with open(args.target_file, 'r') as f:
+            target_genes = [line.strip() for line in f if line.strip()]
+        if target_genes:
+            filtered_utr_path = os.path.join(temp_folder, "filtered_3utr.fasta")
+            utr_file = filter_utr_fasta(utr_file, target_genes, filtered_utr_path)
+            print("Scanning {} target genes from: {}".format(len(target_genes), args.target_file))
 
     # Create output directory
     for tool in tools:
