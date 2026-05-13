@@ -158,5 +158,8 @@ RUN chmod a+x /opt/rabbitmq.sh
 ADD kill_zombies.sh /opt/
 RUN chmod a+x /opt/kill_zombies.sh
 
+ADD scripts/start_celery_worker.sh /opt/
+RUN chmod a+x /opt/start_celery_worker.sh
+
 # Start processes
 CMD ["/usr/bin/supervisord"]

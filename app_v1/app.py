@@ -1,6 +1,7 @@
 import csv
 import glob
 import json
+import multiprocessing
 import os
 import shutil
 import subprocess
@@ -25,6 +26,14 @@ _cors_origins = os.environ.get("ISOTAR_CORS_ORIGINS", "*")
 if _cors_origins != "*":
     _cors_origins = [o.strip() for o in _cors_origins.split(",") if o.strip()]
 CORS(app, resources={r"/api/*": {"origins": _cors_origins}})
+
+def _max_cores_per_job():
+    try:
+        v = int(os.environ.get("MAX_CORE_PER_JOB", multiprocessing.cpu_count()))
+        return max(1, v)
+    except (TypeError, ValueError):
+        return multiprocessing.cpu_count()
+
 
 def _job_path(job_id):
     return os.path.join(BASE_DIR, job_id)
@@ -183,6 +192,18 @@ def submit_job():
         if not isinstance(targets, list) or not targets or not all(isinstance(g, str) for g in targets):
             return jsonify({"error": "targets must be a non-empty list of gene symbol strings"}), 400
 
+    try:
+        requested_cores = int(data.get("cores", 1))
+    except (TypeError, ValueError):
+        return jsonify({"error": "cores must be a positive integer"}), 400
+    if requested_cores < 1:
+        return jsonify({"error": "cores must be a positive integer"}), 400
+    max_cores = _max_cores_per_job()
+    cores = min(requested_cores, max_cores)
+    if cores != requested_cores:
+        logger.info("cores clamped requested=%d effective=%d max_core_per_job=%d mirna_id=%s",
+                    requested_cores, cores, max_cores, mirna_id)
+
     job_id = str(uuid.uuid4())
     job_dir = _job_path(job_id)
     os.makedirs(job_dir, exist_ok=True)
@@ -201,7 +222,7 @@ def submit_job():
         "mirna_id": mirna_id,
         "tools": tools,
         "genome": data.get("genome", "hg38"),
-        "cores": data.get("cores", 1),
+        "cores": cores,
         "modifications": modifications,
         "shift": shift,
         "pre_id": pre_id,
