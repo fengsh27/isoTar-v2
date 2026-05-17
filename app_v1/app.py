@@ -13,6 +13,10 @@ from flask_cors import CORS
 from app_v1.celery_app import celery_app
 from app_v1.logger import get_logger
 from app_v1.result_db import ensure_db, query_genes
+from app_v1.target_resolver import (
+    genome_to_species as _genome_to_species,
+    resolve_targets as _resolve_targets,
+)
 
 logger = get_logger()
 
@@ -183,16 +187,36 @@ def submit_job():
         if not isinstance(targets, list) or not targets or not all(isinstance(g, str) for g in targets):
             return jsonify({"error": "targets must be a non-empty list of gene symbol strings"}), 400
 
+    genome = data.get("genome", "hg38")
+
+    # Resolve targets before creating any job state so a 400 leaves no orphan dir.
+    accessions = None
+    if targets:
+        accessions, unresolved = _resolve_targets(targets, genome)
+        if unresolved:
+            logger.warning("job rejected: unresolved targets unresolved=%s species=%s",
+                           unresolved, _genome_to_species(genome))
+            return jsonify({
+                "error": "unresolved targets",
+                "unresolved": unresolved,
+                "hint": "gene symbols not found in gene_mapping for species {}".format(
+                    _genome_to_species(genome)),
+            }), 400
+        if not accessions:
+            return jsonify({"error": "targets resolved to zero RefSeq accessions"}), 400
+
     job_id = str(uuid.uuid4())
     job_dir = _job_path(job_id)
     os.makedirs(job_dir, exist_ok=True)
 
     target_file = None
-    if targets:
+    if accessions:
         target_file = os.path.join(job_dir, "targets.txt")
         with open(target_file, "w") as f:
-            for gene in targets:
-                f.write(gene + "\n")
+            for acc in sorted(accessions):
+                f.write(acc + "\n")
+        logger.info("resolved %d target tokens to %d UTR identifiers job_id=%s",
+                    len(targets), len(accessions), job_id)
 
     meta = {
         "job_id": job_id,
@@ -200,11 +224,12 @@ def submit_job():
         "created_at": int(time.time()),
         "mirna_id": mirna_id,
         "tools": tools,
-        "genome": data.get("genome", "hg38"),
+        "genome": genome,
         "cores": data.get("cores", 1),
         "modifications": modifications,
         "shift": shift,
         "pre_id": pre_id,
+        "targets": targets,
         "target_file": target_file,
     }
     _write_meta(job_id, meta)
