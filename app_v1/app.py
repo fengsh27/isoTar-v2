@@ -366,6 +366,9 @@ def job_enrichment(job_id):
                 job_id, len(genes), organism, cutoff)
 
     # -u: unbuffered stdout/stderr so output is flushed as it happens.
+    # stdout inherits gunicorn's stdout (visible in supervisord logs in real
+    # time). Only stderr is captured so we can surface failure details — and
+    # we cap it at 64KB so a runaway traceback can't fill memory.
     cmd = [
         "python3.6", "-u", "/opt/v2/enrichment_analysis.py",
         "-f", gene_list_csv,
@@ -374,25 +377,23 @@ def job_enrichment(job_id):
         "-d", job_dir,
     ]
     try:
-        result = subprocess.run(
+        subprocess.run(
             cmd,
             check=True,
-            stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             universal_newlines=True,
         )
     except subprocess.CalledProcessError as e:
+        stderr_tail = (e.stderr or "")[-65536:].strip()
         logger.error(
-            "enrichment failed job_id=%s rc=%s\nstdout=%s\nstderr=%s",
-            job_id, e.returncode, e.stdout, e.stderr,
+            "enrichment failed job_id=%s rc=%s\nstderr=%s",
+            job_id, e.returncode, stderr_tail,
         )
         return jsonify({
             "error": "enrichment analysis failed",
-            "stderr": (e.stderr or "").strip(),
+            "stderr": stderr_tail,
         }), 500
 
-    if result.stdout:
-        logger.info("enrichment stdout job_id=%s\n%s", job_id, result.stdout)
     logger.info("enrichment succeeded job_id=%s outdir=%s", job_id, job_dir)
     return jsonify({"job_id": job_id, "outdir": job_dir})
 
