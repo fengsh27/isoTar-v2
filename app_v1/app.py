@@ -1,7 +1,6 @@
 import csv
 import glob
 import json
-import multiprocessing
 import os
 import shutil
 import subprocess
@@ -31,13 +30,6 @@ _cors_origins = os.environ.get("ISOTAR_CORS_ORIGINS", "*")
 if _cors_origins != "*":
     _cors_origins = [o.strip() for o in _cors_origins.split(",") if o.strip()]
 CORS(app, resources={r"/api/*": {"origins": _cors_origins}})
-
-def _max_cores_per_job():
-    try:
-        v = int(os.environ.get("MAX_CORE_PER_JOB", multiprocessing.cpu_count()))
-        return max(1, v)
-    except (TypeError, ValueError):
-        return multiprocessing.cpu_count()
 
 
 def _job_path(job_id):
@@ -373,19 +365,34 @@ def job_enrichment(job_id):
     logger.info("enrichment started job_id=%s genes=%d organism=%s cutoff=%s",
                 job_id, len(genes), organism, cutoff)
 
+    # -u: unbuffered stdout/stderr so output is flushed as it happens.
     cmd = [
-        "python3.6", "/opt/v2/enrichment_analysis.py",
+        "python3.6", "-u", "/opt/v2/enrichment_analysis.py",
         "-f", gene_list_csv,
         "-o", organism,
         "-c", str(cutoff),
         "-d", job_dir,
     ]
     try:
-        subprocess.check_call(cmd)
+        result = subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+        )
     except subprocess.CalledProcessError as e:
-        logger.error("enrichment failed job_id=%s error=%s", job_id, e)
-        return jsonify({"error": "enrichment analysis failed: {}".format(str(e))}), 500
+        logger.error(
+            "enrichment failed job_id=%s rc=%s\nstdout=%s\nstderr=%s",
+            job_id, e.returncode, e.stdout, e.stderr,
+        )
+        return jsonify({
+            "error": "enrichment analysis failed",
+            "stderr": (e.stderr or "").strip(),
+        }), 500
 
+    if result.stdout:
+        logger.info("enrichment stdout job_id=%s\n%s", job_id, result.stdout)
     logger.info("enrichment succeeded job_id=%s outdir=%s", job_id, job_dir)
     return jsonify({"job_id": job_id, "outdir": job_dir})
 

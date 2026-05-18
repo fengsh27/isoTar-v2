@@ -1,9 +1,9 @@
 FROM frankfeng78/isotar-v2-base:0.2.2
 
-MAINTAINER rosario.distefano.ict@gmail.com
-ENV DEBIAN_FRONTEND noninteractive
+LABEL maintainer="rosario.distefano.ict@gmail.com"
+ENV DEBIAN_FRONTEND=noninteractive
 
-LABEl edu.osumc.dept="Department of Cancer Biology and Genetics - The Ohio State University" \
+LABEL edu.osumc.dept="Department of Cancer Biology and Genetics - The Ohio State University" \
       edu.osumc.version="1.2" \
       edu.osumc.is-final="" \
       edu.osumc.released="March 27, 2020"
@@ -102,13 +102,13 @@ ENV PATH="${PATH}:/opt/miRanda/bin"
 ## miRmap v1.1         ##
 #########################
 ENV PATH="${PATH}:/opt/miRmap/scripts"
-ENV PYTHONPATH="${PYTHONPATH:-}:/opt/miRmap/src/"
-ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:/opt/miRmap/libs/default"
+ENV PYTHONPATH=/opt/miRmap/src/
+ENV LD_LIBRARY_PATH=/opt/miRmap/libs/default
 
 ###############################
 ## Setting PERL5LIB for PITA ##
 ###############################
-ENV PERL5LIB="${PERL5LIB:-}:/opt/PITA64bit/lib"
+ENV PERL5LIB=/opt/PITA64bit/lib
 
 #########################
 ## RNAhybrid 2.1.2     ##
@@ -157,9 +157,6 @@ RUN chmod a+x /opt/rabbitmq.sh
 
 ADD kill_zombies.sh /opt/
 RUN chmod a+x /opt/kill_zombies.sh
-
-ADD scripts/start_celery_worker.sh /opt/
-RUN chmod a+x /opt/start_celery_worker.sh
 
 # Start processes
 CMD ["/usr/bin/supervisord"]

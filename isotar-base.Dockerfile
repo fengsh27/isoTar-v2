@@ -1,9 +1,9 @@
 FROM ubuntu:16.04
 
-MAINTAINER rosario.distefano.ict@gmail.com
-ENV DEBIAN_FRONTEND noninteractive
+LABEL maintainer="rosario.distefano.ict@gmail.com"
+ENV DEBIAN_FRONTEND=noninteractive
 
-LABEl edu.osumc.dept="Department of Cancer Biology and Genetics - The Ohio State University" \
+LABEL edu.osumc.dept="Department of Cancer Biology and Genetics - The Ohio State University" \
       edu.osumc.version="1.2" \
       edu.osumc.is-final="" \
       edu.osumc.released="March 27, 2020"

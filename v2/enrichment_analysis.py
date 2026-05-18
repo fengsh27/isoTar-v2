@@ -100,6 +100,9 @@ def perform_enrichment_analysis(gene_list, organism='Human', cutoff=0.05, outdir
     except Exception as e:
         print("An error occurred during the analysis: {}".format(e))
         print("This may be due to an issue with the gene list or connection to the Enrichr servers.")
+        # Propagate so the calling subprocess exits non-zero and the API can
+        # report the failure instead of silently returning 200.
+        raise
 
 
 if __name__ == '__main__':
