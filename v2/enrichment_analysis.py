@@ -6,8 +6,13 @@ import gseapy as gp
 import pandas as pd
 import logging
 
+from logger import get_logger
+
 # Suppress verbose logging from gseapy to keep the output clean
 logging.basicConfig(level=logging.WARNING)
+
+logger = get_logger(__name__)
+print = logger.error  # Redirect print statements to logger for better control over output
 
 def perform_enrichment_analysis(gene_list, organism='Human', cutoff=0.05, outdir='enrichment_results'):
     """
