@@ -190,18 +190,37 @@ def process_3utr_fasta(utr_file, num_cores, temp_folder):
     subfile.close()
     print("3' UTR FASTA file splitting complete.")
 
-def filter_utr_fasta(utr_file, target_genes, output_path):
-    """Write a filtered copy of utr_file keeping only records whose gene symbol is in target_genes."""
-    target_set = set(g.strip() for g in target_genes if g.strip())
+_HDR_ACCESSION_RE = re.compile(r'([A-Z]{2,3}_\d+)')
+
+
+def filter_utr_fasta(utr_file, targets, output_path):
+    """Write a filtered copy of utr_file keeping only records whose RefSeq accession
+    (version suffix stripped) or 3rd '_'-delimited header token is in targets.
+
+    UTR FASTA headers look like '>ce11_ncbiRefSeq_NM_059873.7 range=...'."""
+    target_set = set()
+    for t in targets:
+        t = t.strip()
+        if not t:
+            continue
+        target_set.add(t)
+        m = re.match(r'^([A-Z]{2,3}_\d+)\.\d+$', t)   # strip trailing .version
+        if m:
+            target_set.add(m.group(1))
     kept = 0
     write = False
     with open(utr_file, 'r') as fin, open(output_path, 'w') as fout:
         for line in fin:
             if line.startswith(">"):
-                parts = line.split(" ")[0]  # ">PREFIX1_PREFIX2_GENESYM_..."
-                gene_parts = parts.split("_")
-                gene = gene_parts[2] if len(gene_parts) > 2 else ""
-                write = gene in target_set
+                first = line.split(" ")[0]            # ">ce11_ncbiRefSeq_NM_059873.7"
+                ids = set()
+                m = _HDR_ACCESSION_RE.search(first)
+                if m:
+                    ids.add(m.group(1))               # "NM_059873" (no version)
+                parts = first.lstrip(">").split("_")
+                if len(parts) > 2:
+                    ids.add(parts[2])                 # legacy gene-symbol convention
+                write = bool(ids & target_set)
                 if write:
                     kept += 1
             if write:
@@ -306,6 +325,10 @@ def run_dmiso_with_params(params):
 
 def run_pita_with_params(params):
     return run_pita(*params)
+
+
+def run_targetscan_with_params(params):
+    return run_targetscan(*params)
 
 def targetscan_prep(sequence, header, out_dir):
     """TargetScan_prep"""
@@ -870,11 +893,60 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 tool_statuses["PITA"]["finished_at"] = int(time.time())
                 _write_progress(output_folder, tools, tool_statuses)
             elif tool == "Targetscan":
-                # Run the tool
+                # TargetScan uses its own pre-split 64-part reference at
+                # /opt/TargetScan/Datasets/3utr/ — we parallelize across parts,
+                # not across the user UTR file (which TargetScan ignores).
+                targetscan_out_dir = os.path.join(output_folder, "Targetscan")
+                output_file1 = "{}/{}_Targetscan_results1.txt".format(targetscan_out_dir, seq['header'])
+                output_file2 = "{}/{}_Targetscan_results2.txt".format(targetscan_out_dir, seq['header'])
+
                 print("Targetscan is processing {}".format(name_fasta))
                 tool_statuses["Targetscan"]["status"] = "running"
                 tool_statuses["Targetscan"]["started_at"] = int(time.time())
                 _write_progress(output_folder, tools, tool_statuses)
+
+                targetscan_prep(seq['sequence'], seq['header'], targetscan_out_dir)
+                targetscan_input = "{}/{}_targetscan.txt".format(targetscan_out_dir, seq['header'])
+                ts_utr_dir = "/opt/TargetScan/Datasets/3utr"
+                ts_bln_dir = "/opt/TargetScan/Datasets/bln_bins"
+
+                ts_args = []
+                for i in range(64):
+                    utr_part = os.path.join(ts_utr_dir, 'targetscan_utr_part_{}.txt'.format(i))
+                    bln_part = os.path.join(ts_bln_dir, 'targetscan_median_bls_bins_part_{}.txt'.format(i))
+                    out1 = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, seq['header'], i)
+                    out2 = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, seq['header'], i)
+                    ts_args.append((targetscan_input, utr_part, out1, bln_part, out2))
+
+                pool.map(run_targetscan_with_params, ts_args)
+
+                # Merge per-part outputs (header from part 0, body from all parts).
+                with open(output_file1, 'w') as merged:
+                    first_file = "{}/{}_part_0_out1.txt".format(targetscan_out_dir, seq['header'])
+                    if os.path.exists(first_file):
+                        with open(first_file, 'r') as first:
+                            merged.write(first.readline())
+                    for i in range(64):
+                        part_file = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, seq['header'], i)
+                        if os.path.exists(part_file):
+                            with open(part_file, 'r') as pf:
+                                next(pf)
+                                merged.write(pf.read())
+                            os.remove(part_file)
+
+                with open(output_file2, 'w') as merged:
+                    first_file = "{}/{}_part_0_out2.txt".format(targetscan_out_dir, seq['header'])
+                    if os.path.exists(first_file):
+                        with open(first_file, 'r') as first:
+                            merged.write(first.readline())
+                    for i in range(64):
+                        part_file = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, seq['header'], i)
+                        if os.path.exists(part_file):
+                            with open(part_file, 'r') as pf:
+                                next(pf)
+                                merged.write(pf.read())
+                            os.remove(part_file)
+
                 tool_statuses["Targetscan"]["status"] = "done"
                 tool_statuses["Targetscan"]["finished_at"] = int(time.time())
                 _write_progress(output_folder, tools, tool_statuses)

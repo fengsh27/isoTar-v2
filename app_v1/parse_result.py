@@ -8,11 +8,85 @@ import sys
 
 # Matches Ensembl (ENST00000284637) or RefSeq mRNA (NM_001164664), stripping version suffix
 _TRANSCRIPT_RE = re.compile(r'(ENST\d+|NM_\d+)(?:\.\d+)?')
+_REFSEQ_RE = re.compile(r'^[A-Z]{2,3}_\d+(\.\d+)?$')
 
 def _extract_transcript_id(text):
     """Return ENST or NM_ transcript ID from text, without version suffix. None if not found."""
     m = _TRANSCRIPT_RE.search(text)
     return m.group(1) if m else None
+
+
+def _default_reference_db():
+    """Resolve reference_mapping.db path. Tries env var, then app_v1/, then Docker path."""
+    env = os.environ.get("ISOTAR_REFERENCE_MAPPING_DB")
+    if env:
+        return env
+    here = os.path.dirname(os.path.abspath(__file__))
+    # app_v1/parse_result.py -> app_v1/reference_mapping.db
+    local = os.path.join(here, "reference_mapping.db")
+    if os.path.exists(local):
+        return local
+    # v2/parse_result.py -> ../app_v1/reference_mapping.db
+    sibling = os.path.join(here, "..", "app_v1", "reference_mapping.db")
+    if os.path.exists(sibling):
+        return sibling
+    return "/app_v1/reference_mapping.db"
+
+
+def build_enst_to_refseq_map(ref_db_path=None):
+    """Return dict mapping unversioned ENST -> set of unversioned RefSeq IDs.
+
+    Two indexed scans (ensembl_mapping, gene_mapping) joined on UPPER(symbol)
+    in Python. Avoids `COLLATE NOCASE` on the JOIN which defeats the symbol
+    index and turns this into a multi-billion-comparison nested loop."""
+    import sqlite3
+    if ref_db_path is None:
+        ref_db_path = _default_reference_db()
+    mp = {}
+    if not os.path.exists(ref_db_path):
+        return mp
+    conn = sqlite3.connect(ref_db_path)
+    try:
+        c = conn.cursor()
+        # symbol(uppercased) -> set of unversioned RefSeq IDs.
+        # Restrict to human species — TargetScan output is filtered to 9606
+        # in parseTargetScanResults, so cross-species symbol collisions
+        # (e.g. mouse "Trp53" sharing a HGNC bucket) would only add noise.
+        symbol_to_refseqs = {}
+        c.execute(
+            "SELECT symbol, raw_id FROM gene_mapping "
+            "WHERE species LIKE 'hsa_%' AND symbol IS NOT NULL AND raw_id IS NOT NULL"
+        )
+        for sym, raw_id in c.fetchall():
+            symbol_to_refseqs.setdefault(sym.upper(), set()).add(raw_id.split(".")[0])
+        # walk ensembl_mapping, project each ENST onto its symbol's RefSeq set
+        c.execute("SELECT ensembl_id, symbol FROM ensembl_mapping WHERE ensembl_id IS NOT NULL AND symbol IS NOT NULL")
+        for ensembl_id, sym in c.fetchall():
+            refseqs = symbol_to_refseqs.get(sym.upper())
+            if not refseqs:
+                continue
+            enst = ensembl_id.split(".")[0]
+            bucket = mp.setdefault(enst, set())
+            bucket.update(refseqs)
+    finally:
+        conn.close()
+    return mp
+
+
+def load_targets_file(targets_file):
+    """Read targets.txt (one ID per line). Return set of unversioned RefSeq IDs,
+    or None if the file is absent (meaning 'no target filter')."""
+    if not targets_file or not os.path.exists(targets_file):
+        return None
+    targets = set()
+    with open(targets_file, "r") as f:
+        for line in f:
+            t = line.strip()
+            if not t:
+                continue
+            if _REFSEQ_RE.match(t):
+                targets.add(t.split(".")[0])
+    return targets if targets else None
 
 
 def read_sequences_from_json(json_file):
@@ -54,19 +128,40 @@ def read_sequences_from_json(json_file):
     except Exception as e:
         raise Exception("Error reading JSON file: {}".format(str(e)))
 
-def parseTargetScanResults(output_f_path, result_dict):
-    results = []
+def parseTargetScanResults(output_f_path, result_dict, enst_to_refseq=None, targets=None):
+    """Parse TargetScan output, optionally converting ENST IDs to RefSeq.
+
+    enst_to_refseq: dict[ENST -> set[RefSeq]]. If provided, each ENST hit is
+        expanded to its RefSeq IDs; ENSTs not in the map are dropped.
+    targets: set[RefSeq]. If provided, only RefSeq IDs in this set are kept.
+        Has no effect when enst_to_refseq is None (we'd be filtering ENSTs
+        against a RefSeq set — would drop everything)."""
+    raw_hits = []
     if os.path.exists(output_f_path):
-        with open(output_f_path, 'r') as f:        
+        with open(output_f_path, 'r') as f:
             handler = csv.reader(f, delimiter='\t')
             next(handler) # Skip header row
-            for line in handler:  
+            for line in handler:
                 if len(line) == 14:
                     if line[2] =="9606" and line[8] != '6mer':
                         # Target - remove version number if present
                         tar = re.sub(r'\.[0-9]+$', '', line[0])
-                        if tar and tar not in results:
-                            results.append(tar)      
+                        if tar and tar not in raw_hits:
+                            raw_hits.append(tar)
+
+    if enst_to_refseq is not None:
+        results = []
+        seen = set()
+        for enst in raw_hits:
+            for refseq in enst_to_refseq.get(enst, ()):
+                if targets is not None and refseq not in targets:
+                    continue
+                if refseq not in seen:
+                    seen.add(refseq)
+                    results.append(refseq)
+    else:
+        results = raw_hits
+
     if 'prediction' not in result_dict:
         result_dict["prediction"] = {}
     result_dict["prediction"]['TargetScan'] = results
@@ -190,8 +285,8 @@ def parseMirandaResults(output_f_path, result_dict):
 
 def parseDMISOResults(output_f_path, result_dict):
     return result_dict
-def process_sequence(sequence, result_dir):
-    # Process a single sequence and generate prediction results. 
+def process_sequence(sequence, result_dir, enst_to_refseq=None, targets=None):
+    # Process a single sequence and generate prediction results.
     try:
         output_f_path_miRanda = os.path.join(result_dir, "miRanda", "{}_miRanda_results.txt".format(sequence['header']))
         output_f_path_miRmap = os.path.join(result_dir, "miRmap", "{}_miRmap_results.txt".format(sequence['header']))
@@ -209,8 +304,11 @@ def process_sequence(sequence, result_dir):
         if os.path.exists(output_f_path_PITA):
             prediction_results = parsePITAResults(output_f_path_PITA, prediction_results)
         if os.path.exists(output_f_path_TargetScan):
-            prediction_results = parseTargetScanResults(output_f_path_TargetScan, prediction_results)
-        
+            prediction_results = parseTargetScanResults(
+                output_f_path_TargetScan, prediction_results,
+                enst_to_refseq=enst_to_refseq, targets=targets,
+            )
+
         return prediction_results
         
     except Exception as e:
@@ -225,31 +323,50 @@ def process_sequence(sequence, result_dir):
 
 def main():
     import argparse
-    
+
     parser = argparse.ArgumentParser(description='Process miRNA sequences and generate prediction results')
     parser.add_argument('result_dir', help='Path to miRNA prediction results')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output')
+    parser.add_argument('--targets-file', default=None,
+                        help='Optional targets.txt (one RefSeq per line). '
+                             'Defaults to <parent of result_dir>/targets.txt if present.')
     args = parser.parse_args()
     result_dir = args.result_dir
     output_dir = os.path.join(result_dir, "miRNA_prediction_results")
+
+    # Resolve targets file: explicit arg > sibling of result_dir
+    targets_file = args.targets_file
+    if targets_file is None:
+        candidate = os.path.join(os.path.dirname(os.path.abspath(result_dir)), "targets.txt")
+        if os.path.exists(candidate):
+            targets_file = candidate
+    targets = load_targets_file(targets_file)
+    enst_to_refseq = build_enst_to_refseq_map()
+    if targets:
+        print("Loaded {} target RefSeq IDs from {}".format(len(targets), targets_file))
+    print("ENST->RefSeq map: {} ENST entries".format(len(enst_to_refseq)))
+
     try:
         # Create output directory if it doesn't exist
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
-        
+
         # Read sequences from JSON file
         print("Reading sequences from {}...".format(result_dir))
         json_file = os.path.join(result_dir, "mirna_prediction_parameters.json")
         sequences = read_sequences_from_json(json_file)
         print("Found {} valid sequences".format(len(sequences)))
-        
+
         # Process each sequence
         successful = 0
         failed = 0
-        
+
         for sequence in sequences:
             try:
-                prediction_results = process_sequence(sequence, result_dir)
+                prediction_results = process_sequence(
+                    sequence, result_dir,
+                    enst_to_refseq=enst_to_refseq, targets=targets,
+                )
                 
                 # Generate output filename
                 output_filename = "{}_results.json".format(sequence['header'])

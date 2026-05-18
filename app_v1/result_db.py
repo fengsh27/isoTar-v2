@@ -9,7 +9,13 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from app_v1.parse_result import read_sequences_from_json, process_sequence, _extract_transcript_id
+from app_v1.parse_result import (
+    read_sequences_from_json,
+    process_sequence,
+    _extract_transcript_id,
+    build_enst_to_refseq_map,
+    load_targets_file,
+)
 
 DB_FILENAME = "result.db"
 
@@ -87,6 +93,13 @@ def _build_db(output_dir, db_path):
     json_file = os.path.join(output_dir, "mirna_prediction_parameters.json")
     sequences = read_sequences_from_json(json_file)
 
+    # Discover targets.txt (sibling of output_dir, in the job dir) and build
+    # ENST->RefSeq map so TargetScan results are converted to RefSeq IDs and,
+    # if targets are specified, filtered to the user's list.
+    targets_file = os.path.join(os.path.dirname(os.path.abspath(output_dir)), "targets.txt")
+    targets = load_targets_file(targets_file)
+    enst_to_refseq = build_enst_to_refseq_map(REFERENCE_MAPPING_DB)
+
     # Collect gene -> tools mapping across all sequences
     gene_tools = {}   # gene_id -> set of tool names
 
@@ -99,7 +112,10 @@ def _build_db(output_dir, db_path):
 
     for sequence in sequences:
         # Non-DMISO tools via parse_result
-        results = process_sequence(sequence, output_dir)
+        results = process_sequence(
+            sequence, output_dir,
+            enst_to_refseq=enst_to_refseq, targets=targets,
+        )
         for tool, gene_ids in results.get("prediction", {}).items():
             for gene_id in gene_ids:
                 _add(gene_id, tool)
