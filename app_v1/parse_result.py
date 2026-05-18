@@ -225,7 +225,9 @@ def parseRnahybridResults(output_f_path, result_dict):
 def parseMirmapResults(output_f_path, result_dict):
     results = []
     if os.path.exists(output_f_path):
-        with open(output_f_path, 'r') as f:
+        # miRmap writes "DeltaG binding (kcal/mol)" with a literal Greek Delta (UTF-8 0xCE 0x94),
+        # so reading without an explicit encoding fails on containers without a UTF-8 locale.
+        with open(output_f_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             for i in range(0, len(lines)):
                 # miRNA - Target

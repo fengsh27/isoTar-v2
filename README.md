@@ -219,3 +219,19 @@ isoTar-v2/
 ├── nginx.conf / app.conf       # Nginx configuration
 └── CLAUDE.md                   # Developer notes
 ```
+
+## Development
+
+### Git pre-commit hook (one-time per clone)
+
+This repo ships a pre-commit hook that blocks commits introducing non-ASCII
+bytes into `v2/*.py` without a PEP 263 encoding declaration (Python 2.7
+otherwise fails with `SyntaxError: Non-ASCII character ...`). Enable it once
+after cloning:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The hook only runs when `v2/*.py` files are staged, so it's silent on
+unrelated commits. Bypass in emergencies with `git commit --no-verify`.

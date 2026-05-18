@@ -894,7 +894,7 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 _write_progress(output_folder, tools, tool_statuses)
             elif tool == "Targetscan":
                 # TargetScan uses its own pre-split 64-part reference at
-                # /opt/TargetScan/Datasets/3utr/ — we parallelize across parts,
+                # /opt/TargetScan/Datasets/3utr/ -- we parallelize across parts,
                 # not across the user UTR file (which TargetScan ignores).
                 targetscan_out_dir = os.path.join(output_folder, "Targetscan")
                 output_file1 = "{}/{}_Targetscan_results1.txt".format(targetscan_out_dir, seq['header'])

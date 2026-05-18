@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+# Block commits that introduce non-ASCII bytes into v2/*.py without a
+# PEP 263 encoding declaration. Python 2.7 fails to import such files
+# with: SyntaxError: Non-ASCII character '\xe2' in file ...
+#
+# Only runs when v2/**/*.py files are staged, so it's silent on
+# unrelated commits. Bypass in emergencies with `git commit --no-verify`.
+
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=ACM -- 'v2/*.py' 'v2/**/*.py')
+
+if [ -z "$staged" ]; then
+    exit 0
+fi
+
+python3 -m unittest v2.tests.test_source_encoding

@@ -108,7 +108,7 @@ class ResolveTargetsTests(unittest.TestCase):
         self.assertEqual(unresolved, [])
 
     def test_accession_not_validated_against_db(self):
-        # Bogus accession passes regex and is accepted unvalidated — spec says it's
+        # Bogus accession passes regex and is accepted unvalidated -- spec says it's
         # the user's responsibility for accession typos.
         resolved, unresolved = resolve_targets(["NM_99999999"], "hg38", ref_db_path=self.db)
         self.assertEqual(resolved, {"NM_99999999"})
@@ -127,7 +127,7 @@ class ResolveTargetsTests(unittest.TestCase):
         self.assertEqual(unresolved, [])
 
     def test_mixed_case_symbol_in_db_matches_uppercase_input(self):
-        # gene_mapping stores "C1orf141" — input "C1ORF141" should still resolve.
+        # gene_mapping stores "C1orf141" -- input "C1ORF141" should still resolve.
         resolved, unresolved = resolve_targets(["C1ORF141"], "hg38", ref_db_path=self.db)
         self.assertEqual(resolved, {"NM_018672"})
         self.assertEqual(unresolved, [])

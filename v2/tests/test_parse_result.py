@@ -83,8 +83,8 @@ class LoadTargetsFileTests(unittest.TestCase):
     def test_keeps_only_refseq_shapes(self):
         with open(self.path, "w") as f:
             f.write("NM_000546\n")
-            f.write("TP53\n")          # bare symbol — dropped
-            f.write("FOOBAR\n")        # garbage — dropped
+            f.write("TP53\n")          # bare symbol -- dropped
+            f.write("FOOBAR\n")        # garbage -- dropped
             f.write("NM_001126112\n")
             f.write("\n")
             f.write("  \n")
@@ -103,7 +103,7 @@ class LoadTargetsFileTests(unittest.TestCase):
         )
 
     def test_accepts_xm_and_nr_prefixes(self):
-        # Regex is [A-Z]{2,3}_\d+ — should accept XM_ (predicted mRNA) and NR_ (non-coding RNA).
+        # Regex is [A-Z]{2,3}_\d+ -- should accept XM_ (predicted mRNA) and NR_ (non-coding RNA).
         with open(self.path, "w") as f:
             f.write("NM_000546\n")
             f.write("XM_011517506\n")
@@ -197,7 +197,7 @@ class BuildEnstToRefseqMapTests(unittest.TestCase):
         self.assertNotIn("ENST00000000001", mp)
 
     def test_includes_both_hg19_and_hg38(self):
-        # species LIKE 'hsa_%' — both hg19 and hg38 rows should join.
+        # species LIKE 'hsa_%' -- both hg19 and hg38 rows should join.
         _make_ref_db(
             self.db,
             gene_rows=[
