@@ -11,6 +11,7 @@ from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 
 from app_v1.celery_app import celery_app
+from app_v1.limits import MAX_CORES_PER_JOB, validate_cores
 from app_v1.logger import get_logger
 from app_v1.result_db import ensure_db, query_genes
 from app_v1.target_resolver import (
@@ -187,6 +188,12 @@ def submit_job():
         if not isinstance(targets, list) or not targets or not all(isinstance(g, str) for g in targets):
             return jsonify({"error": "targets must be a non-empty list of gene symbol strings"}), 400
 
+    cores, cores_err = validate_cores(data.get("cores"))
+    if cores_err:
+        msg, status = cores_err
+        logger.warning("job rejected: %s mirna_id=%s cores=%r", msg, mirna_id, data.get("cores"))
+        return jsonify({"error": msg, "max_cores_per_job": MAX_CORES_PER_JOB}), status
+
     genome = data.get("genome", "hg38")
 
     # Resolve targets before creating any job state so a 400 leaves no orphan dir.
@@ -225,7 +232,7 @@ def submit_job():
         "mirna_id": mirna_id,
         "tools": tools,
         "genome": genome,
-        "cores": data.get("cores", 1),
+        "cores": cores,
         "modifications": modifications,
         "shift": shift,
         "pre_id": pre_id,
