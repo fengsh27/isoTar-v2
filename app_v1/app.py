@@ -1,6 +1,7 @@
 import csv
 import glob
 import json
+import multiprocessing
 import os
 import shutil
 import subprocess
@@ -30,6 +31,14 @@ _cors_origins = os.environ.get("ISOTAR_CORS_ORIGINS", "*")
 if _cors_origins != "*":
     _cors_origins = [o.strip() for o in _cors_origins.split(",") if o.strip()]
 CORS(app, resources={r"/api/*": {"origins": _cors_origins}})
+
+def _max_cores_per_job():
+    try:
+        v = int(os.environ.get("MAX_CORE_PER_JOB", multiprocessing.cpu_count()))
+        return max(1, v)
+    except (TypeError, ValueError):
+        return multiprocessing.cpu_count()
+
 
 def _job_path(job_id):
     return os.path.join(BASE_DIR, job_id)

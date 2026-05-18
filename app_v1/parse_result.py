@@ -292,7 +292,7 @@ def process_sequence(sequence, result_dir, enst_to_refseq=None, targets=None):
         output_f_path_miRmap = os.path.join(result_dir, "miRmap", "{}_miRmap_results.txt".format(sequence['header']))
         output_f_path_RNAhybrid = os.path.join(result_dir, "RNAhybrid", "{}_RNAhybrid_results.txt".format(sequence['header']))
         output_f_path_PITA = os.path.join(result_dir, "PITA", "{}_PITA_results.tab".format(sequence['header']))
-        output_f_path_TargetScan = os.path.join(result_dir, "TargetScan", "{}_Targetscan_output_sort.txt".format(sequence['header']))
+        output_f_path_TargetScan = os.path.join(result_dir, "Targetscan", "{}_Targetscan_results1.txt".format(sequence['header']))
 
         prediction_results = sequence.copy()
         if os.path.exists(output_f_path_miRanda):

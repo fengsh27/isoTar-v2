@@ -190,6 +190,7 @@ Removes all files and metadata for the job.
 | `ISOTAR_REFERENCE_MAPPING_DB` | `<app_v1>/reference_mapping.db` | Gene ID → symbol/name mapping database |
 | `CELERY_BROKER_URL` | `amqp://` | RabbitMQ broker URL |
 | `CELERY_RESULT_BACKEND` | `rpc://` | Celery result backend |
+| `MAX_CORE_PER_JOB` | host CPU count | Per-job core ceiling. Celery worker concurrency is set to `floor(host_cores / MAX_CORE_PER_JOB)` (min 1). Submitted `cores` values are clamped to this ceiling. |
 
 ## Project Structure
 
