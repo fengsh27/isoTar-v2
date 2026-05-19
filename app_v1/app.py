@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import time
 import uuid
+import zipfile
 
 from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
@@ -329,7 +330,19 @@ def job_result_download(job_id):
 
     archive_path = os.path.join(_job_path(job_id), "result.zip")
     if not os.path.exists(archive_path):
-        shutil.make_archive(archive_path.replace(".zip", ""), "zip", result_dir)
+        # Build the archive ourselves (instead of shutil.make_archive) so we
+        # can also include targets.txt, which lives in the job dir (sibling of
+        # result_dir), not inside result_dir itself. Inside the zip, mirror
+        # result_dir/* at the top level (matching shutil.make_archive's layout)
+        # and place targets.txt alongside it.
+        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, _dirs, files in os.walk(result_dir):
+                for name in files:
+                    abs_path = os.path.join(root, name)
+                    zf.write(abs_path, os.path.relpath(abs_path, result_dir))
+            targets_path = os.path.join(_job_path(job_id), "targets.txt")
+            if os.path.exists(targets_path):
+                zf.write(targets_path, "targets.txt")
 
     logger.info("result downloaded job_id=%s", job_id)
     return send_file(archive_path, as_attachment=True, download_name="{}_result.zip".format(job_id))

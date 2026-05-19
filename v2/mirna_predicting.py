@@ -368,8 +368,14 @@ def run_mirmap(mirna_seq, mirna_header, utr_file, output_file):
         current_seq = ""
         for line in f:
             if line.startswith(">"):
-                utr_header = line.split(" ")[0]
-                utr_header = utr_header.split("_")[2]
+                # UTR FASTA headers look like ">hg38_ncbiRefSeqCurated_NM_000051.4 range=..."
+                # Splitting on "_" and taking [2] only yields "NM" because the
+                # RefSeq accession itself contains an underscore. Extract the
+                # full RefSeq/Ensembl accession instead so parse_result.py can
+                # match it via _TRANSCRIPT_RE.
+                first_tok = line.split(" ")[0]
+                m = re.search(r'(NM_\d+(?:\.\d+)?|ENST\d+(?:\.\d+)?)', first_tok)
+                utr_header = m.group(1) if m else first_tok.lstrip(">")
                 utr_headers.append(utr_header)
                 if current_seq:
                     utr_sequences.append(current_seq)

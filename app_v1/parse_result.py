@@ -254,31 +254,26 @@ def parseMirmapResults(output_f_path, result_dict):
     return result_dict
 
 def parseMirandaResults(output_f_path, result_dict):
+    """Extract target accessions from a miRanda -out file.
+
+    miRanda -quiet writes only the summary lines: '>' per individual hit and
+    '>>' per (miRNA, target) total, both tab-separated with the UTR accession
+    (e.g. 'hg38_ncbiRefSeqCurated_NM_000051.4') in column 1. The verbose
+    (non-quiet) format also emits these same summary lines after each
+    alignment block, so this parser handles both invocation styles.
+    """
     results = []
     if os.path.exists(output_f_path):
         with open(output_f_path, 'r') as f:
-            lines = f.readlines()
-            for i in range(0, len(lines)):
-                # Query
-                matchObj = re.match(r'^\s+Query:\s+3\'\s+([^\s]+)\s+5\'$', lines[i], re.M|re.I)
-                if matchObj:
-                    i += 1
-                    # Pairing
-                    if i < len(lines):
-                        # Get the seed region 2-7
-                        seed_region = lines[i][-9:-2]
-                        if len(seed_region.replace('|', '')) == 0:
-                            i += 1
-                            if i < len(lines):
-                                matchObj1 = re.match(r'^\s+Ref:\s+5\'\s+([^\s]+)\s+3\'$', lines[i], re.M|re.I)
-                                i += 5
-                                # miRNA - Target
-                                if i < len(lines):
-                                    matchObj2 = re.match(r'^>([^\s]+)\s+(\S+)', lines[i], re.M|re.I)
-                                    if matchObj2:
-                                        tar = _extract_transcript_id(matchObj2.group(2))
-                                        if tar and tar not in results:
-                                            results.append(tar)
+            for line in f:
+                if not line.startswith('>'):
+                    continue
+                parts = line.rstrip('\r\n').split('\t')
+                if len(parts) < 2:
+                    continue
+                tar = _extract_transcript_id(parts[1])
+                if tar and tar not in results:
+                    results.append(tar)
     if 'prediction' not in result_dict:
         result_dict["prediction"] = {}
     result_dict["prediction"]['miRanda'] = results
