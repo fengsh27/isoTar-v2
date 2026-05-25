@@ -501,20 +501,36 @@ def get_longest_utr_length(utr_file):
     return max(max_length, current_length)
     
 def _write_progress(output_folder, tools, tool_statuses):
-    completed = sum(1 for t in tool_statuses if tool_statuses[t]["status"] == "done")
+    progress_path = os.path.join(output_folder, "progress.json")
+    # Prediction runs in two phases that share this file: python3.6 for most
+    # tools, then python2.7 for miRmap. Merge with any existing on-disk status
+    # so the second phase does not clobber the first -- otherwise a finished
+    # job's progress.json would list only miRmap and the UI would show the
+    # other tools as "pending" after a refresh.
+    merged = {}
+    try:
+        with open(progress_path, 'r') as f:
+            prev = json.load(f)
+        prev_status = prev.get("tools_status")
+        if isinstance(prev_status, dict):
+            merged.update(prev_status)
+    except (IOError, OSError, ValueError):
+        pass
+    merged.update(tool_statuses)
+
+    completed = sum(1 for t in merged if merged[t].get("status") == "done")
     current = None
     for t in tools:
         if tool_statuses[t]["status"] == "running":
             current = t
             break
     data = {
-        "total_tools": len(tools),
+        "total_tools": len(merged),
         "completed_tools": completed,
         "current_tool": current,
-        "tools_status": tool_statuses,
+        "tools_status": merged,
         "updated_at": int(time.time())
     }
-    progress_path = os.path.join(output_folder, "progress.json")
     with open(progress_path, 'w') as f:
         json.dump(data, f)
 

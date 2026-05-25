@@ -200,7 +200,36 @@ def _venn_stats(cursor, keyword_pattern=None):
             if count > 0:
                 intersections["&".join(combo)] = count
 
-    return {"sets": sets, "intersections": intersections}
+    # Exclusive combinations for the UpSet plot (4+ tools): group genes by the
+    # *exact* set of tools that predicted them (so a gene hit by A,B,C lands in
+    # one region, not in A&B, A&C, ...). Also roll up per-degree counts -- the
+    # number of targets predicted by exactly k tools -- for the consensus view.
+    cursor.execute(
+        "SELECT gene_id, GROUP_CONCAT(tool) FROM gene_tools "
+        "WHERE 1=1 {} GROUP BY gene_id".format(gene_filter_sql),
+        gene_filter_arg,
+    )
+    combo_counts = {}
+    for _gene_id, tools_csv in cursor.fetchall():
+        if not tools_csv:
+            continue
+        key = tuple(sorted(set(tools_csv.split(","))))
+        combo_counts[key] = combo_counts.get(key, 0) + 1
+
+    combos = []
+    degrees = {}
+    for key, count in combo_counts.items():
+        combos.append({"tools": list(key), "size": count})
+        deg = str(len(key))
+        degrees[deg] = degrees.get(deg, 0) + count
+    combos.sort(key=lambda c: c["size"], reverse=True)
+
+    return {
+        "sets": sets,
+        "intersections": intersections,
+        "combinations": combos,
+        "degrees": degrees,
+    }
 
 
 # ---------------------------------------------------------------------------
