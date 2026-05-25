@@ -14,6 +14,7 @@ from flask_cors import CORS
 from app_v1.celery_app import celery_app
 from app_v1.limits import MAX_CORES_PER_JOB, validate_cores
 from app_v1.logger import get_logger
+from app_v1.version import get_version
 from app_v1.result_db import ensure_db, query_genes
 from app_v1.target_resolver import (
     genome_to_species as _genome_to_species,
@@ -31,6 +32,14 @@ _cors_origins = os.environ.get("ISOTAR_CORS_ORIGINS", "*")
 if _cors_origins != "*":
     _cors_origins = [o.strip() for o in _cors_origins.split(",") if o.strip()]
 CORS(app, resources={r"/api/*": {"origins": _cors_origins}})
+
+_VERSION = get_version()
+
+
+@app.route("/api/v1/version", methods=["GET"])
+def version():
+    """Report the running backend version (matches the Docker image / git tag)."""
+    return jsonify({"name": "isotar-v2-backend", "version": _VERSION})
 
 
 def _job_path(job_id):

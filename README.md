@@ -51,15 +51,35 @@ Supervisor manages: nginx, rabbitmq, gunicorn (legacy), app_v1 gunicorn, celery 
 | `mml` | Rhesus macaque (Mmul_8.0.1) |
 | `ptr` | Chimpanzee (Pan_tro3.0) |
 
+## Versioning
+
+The current version lives in the [`VERSION`](VERSION) file (Semantic Versioning)
+and drives the `frankfeng78/isotar-v2` image tag, the `vX.Y.Z` git tag, and the
+`/api/v1/version` endpoint. Changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
+
+Cut a release (bumps `VERSION`, updates the changelog, commits and tags):
+
+```bash
+scripts/release.sh patch     # or: minor | major | 0.3.0
+```
+
+Check what a running container reports:
+
+```bash
+curl -s http://localhost:8080/api/v1/version
+# {"name":"isotar-v2-backend","version":"0.2.27"}
+```
+
 ## Docker Build
 
 ```bash
 # Step 1 — base image (Ubuntu 16.04, Python 3.6 compiled from source, build tools)
 # Only needed once or when base dependencies change
-docker build -t frankfeng78/isotar-v2-base:0.2.x -f isotar-base.Dockerfile .
+docker build -t frankfeng78/isotar-v2-base:0.2.2 -f isotar-base.Dockerfile .
 
-# Step 2 — final production image
-docker build -t frankfeng78/isotar-v2:0.2.x -f Dockerfile .
+# Step 2 — final production image (stamp the version into the image)
+docker build -t frankfeng78/isotar-v2:"$(cat VERSION)" \
+  --build-arg VERSION="$(cat VERSION)" -f Dockerfile .
 ```
 
 ## Running
@@ -69,7 +89,7 @@ docker run -d \
   --name isotar \
   -p 8080:8080 \
   -v /path/to/jobs:/opt/out/jobs \
-  frankfeng78/isotar-v2:0.2.x
+  frankfeng78/isotar-v2:"$(cat VERSION)"
 ```
 
 The API is available at `http://localhost:8080/api/v1/`.

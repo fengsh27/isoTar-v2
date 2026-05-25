@@ -1,0 +1,26 @@
+# Changelog
+
+All notable changes to the isoTar-v2 backend are documented here. This project
+adheres to [Semantic Versioning](https://semver.org). Each version corresponds
+to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
+
+New releases are cut with `scripts/release.sh <major|minor|patch>`.
+
+## 0.2.27 - 2026-05-25
+
+Baseline release — versioning introduced (`VERSION` file, git tags, this
+changelog, `/api/v1/version` endpoint, version-stamped image). Notable changes
+folded into this baseline:
+
+- **Enrichment:** fix HTTP 500 caused by a broken `from logger import get_logger`
+  (the module is not on the subprocess import path); use self-contained logging.
+- **Result overlap:** `_venn_stats` now emits exclusive `combinations` and
+  per-degree `degrees`, enabling the 4+-tool UpSet plot and consensus histogram.
+- **Per-tool progress:** `_write_progress` merges with the existing
+  `progress.json` so the second prediction phase no longer overwrites the first
+  (all tools persist after a page refresh).
+- **Prediction parsers:** fix miRanda parsing (handle `-quiet` summary lines)
+  and miRmap header extraction (use the full RefSeq/Ensembl accession).
+- **Result download:** include `targets.txt` in the result `.zip`.
+- **Concurrency:** per-job and global core limits (`app_v1/limits.py`).
+- **Tooling:** source-encoding pre-commit guard; regression tests.

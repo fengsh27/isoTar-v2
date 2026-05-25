@@ -8,6 +8,14 @@ LABEL edu.osumc.dept="Department of Cancer Biology and Genetics - The Ohio State
       edu.osumc.is-final="" \
       edu.osumc.released="March 27, 2020"
 
+# Application version. Pass at build time: `--build-arg VERSION=$(cat VERSION)`.
+# Exposed at runtime via ISOTAR_VERSION (read by app_v1/version.py and the
+# /api/v1/version endpoint) and as a standard OCI image label.
+ARG VERSION=unknown
+ENV ISOTAR_VERSION=${VERSION}
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.title="isotar-v2-backend"
+
 ADD tools /opt/
 COPY v2/*.py /opt/v2/
 COPY v2/opt/reference_files /opt/reference_files
@@ -48,6 +56,8 @@ RUN python2.7 -m pip install --no-cache-dir --upgrade "pip==20.3.4" "setuptools=
 
 # Setup app_v1
 COPY app_v1 /app_v1
+# Bundle VERSION as a fallback for /api/v1/version when the build arg is omitted.
+COPY VERSION /app_v1/VERSION
 RUN python3.6 -m pip install --no-cache-dir -r /app_v1/requirements.txt \
     && mkdir -p /app/logs/celery /app/logs/gunicorn
 
