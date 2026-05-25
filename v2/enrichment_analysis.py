@@ -2,17 +2,28 @@
 # against Gene Ontology (GO), KEGG, and Reactome pathway databases.
 
 import os
+import sys
 import gseapy as gp
 import pandas as pd
 import logging
 
-from logger import get_logger
+# Self-contained logging to stderr (the API captures this subprocess's stderr
+# for diagnostics). Deliberately NOT "from logger import get_logger": that module
+# lives in /app_v1 and is not on this subprocess's import path (script dir is
+# /opt/v2, PYTHONPATH is /opt/miRmap/src), so importing it raised
+# ModuleNotFoundError and made every enrichment request fail with HTTP 500.
+logging.basicConfig(level=logging.WARNING)  # keep gseapy quiet
 
-# Suppress verbose logging from gseapy to keep the output clean
-logging.basicConfig(level=logging.WARNING)
-
-logger = get_logger(__name__)
-print = logger.error  # Redirect print statements to logger for better control over output
+logger = logging.getLogger("enrichment_analysis")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    _handler = logging.StreamHandler(sys.stderr)
+    _handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"))
+    logger.addHandler(_handler)
+logger.propagate = False
+print = logger.info  # route the script's status messages through the logger
 
 def perform_enrichment_analysis(gene_list, organism='Human', cutoff=0.05, outdir='enrichment_results'):
     """
