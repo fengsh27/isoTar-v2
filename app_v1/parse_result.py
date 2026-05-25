@@ -285,8 +285,62 @@ def parseMirandaResults(output_f_path, result_dict):
 
     return result_dict
 
-def parseDMISOResults(output_f_path, result_dict):
+# DNA/IUPAC complement table for the DMISO seed-match filter. We complement a
+# short (7 nt) string, so a dict lookup is fine and keeps us off str.maketrans
+# (absent in Python 2) for 2.7/3.5 compatibility.
+_DMISO_COMPLEMENT = {
+    'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A', 'N': 'N',
+    'R': 'Y', 'Y': 'R', 'K': 'M', 'M': 'K', 'S': 'S', 'W': 'W',
+    'B': 'V', 'D': 'H', 'H': 'D', 'V': 'B',
+}
+
+
+def _mirna_seed_match_pattern(mirna_seq):
+    """Reverse-complement of the miRNA seed (positions 2-8) as a DNA 7-mer.
+
+    This is the motif a target site must contain for a canonical seed match.
+    Returns '' when the sequence is missing or shorter than 8 nt, which the
+    caller treats as 'apply no seed filter'."""
+    if not mirna_seq:
+        return ''
+    s = mirna_seq.upper().replace('U', 'T')
+    if len(s) < 8:
+        return ''
+    seed = s[::-1][-8:-1]  # 7 nt corresponding to miRNA positions 2-8
+    return ''.join(_DMISO_COMPLEMENT.get(b, 'N') for b in seed)
+
+
+def parseDMISOResults(output_f_path, result_dict, mirna_sequence=None):
+    """Parse DMISO output, keeping only targets with a perfect seed match.
+
+    DMISO output is tab-separated: Target ID / Target Sequence / Prediction
+    Score (score already filtered > 0.99 upstream by mirna_predicting.py). A
+    target is kept only when its sequence contains the reverse-complement of
+    the miRNA seed (positions 2-8). When mirna_sequence is missing or too
+    short, no seed filter is applied and all listed targets are kept."""
+    results = []
+    seen = set()  # O(1) dedup: DMISO files can hold ~400k rows
+    pattern = _mirna_seed_match_pattern(mirna_sequence)
+    if os.path.exists(output_f_path):
+        with open(output_f_path, 'r') as f:
+            handler = csv.reader(f, delimiter='\t')
+            next(handler)  # Skip header row
+            for line in handler:
+                if len(line) < 2:
+                    continue
+                if pattern and pattern not in line[1].upper():
+                    continue
+                tar = _extract_transcript_id(line[0])
+                if tar and tar not in seen:
+                    seen.add(tar)
+                    results.append(tar)
+    if 'prediction' not in result_dict:
+        result_dict["prediction"] = {}
+    result_dict["prediction"]['DMISO'] = results
+
     return result_dict
+
+
 def process_sequence(sequence, result_dir, enst_to_refseq=None, targets=None):
     # Process a single sequence and generate prediction results.
     try:
@@ -295,6 +349,7 @@ def process_sequence(sequence, result_dir, enst_to_refseq=None, targets=None):
         output_f_path_RNAhybrid = os.path.join(result_dir, "RNAhybrid", "{}_RNAhybrid_results.txt".format(sequence['header']))
         output_f_path_PITA = os.path.join(result_dir, "PITA", "{}_PITA_results.tab".format(sequence['header']))
         output_f_path_TargetScan = os.path.join(result_dir, "Targetscan", "{}_Targetscan_results1.txt".format(sequence['header']))
+        output_f_path_DMISO = os.path.join(result_dir, "DMISO", "{}_DMISO_results.txt".format(sequence['header']))
 
         prediction_results = sequence.copy()
         if os.path.exists(output_f_path_miRanda):
@@ -309,6 +364,11 @@ def process_sequence(sequence, result_dir, enst_to_refseq=None, targets=None):
             prediction_results = parseTargetScanResults(
                 output_f_path_TargetScan, prediction_results,
                 enst_to_refseq=enst_to_refseq, targets=targets,
+            )
+        if os.path.exists(output_f_path_DMISO):
+            prediction_results = parseDMISOResults(
+                output_f_path_DMISO, prediction_results,
+                mirna_sequence=sequence.get('sequence'),
             )
 
         return prediction_results
