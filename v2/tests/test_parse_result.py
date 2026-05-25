@@ -24,6 +24,8 @@ from v2.parse_result import (  # noqa: E402
     build_enst_to_refseq_map,
     load_targets_file,
     parseTargetScanResults,
+    parseDMISOResults,
+    _mirna_seed_match_pattern,
 )
 
 
@@ -347,6 +349,116 @@ class ParseTargetScanResultsTests(unittest.TestCase):
         self.assertEqual(out["header"], "hsa-let-7a")
         self.assertEqual(out["type"], "WT")
         self.assertIn("TargetScan", out["prediction"])
+
+
+class SeedPatternTests(unittest.TestCase):
+    """_mirna_seed_match_pattern: reverse-complement of miRNA positions 2-8."""
+
+    def test_known_mirna(self):
+        # hsa-miR-495-3p: seed (pos 2-8) reverse-complement is GTTTGTT
+        self.assertEqual(
+            _mirna_seed_match_pattern("AAACAAACAUGGUGCACUUCUU"), "GTTTGTT"
+        )
+
+    def test_rna_u_and_lowercase_normalized(self):
+        self.assertEqual(
+            _mirna_seed_match_pattern("aaacaaacauggugcacuucuu"), "GTTTGTT"
+        )
+
+    def test_returns_seven_mer(self):
+        self.assertEqual(len(_mirna_seed_match_pattern("AAACAAACAUGGUGCACUUCUU")), 7)
+
+    def test_poly_a(self):
+        # rev of AAAAAAAA is AAAAAAAA; seed slice [-8:-1] -> AAAAAAA; complement TTTTTTT
+        self.assertEqual(_mirna_seed_match_pattern("AAAAAAAA"), "TTTTTTT")
+
+    def test_exactly_eight_nt_ok(self):
+        self.assertEqual(len(_mirna_seed_match_pattern("ACGUACGU")), 7)
+
+    def test_none_returns_empty(self):
+        self.assertEqual(_mirna_seed_match_pattern(None), "")
+
+    def test_empty_returns_empty(self):
+        self.assertEqual(_mirna_seed_match_pattern(""), "")
+
+    def test_too_short_returns_empty(self):
+        # < 8 nt -> '' -> caller applies no filter
+        self.assertEqual(_mirna_seed_match_pattern("AAACAAA"), "")
+
+
+class ParseDMISOResultsTests(unittest.TestCase):
+    """parseDMISOResults: keep only targets whose sequence contains the seed."""
+
+    # miR-495-3p seed-match pattern is GTTTGTT (see SeedPatternTests)
+    MIRNA = "AAACAAACAUGGUGCACUUCUU"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="dmiso_test_")
+        self.path = os.path.join(self.tmp, "x_DMISO_results.txt")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write(self, rows):
+        with open(self.path, "w") as f:
+            f.write("Target ID\tTarget Sequence\tPrediction Score\n")
+            for r in rows:
+                f.write("\t".join(r) + "\n")
+
+    def test_keeps_seed_match_drops_non_match(self):
+        self._write([
+            ("hg19_refGene_NM_144722 range=chr5:1-9", "TTAGGTTTGTTGGATG", "0.991"),  # has GTTTGTT
+            ("hg19_refGene_NM_018034 range=chr5:2-9", "AGAATCTCATTTGAGAG", "0.995"),  # no match
+        ])
+        rd = parseDMISOResults(self.path, {}, mirna_sequence=self.MIRNA)
+        self.assertEqual(rd["prediction"]["DMISO"], ["NM_144722"])
+
+    def test_no_filter_when_sequence_missing(self):
+        self._write([
+            ("hg19_refGene_NM_144722 range=x", "AAAAAAAAAA", "0.991"),
+            ("hg19_refGene_NM_018034 range=x", "CCCCCCCCCC", "0.995"),
+        ])
+        rd = parseDMISOResults(self.path, {}, mirna_sequence=None)
+        self.assertEqual(
+            sorted(rd["prediction"]["DMISO"]), ["NM_018034", "NM_144722"]
+        )
+
+    def test_dedup(self):
+        self._write([
+            ("hg19_refGene_NM_144722 range=a", "GTTTGTTAAA", "0.991"),
+            ("hg19_refGene_NM_144722 range=b", "CCGTTTGTTC", "0.992"),
+        ])
+        rd = parseDMISOResults(self.path, {}, mirna_sequence=self.MIRNA)
+        self.assertEqual(rd["prediction"]["DMISO"], ["NM_144722"])
+
+    def test_case_insensitive_target_sequence(self):
+        self._write([
+            ("hg19_refGene_NM_144722 range=a", "ttagctgtttgttgg", "0.991"),  # lowercase match
+        ])
+        rd = parseDMISOResults(self.path, {}, mirna_sequence=self.MIRNA)
+        self.assertEqual(rd["prediction"]["DMISO"], ["NM_144722"])
+
+    def test_missing_file_yields_empty_list(self):
+        rd = parseDMISOResults(os.path.join(self.tmp, "nope.txt"), {},
+                               mirna_sequence=self.MIRNA)
+        self.assertEqual(rd["prediction"]["DMISO"], [])
+
+    def test_short_rows_skipped(self):
+        with open(self.path, "w") as f:
+            f.write("Target ID\tTarget Sequence\tPrediction Score\n")
+            f.write("only_one_column\n")
+            f.write("hg19_refGene_NM_144722 range=a\tGTTTGTTAAA\t0.991\n")
+        rd = parseDMISOResults(self.path, {}, mirna_sequence=self.MIRNA)
+        self.assertEqual(rd["prediction"]["DMISO"], ["NM_144722"])
+
+    def test_preserves_existing_result_dict_keys(self):
+        self._write([("hg19_refGene_NM_144722 range=a", "GTTTGTTAAA", "0.991")])
+        rd = parseDMISOResults(
+            self.path, {"header": "x", "type": "WT"}, mirna_sequence=self.MIRNA
+        )
+        self.assertEqual(rd["header"], "x")
+        self.assertEqual(rd["type"], "WT")
+        self.assertIn("DMISO", rd["prediction"])
 
 
 if __name__ == "__main__":

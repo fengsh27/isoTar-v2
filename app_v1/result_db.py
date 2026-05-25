@@ -12,7 +12,6 @@ if _REPO_ROOT not in sys.path:
 from app_v1.parse_result import (
     read_sequences_from_json,
     process_sequence,
-    _extract_transcript_id,
     build_enst_to_refseq_map,
     load_targets_file,
 )
@@ -29,27 +28,6 @@ REFERENCE_MAPPING_DB = os.environ.get(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-def _parse_dmiso_file(dmiso_path):
-    """Return deduplicated gene IDs from a pre-filtered DMISO results file.
-
-    File format (tab-separated, score already filtered > 0.99 by mirna_predicting.py):
-        Target ID\\tTarget Sequence\\tPrediction Score
-        hg19_refGene_NM_144722 range=...\\t<seq>\\t0.991...
-    """
-    gene_ids = set()
-    with open(dmiso_path, "r") as f:
-        next(f)  # skip header
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            target_id = line.split("\t")[0]   # first column
-            gene_id = _extract_transcript_id(target_id)
-            if gene_id:
-                gene_ids.add(gene_id)
-    return gene_ids
-
 
 def _load_gene_info(gene_ids):
     """Look up gene_label and gene_name for a collection of gene IDs.
@@ -83,9 +61,9 @@ def _build_db(output_dir, db_path):
         gene_tools(gene_id TEXT, tool TEXT, PRIMARY KEY (gene_id, tool))
         gene_info(gene_id TEXT PRIMARY KEY, gene_label TEXT, gene_name TEXT)
 
-    Non-DMISO tools are parsed via parse_result.process_sequence().
-    DMISO is read directly from output/DMISO/<header>_DMISO_results.txt
-    because parseDMISOResults() in parse_result.py is a no-op.
+    All six tools (including DMISO) are parsed via
+    parse_result.process_sequence(). DMISO results are filtered to perfect
+    miRNA seed (positions 2-8) matches inside parseDMISOResults().
 
     Writes to a temp file first then renames atomically so a partial write
     is never visible at db_path.
@@ -119,15 +97,6 @@ def _build_db(output_dir, db_path):
         for tool, gene_ids in results.get("prediction", {}).items():
             for gene_id in gene_ids:
                 _add(gene_id, tool)
-
-        # DMISO — read directly (parseDMISOResults is a no-op)
-        dmiso_path = os.path.join(
-            output_dir, "DMISO",
-            "{}_DMISO_results.txt".format(sequence["header"]),
-        )
-        if os.path.exists(dmiso_path):
-            for gene_id in _parse_dmiso_file(dmiso_path):
-                _add(gene_id, "DMISO")
 
     # Look up gene labels and names from reference_mapping.db
     gene_info = _load_gene_info(list(gene_tools.keys()))
