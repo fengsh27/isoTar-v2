@@ -251,13 +251,30 @@ def run_miranda(mirna_file, utr_file, output_file):
     ]
     subprocess.run(cmd, check=True)
 
-def run_rnahybrid(mirna_file, utr_file, output_file, mirna_length, utr_length):
+# RNAhybrid ships only three empirically-calibrated length/energy distributions
+# for its -s p-value model: 3utr_human, 3utr_worm and 3utr_fly. There is no
+# per-species set beyond these, so map each supported genome to the closest one.
+_RNAHYBRID_DATASET_MAP = {
+    "dme": "3utr_fly",    # Drosophila melanogaster
+    "cel": "3utr_worm",   # Caenorhabditis elegans
+}
+
+
+def rnahybrid_dataset_for_genome(genome):
+    """Return the RNAhybrid -s distribution set for a genome/species code.
+
+    Mammals, fish, etc. have no dedicated calibration, so they fall back to
+    3utr_human (the closest available proxy)."""
+    return _RNAHYBRID_DATASET_MAP.get(genome, "3utr_human")
+
+
+def run_rnahybrid(mirna_file, utr_file, output_file, mirna_length, utr_length, species_set="3utr_human"):
     """Run RNAhybrid on a given miRNA and UTR file."""
     cmd = [
         RNAHYBRID,
         "-c",
         "-e", "-20",
-        "-s", "3utr_human",
+        "-s", species_set,
         "-q", mirna_file,
         "-t", utr_file,
         "-m", str(utr_length),
@@ -535,7 +552,7 @@ def _write_progress(output_folder, tools, tool_statuses):
         json.dump(data, f)
 
 
-def process_tools(sequences, tools, utr_file, output_folder, temp_folder):
+def process_tools(sequences, tools, utr_file, output_folder, temp_folder, rnahybrid_set="3utr_human"):
     tool_statuses = {}
     for t in tools:
         tool_statuses[t] = {"status": "pending", "started_at": None, "finished_at": None}
@@ -575,7 +592,7 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder):
                 tool_statuses["RNAhybrid"]["status"] = "running"
                 tool_statuses["RNAhybrid"]["started_at"] = int(time.time())
                 _write_progress(output_folder, tools, tool_statuses)
-                run_rnahybrid(temp_fasta, utr_file, output_file, int(seq['length']), max_utr_length)
+                run_rnahybrid(temp_fasta, utr_file, output_file, int(seq['length']), max_utr_length, rnahybrid_set)
                 tool_statuses["RNAhybrid"]["status"] = "done"
                 tool_statuses["RNAhybrid"]["finished_at"] = int(time.time())
                 _write_progress(output_folder, tools, tool_statuses)
@@ -703,7 +720,7 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder):
                 print("Tool {} is processing {}".format(tool, name_fasta))
         seq_num += 1
 
-def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_folder):
+def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_folder, rnahybrid_set="3utr_human"):
     # Get all UTR subfiles
     utr_subfiles = [os.path.join(temp_folder+"/utr", f) for f in os.listdir(temp_folder+"/utr") if f.startswith("temp_3utr_part")]
 
@@ -764,7 +781,7 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 for utr_file in utr_subfiles:
                     temp_output_file = os.path.join(rnahybrid_out_dir, "Seq_{}_RNAhybrid_results_{}.out".format(seq_num, os.path.basename(utr_file).replace('.fasta', '')))
                     max_utr_length = get_longest_utr_length(utr_file)
-                    args.append((temp_fasta, utr_file, temp_output_file, seq['length'], max_utr_length))
+                    args.append((temp_fasta, utr_file, temp_output_file, seq['length'], max_utr_length, rnahybrid_set))
                 
                 # Run in parallel
                 print("RNAhybrid is processing {}".format(name_fasta))
@@ -1090,12 +1107,15 @@ def main():
             if not os.path.exists(other_out_dir):
                 os.makedirs(other_out_dir)
               
+    # Select the RNAhybrid distribution set for this species (see rnahybrid_dataset_for_genome)
+    rnahybrid_set = rnahybrid_dataset_for_genome(genome)
+
     # Run Prediction for single or mutiple cores
     if num_cores == 1:
-        process_tools(sequences, tools, utr_file, output_folder, temp_folder)
+        process_tools(sequences, tools, utr_file, output_folder, temp_folder, rnahybrid_set)
     else:
         process_3utr_fasta(utr_file, num_cores, temp_folder)
-        process_tools_in_parallel(sequences, tools, num_cores, output_folder ,temp_folder)
+        process_tools_in_parallel(sequences, tools, num_cores, output_folder ,temp_folder, rnahybrid_set)
 
     # Clean up the temp folder
     cleanup_temp_folder(temp_folder)

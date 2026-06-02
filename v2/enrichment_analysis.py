@@ -25,6 +25,17 @@ if not logger.handlers:
 logger.propagate = False
 print = logger.info  # route the script's status messages through the logger
 
+# Enrichr exposes a different KEGG library per organism. Human/Mouse live on the
+# main Enrichr server; Fly/Worm/Yeast/Fish are served by modEnrichr as "KEGG_2019".
+_KEGG_LIBRARY_BY_ORGANISM = {
+    'human': 'KEGG_2021_Human',
+    'mouse': 'KEGG_2019_Mouse',
+    'fly':   'KEGG_2019',
+    'worm':  'KEGG_2019',
+    'yeast': 'KEGG_2019',
+    'fish':  'KEGG_2019',
+}
+
 def perform_enrichment_analysis(gene_list, organism='Human', cutoff=0.05, outdir='enrichment_results'):
     """
     Performs enrichment analysis on a given gene list using gseapy's enrichr function.
@@ -48,13 +59,19 @@ def perform_enrichment_analysis(gene_list, organism='Human', cutoff=0.05, outdir
 
     # Define the databases you want to query.
     # You can find more libraries using: gp.get_library_name()
+    # Enrichr's KEGG library is named per-organism (there is no generic "KEGG"),
+    # so pick the right one for the requested organism.
     gene_sets = [
         'GO_Biological_Process_2023',
         'GO_Cellular_Component_2023',
         'GO_Molecular_Function_2023',
-        'KEGG_2021_Human',
         'Reactome_2022'
     ]
+    kegg_library = _KEGG_LIBRARY_BY_ORGANISM.get((organism or '').lower())
+    if kegg_library:
+        gene_sets.append(kegg_library)
+    else:
+        print("No KEGG library mapped for organism '{}'; skipping KEGG.".format(organism))
 
     try:
         # Run the enrichment analysis using Enrichr
