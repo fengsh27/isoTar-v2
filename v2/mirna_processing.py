@@ -21,10 +21,75 @@ import sys
 __version__ = "0.0.2"
 
 # Constants
-MARUTE_PRE_MIRNA = '/opt/resources/mature_pre_mirna_ext.json'
+# Resources directory holding the per-species miRNA metadata files. We resolve
+# the actual file at runtime from the miRNA id's miRBase 3-letter prefix
+# (hsa-, mmu-, dre-, ...) so this script supports every species shipped under
+# the resources directory without needing a CLI flag from the caller.
+RESOURCES_DIR = os.environ.get('ISOTAR_RESOURCES_DIR', '/opt/resources')
+# Human is the historical default and lives under the un-prefixed legacy
+# filename for back-compat with older deployments / mounts.
+LEGACY_HUMAN_FILE = 'mature_pre_mirna_ext.json'
+# Kept as a back-compat alias; nothing in this file uses it anymore, but
+# external callers may have imported it.
+MARUTE_PRE_MIRNA = os.path.join(RESOURCES_DIR, LEGACY_HUMAN_FILE)
 MIN_LENGTH = 17
 MAX_LENGTH = 30
 VALID_NUCLEOTIDES = {'A', 'T', 'C', 'G', 'U'}
+
+
+def _species_from_mirna_id(mirna_id):
+    """Return the miRBase 3-letter species prefix from a miRNA id, or None.
+
+    miRBase ids are shaped `<species>-<gene>-...` where species is the
+    lowercase 3-letter organism code (hsa, mmu, dre, cel, ...). We extract
+    the token before the first hyphen and lower-case it; anything else
+    returns None so the caller can fall back to the legacy human file.
+    """
+    if not mirna_id or '-' not in mirna_id:
+        return None
+    prefix = mirna_id.split('-', 1)[0].strip().lower()
+    # miRBase species codes are exactly 3 ASCII letters.
+    if len(prefix) == 3 and prefix.isalpha():
+        return prefix
+    return None
+
+
+def resolve_metadata_path(mirna_id, resources_dir=None, override=None):
+    """Pick the metadata JSON file for a miRNA id.
+
+    Resolution order:
+      1. ``override`` (CLI --metadata) when set.
+      2. ``<resources_dir>/<species>_mature_pre_mirna_ext.json`` based on
+         the miRBase species prefix in the id.
+      3. ``<resources_dir>/mature_pre_mirna_ext.json`` (legacy human file)
+         as a fallback for ``hsa-*`` ids only -- non-human species without
+         their own file are a hard error to avoid silently using the wrong
+         species' sequences.
+    """
+    if override:
+        return override
+
+    resources_dir = resources_dir or RESOURCES_DIR
+    species = _species_from_mirna_id(mirna_id)
+
+    if species:
+        candidate = os.path.join(resources_dir, '{}_mature_pre_mirna_ext.json'.format(species))
+        if os.path.exists(candidate):
+            return candidate
+
+    legacy = os.path.join(resources_dir, LEGACY_HUMAN_FILE)
+    # Only fall back to the human file if the id is actually human, or if we
+    # couldn't parse a species at all (preserves prior behavior for malformed
+    # ids). Other species must have their own file present.
+    if species in (None, 'hsa') and os.path.exists(legacy):
+        return legacy
+
+    raise FileNotFoundError(
+        "No miRNA metadata file found for '{}' (species='{}') in '{}'. "
+        "Expected '{}_mature_pre_mirna_ext.json'.".format(
+            mirna_id, species or '?', resources_dir, species or '<species>'
+        )
+    )
 
 def load_json(file_path):
     """Load and validate JSON data from file."""
@@ -218,18 +283,22 @@ def main():
                       help="Apply both modifications and shift (requires both -m and -s)")
     parser.add_argument('--pre-id',
                       help="Specify precursor ID when multiple options exist")
+    parser.add_argument('--metadata',
+                      help="Override the miRNA metadata JSON path "
+                           "(otherwise resolved from the miRNA id's species prefix)")
     parser.add_argument('--strict', action='store_true',
                       help="Exit if any modification or shift fails")
-    
+
     args = parser.parse_args()
 
     try:
         # Validate arguments
         if args.both and not (args.modification and args.shift):
             raise ValueError("--both requires both --modification and --shift")
-        
+
         # Load and validate data
-        data = load_json(MARUTE_PRE_MIRNA)
+        metadata_path = resolve_metadata_path(args.mirna_id, override=args.metadata)
+        data = load_json(metadata_path)
         mature_seq, pre_seq, start, end, available_pre_ids = find_mirna_sequence(data, args.mirna_id, args.pre_id)
         
         # Handle case where multiple precursors exist
