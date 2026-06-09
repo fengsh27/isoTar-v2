@@ -19,7 +19,22 @@ LABEL org.opencontainers.image.version="${VERSION}" \
 ADD tools /opt/
 COPY v2/*.py /opt/v2/
 COPY v2/opt/reference_files /opt/reference_files
+# Per-species miRNA metadata: the human file is named without a prefix
+# (mature_pre_mirna_ext.json); every other species ships as
+# <species>_mature_pre_mirna_ext.json (e.g. mmu_, dre_, cel_, ...).
+# v2/mirna_processing.py picks the right file at runtime from the miRBase
+# prefix in the miRNA id, looking under ISOTAR_RESOURCES_DIR.
 COPY v2/opt/resources /opt/resources
+ENV ISOTAR_RESOURCES_DIR=/opt/resources
+# Fail the build if the per-species files didn't make it into the image
+# (e.g. accidental rename / removal under v2/opt/resources). The human file
+# is required; we additionally require at least one <species>_*.json so a
+# regression that silently drops every non-human file is caught here, not
+# at job time.
+RUN test -f /opt/resources/mature_pre_mirna_ext.json \
+    && ls /opt/resources/*_mature_pre_mirna_ext.json >/dev/null \
+    && echo "miRNA metadata present:" \
+    && ls /opt/resources/*mature_pre_mirna_ext.json
 
 
 RUN python3.6 -m pip install --no-cache-dir --upgrade "pip==21.3.1"
