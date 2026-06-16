@@ -28,6 +28,7 @@ from app_v1.parse_result import (
     parseRnahybridResults,
     parseMirmapResults,
     parseDMISOResults,
+    _extract_lncrna_transcript_id,
 )
 
 LNCRNA_DB_FILENAME = "lncrna_result.db"
@@ -51,25 +52,29 @@ def _collect_transcript_tools(output_dir):
 
         p_miranda = os.path.join(output_dir, "miRanda", "{}_miRanda_results.txt".format(header))
         if os.path.exists(p_miranda):
-            r = parseMirandaResults(p_miranda, {})
+            r = parseMirandaResults(p_miranda, {}, id_extractor=_extract_lncrna_transcript_id)
             for tid in r["prediction"].get("miRanda", []):
                 _add(tid, "miRanda")
 
         p_rnahybrid = os.path.join(output_dir, "RNAhybrid", "{}_RNAhybrid_results.txt".format(header))
         if os.path.exists(p_rnahybrid):
-            r = parseRnahybridResults(p_rnahybrid, {})
+            r = parseRnahybridResults(p_rnahybrid, {}, id_extractor=_extract_lncrna_transcript_id)
             for tid in r["prediction"].get("RNAhybrid", []):
                 _add(tid, "RNAhybrid")
 
         p_mirmap = os.path.join(output_dir, "miRmap", "{}_miRmap_results.txt".format(header))
         if os.path.exists(p_mirmap):
-            r = parseMirmapResults(p_mirmap, {})
+            r = parseMirmapResults(p_mirmap, {}, id_extractor=_extract_lncrna_transcript_id)
             for tid in r["prediction"].get("miRmap", []):
                 _add(tid, "miRmap")
 
         p_dmiso = os.path.join(output_dir, "DMISO", "{}_DMISO_results.txt".format(header))
         if os.path.exists(p_dmiso):
-            r = parseDMISOResults(p_dmiso, {}, mirna_sequence=sequence.get("sequence"))
+            r = parseDMISOResults(
+                p_dmiso, {},
+                mirna_sequence=sequence.get("sequence"),
+                id_extractor=_extract_lncrna_transcript_id,
+            )
             for tid in r["prediction"].get("DMISO", []):
                 _add(tid, "DMISO")
 

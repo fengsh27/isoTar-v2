@@ -16,6 +16,34 @@ def _extract_transcript_id(text):
     return m.group(1) if m else None
 
 
+# lncRNA reference FASTAs come from Ensembl /ncrna/ dumps, so their target IDs
+# are species-specific Ensembl transcripts (human ENST, mouse ENSMUST, dog
+# ENSCAFT, rat ENSRNOT, ...), FlyBase transcripts (FBtr0347114) or WormBase
+# sequence names (Y51H4A.27) -- none of which the human-centric ENST/NM_ regex
+# above matches. This anchored pattern strips a trailing Ensembl/FlyBase
+# '.<version>' suffix; WormBase isoform suffixes are left intact (the '.27' is
+# part of the name, not a version).
+_LNCRNA_TRANSCRIPT_RE = re.compile(r'^(ENS[A-Z]{0,6}T\d+|FBtr\d+)(?:\.\d+)?')
+
+
+def _extract_lncrna_transcript_id(text):
+    """Transcript ID for a lncRNA target token. Returns the version-stripped
+    Ensembl/FlyBase accession, or the first whitespace-delimited token as-is
+    (e.g. WormBase Y51H4A.27). None for empty input.
+
+    Some tools (DMISO) keep the full FASTA description in the ID field, so the
+    pattern is anchored at the start of the token rather than searched."""
+    if not text:
+        return None
+    t = text.strip()
+    if not t:
+        return None
+    m = _LNCRNA_TRANSCRIPT_RE.match(t)
+    if m:
+        return m.group(1)
+    return t.split()[0]
+
+
 def _default_reference_db():
     """Resolve reference_mapping.db path. Tries env var, then app_v1/, then Docker path."""
     env = os.environ.get("ISOTAR_REFERENCE_MAPPING_DB")
@@ -187,14 +215,14 @@ def parsePITAResults(output_f_path, result_dict):
 
     return result_dict
 
-def parseRnahybridResults(output_f_path, result_dict):
+def parseRnahybridResults(output_f_path, result_dict, id_extractor=_extract_transcript_id):
     results = []
     if os.path.exists(output_f_path):
-        with open(output_f_path, 'r') as f:        
+        with open(output_f_path, 'r') as f:
             handler = csv.reader(f, delimiter=':')
             for line in handler:
                 if len(line) == 11:
-                    tar = _extract_transcript_id(line[0])
+                    tar = id_extractor(line[0])
                     if tar:
                         # Get the seed region 2-7
                         target_seq = line[8][-8:-1]
@@ -222,7 +250,7 @@ def parseRnahybridResults(output_f_path, result_dict):
 
     return result_dict
 
-def parseMirmapResults(output_f_path, result_dict):
+def parseMirmapResults(output_f_path, result_dict, id_extractor=_extract_transcript_id):
     results = []
     if os.path.exists(output_f_path):
         # miRmap writes "DeltaG binding (kcal/mol)" with a literal Greek Delta (UTF-8 0xCE 0x94),
@@ -233,7 +261,7 @@ def parseMirmapResults(output_f_path, result_dict):
                 # miRNA - Target
                 matchObj = re.match(r'^>[^,]+,.*?\s+(\S+)\s*$', lines[i], re.M|re.I)
                 if matchObj:
-                    tar = _extract_transcript_id(matchObj.group(1))
+                    tar = id_extractor(matchObj.group(1))
                     i += 2
                     if i < len(lines):
                         matchObj = re.match(r'.*[0-9]+.*', lines[i], re.M|re.I) # check this line contain any number
@@ -253,7 +281,7 @@ def parseMirmapResults(output_f_path, result_dict):
 
     return result_dict
 
-def parseMirandaResults(output_f_path, result_dict):
+def parseMirandaResults(output_f_path, result_dict, id_extractor=_extract_transcript_id):
     """Extract target accessions from a miRanda -out file.
 
     miRanda -quiet writes only the summary lines: '>' per individual hit and
@@ -271,7 +299,7 @@ def parseMirandaResults(output_f_path, result_dict):
                 parts = line.rstrip('\r\n').split('\t')
                 if len(parts) < 2:
                     continue
-                tar = _extract_transcript_id(parts[1])
+                tar = id_extractor(parts[1])
                 if tar and tar not in results:
                     results.append(tar)
     if 'prediction' not in result_dict:
@@ -305,7 +333,7 @@ def _mirna_seed_match_pattern(mirna_seq):
     return ''.join(_DMISO_COMPLEMENT.get(b, 'N') for b in seed)
 
 
-def parseDMISOResults(output_f_path, result_dict, mirna_sequence=None):
+def parseDMISOResults(output_f_path, result_dict, mirna_sequence=None, id_extractor=_extract_transcript_id):
     """Parse DMISO output, keeping only targets with a perfect seed match.
 
     DMISO output is tab-separated: Target ID / Target Sequence / Prediction
@@ -325,7 +353,7 @@ def parseDMISOResults(output_f_path, result_dict, mirna_sequence=None):
                     continue
                 if pattern and pattern not in line[1].upper():
                     continue
-                tar = _extract_transcript_id(line[0])
+                tar = id_extractor(line[0])
                 if tar and tar not in seen:
                     seen.add(tar)
                     results.append(tar)
