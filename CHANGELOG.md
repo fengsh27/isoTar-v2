@@ -6,6 +6,10 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.2 - 2026-06-16
+
+- fix(lncrna): extract non-human Ensembl/FlyBase/WormBase transcript IDs
+
 ## 0.3.1 - 2026-06-16
 
 - feat(lncrna): add miR-LncRNA target prediction pipeline
