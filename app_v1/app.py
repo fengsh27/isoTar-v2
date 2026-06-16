@@ -377,18 +377,20 @@ def job_result_download(job_id):
     archive_path = os.path.join(_job_path(job_id), "result.zip")
     if not os.path.exists(archive_path):
         # Build the archive ourselves (instead of shutil.make_archive) so we
-        # can also include targets.txt, which lives in the job dir (sibling of
-        # result_dir), not inside result_dir itself. Inside the zip, mirror
-        # result_dir/* at the top level (matching shutil.make_archive's layout)
-        # and place targets.txt alongside it.
+        # can also include files that live in the job dir (sibling of
+        # result_dir), not inside result_dir itself: targets.txt plus the run
+        # inputs job.json and mirna.fa. Inside the zip, mirror result_dir/* at
+        # the top level (matching shutil.make_archive's layout) and place those
+        # sibling files alongside it.
         with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for root, _dirs, files in os.walk(result_dir):
                 for name in files:
                     abs_path = os.path.join(root, name)
                     zf.write(abs_path, os.path.relpath(abs_path, result_dir))
-            targets_path = os.path.join(_job_path(job_id), "targets.txt")
-            if os.path.exists(targets_path):
-                zf.write(targets_path, "targets.txt")
+            for sibling in ("targets.txt", "job.json", "mirna.fa"):
+                sibling_path = os.path.join(_job_path(job_id), sibling)
+                if os.path.exists(sibling_path):
+                    zf.write(sibling_path, sibling)
 
     logger.info("result downloaded job_id=%s", job_id)
     return send_file(archive_path, as_attachment=True, download_name="{}_result.zip".format(job_id))
