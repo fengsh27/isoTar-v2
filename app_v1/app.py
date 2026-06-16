@@ -16,6 +16,7 @@ from app_v1.limits import MAX_CORES_PER_JOB, validate_cores
 from app_v1.logger import get_logger
 from app_v1.version import get_version
 from app_v1.result_db import ensure_db, query_genes
+from app_v1.lncrna_results import ensure_lncrna_db
 from app_v1.target_resolver import (
     genome_to_species as _genome_to_species,
     resolve_targets as _resolve_targets,
@@ -25,6 +26,16 @@ logger = get_logger()
 
 BASE_DIR = os.environ.get("ISOTAR_JOB_DIR", "/opt/out/jobs")
 os.makedirs(BASE_DIR, exist_ok=True)
+
+# Frontend "workflow" -> mirna_predicting.py "--target-type" (target sequence pool).
+_WORKFLOW_TARGET_TYPE = {
+    "mir-target": "gene",
+    "mir-lncrna": "lncrna",
+}
+# Tools that cannot run against a lncRNA target pool: TargetScan ignores the
+# target FASTA and reads its own precomputed 3' UTR datasets, and PITA scores in
+# a 3' UTR context. Mirrors LNCRNA_INCOMPATIBLE_TOOLS in v2/mirna_predicting.py.
+LNCRNA_INCOMPATIBLE_TOOLS = {"Targetscan", "PITA"}
 
 app = Flask(__name__)
 
@@ -91,6 +102,9 @@ def run_job(self, job_id):
         mirna_id = meta["mirna_id"]
         tools = meta["tools"]
         genome = meta.get("genome", "hg38")
+        # Map the product workflow to the runner's target sequence pool.
+        # Default keeps pre-existing job metas (no "workflow" field) on the gene flow.
+        target_type = _WORKFLOW_TARGET_TYPE.get(meta.get("workflow", "mir-target"), "gene")
         cores = int(meta.get("cores", 1))
         modifications = meta.get("modifications", [])
         shift = meta.get("shift")
@@ -134,7 +148,7 @@ def run_job(self, job_id):
                 "-c", str(cores),
                 "-i", fasta_path,
                 "-t",
-            ] + other_tools + ["-g", genome, "-o", output_dir]
+            ] + other_tools + ["-g", genome, "-tt", target_type, "-o", output_dir]
             if target_file:
                 cmd += ["-tf", target_file]
             subprocess.check_call(cmd)
@@ -148,6 +162,7 @@ def run_job(self, job_id):
                 "-i", fasta_path,
                 "-t", "miRmap",
                 "-g", genome,
+                "-tt", target_type,
                 "-o", output_dir,
             ]
             if target_file:
@@ -186,6 +201,22 @@ def submit_job():
     if not tools or not mirna_id:
         logger.warning("job rejected: missing tools or mirna_id")
         return jsonify({"error": "tools and mirna_id are required"}), 400
+
+    workflow = data.get("workflow", "mir-target")
+    if workflow not in _WORKFLOW_TARGET_TYPE:
+        return jsonify({"error": "workflow must be one of {}".format(
+            sorted(_WORKFLOW_TARGET_TYPE))}), 400
+    if workflow == "mir-lncrna":
+        bad = [t for t in tools if t in LNCRNA_INCOMPATIBLE_TOOLS]
+        if bad:
+            return jsonify({
+                "error": "tools {} are not supported for the miR-LncRNA workflow".format(bad),
+                "hint": "TargetScan/PITA only work on 3' UTR (gene) targets",
+            }), 400
+        if data.get("targets"):
+            return jsonify({
+                "error": "target gene filtering is not supported for the miR-LncRNA workflow",
+            }), 400
 
     if not isinstance(modifications, list):
         logger.warning("job rejected: modifications not a list mirna_id=%s", mirna_id)
@@ -242,6 +273,7 @@ def submit_job():
         "created_at": int(time.time()),
         "mirna_id": mirna_id,
         "tools": tools,
+        "workflow": workflow,
         "genome": genome,
         "cores": cores,
         "modifications": modifications,
@@ -305,7 +337,12 @@ def job_result(job_id):
         return jsonify({"error": "offset must be >= 0 and number must be between 1 and 1000"}), 400
 
     try:
-        db_path = ensure_db(output_dir)
+        # lncRNA results are aggregated by transcript ID with no gene mapping
+        # (see lncrna_results.py); the gene flow uses the RefSeq/symbol parser.
+        if meta.get("workflow") == "mir-lncrna":
+            db_path = ensure_lncrna_db(output_dir)
+        else:
+            db_path = ensure_db(output_dir)
         data = query_genes(db_path, sort_by=sort_by, order=order,
                            offset=offset, number=number, keyword=keyword)
     except Exception as e:
