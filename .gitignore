@@ -1,3 +1,10 @@
 tools/CLAPACK-3.2.1/*
 tools/TargetScan/Datasets/*
 __pycache__
+
+# Local mirrors of the container's /opt/* dirs (kept for local testing of
+# v2/ scripts against real inputs). Only v2/opt/resources/ is tracked.
+v2/opt/human/
+v2/opt/reference_files/
+v2/opt/tools/
+v2/opt/.DS_Store

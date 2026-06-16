@@ -6,6 +6,18 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.1 - 2026-06-16
+
+- feat(lncrna): add miR-LncRNA target prediction pipeline
+
+## 0.3.0 - 2026-06-09
+
+- chore: harden Dockerfile for species-aware metadata + gitignore local opt mirrors
+- make mirna_processing.py support other species
+- add mirna meta json files for other species
+- Replace non-ASCII arrow in logger.py docstring with ASCII ->
+- Make RNAhybrid distribution set and KEGG library species-aware
+
 ## 0.2.27 - 2026-05-25
 
 Baseline release — versioning introduced (`VERSION` file, git tags, this

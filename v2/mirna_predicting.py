@@ -19,6 +19,11 @@ import time
 
 # Predefined list of tools
 ALLOWED_TOOLS = ["miRanda", "miRmap", "Targetscan", "RNAhybrid", "PITA", "DMISO"]
+# Tools that cannot run against an arbitrary lncRNA target pool: TargetScan
+# ignores the target FASTA and reads its own precomputed 3' UTR + conservation
+# datasets (so it would silently return gene results), and PITA scores in a 3'
+# UTR context. Restrict them to gene target-type.
+LNCRNA_INCOMPATIBLE_TOOLS = ["Targetscan", "PITA"]
 # miRanda path
 MIRANDA = '/usr/local/bin/miranda'
 # RNAhybrid path
@@ -43,6 +48,21 @@ RHESUSMACAQUE_3UTR = '/opt/reference_files/mml_Mmul_8.0.1_3UTRs.fasta'
 HOUSEMOUSE_3UTR = '/opt/reference_files/mmu_GRCm38_3UTRs.fasta'
 CHIMPANZEE_3UTR = '/opt/reference_files/ptr_Pan_tro3.0_3UTRs.fasta'
 NORWAYRAT_3UTR = '/opt/reference_files/rno_RGSC6_rn6_3UTRs.fasta'
+
+# lncRNA PATH (Ensembl ncrna dumps filtered to lncRNA biotypes;
+# built by scripts/build_lncrna_references.sh)
+HUMAN_HG19_LNCRNA = '/opt/reference_files/hsa_HG19_lncRNAs.fasta'
+HUMAN_HG38_LNCRNA = '/opt/reference_files/hsa_HG38_lncRNAs.fasta'
+
+ROUNDWORM_LNCRNA = '/opt/reference_files/cel_WBcel235_lncRNAs.fasta'
+DOG_LNCRNA = '/opt/reference_files/cfa_CanFam3.1_lncRNAs.fasta'
+FRUITFLY_LNCRNA = '/opt/reference_files/dme_Release6_lncRNAs.fasta'
+ZEBRAFISH_LNCRNA = '/opt/reference_files/dre_GRCz11_lncRNAs.fasta'
+GRAYSHORTTAILEDOPOSSUM_LNCRNA = '/opt/reference_files/mdo_MonDom5_lncRNAs.fasta'
+RHESUSMACAQUE_LNCRNA = '/opt/reference_files/mml_Mmul_8.0.1_lncRNAs.fasta'
+HOUSEMOUSE_LNCRNA = '/opt/reference_files/mmu_GRCm38_lncRNAs.fasta'
+CHIMPANZEE_LNCRNA = '/opt/reference_files/ptr_Pan_tro3.0_lncRNAs.fasta'
+NORWAYRAT_LNCRNA = '/opt/reference_files/rno_RGSC6_rn6_lncRNAs.fasta'
 
 # Ensure miRmap modules can be imported
 MIRMAP_SRC = "/opt/miRmap/src"
@@ -1020,7 +1040,11 @@ def main():
                         help="Reference genome/species code", required=True)
     parser.add_argument("-o", "--output", type=str, required=True, help="output folder name")
     parser.add_argument("-tf", "--target_file", type=str, default=None,
-                        help="optional path to a text file with one target gene symbol per line; only 3' UTRs matching these genes will be scanned")
+                        help="optional path to a text file with one target gene symbol per line; only 3' UTRs matching these genes will be scanned (gene target-type only)")
+    parser.add_argument("-tt", "--target-type", dest="target_type",
+                        choices=["gene", "lncrna"], default="gene",
+                        help="target pool to scan: 'gene' = 3' UTRs (default, "
+                             "legacy behavior), 'lncrna' = lncRNA transcripts")
 
     args = parser.parse_args()
     # Parse arguments
@@ -1029,6 +1053,7 @@ def main():
     tools = args.tools
     output_folder = args.output
     genome = args.genome
+    target_type = args.target_type
 
     # Validate number of cores
     available_cores = multiprocessing.cpu_count()
@@ -1041,6 +1066,16 @@ def main():
     if invalid_tools:
         raise ValueError("Invalid tools selected: {}. Allowed tools are: {}".format(', '.join(invalid_tools), ', '.join(ALLOWED_TOOLS)))
 
+    # Reject tools that can't honor a lncRNA target pool (see LNCRNA_INCOMPATIBLE_TOOLS).
+    if target_type == "lncrna":
+        bad = [tool for tool in tools if tool in LNCRNA_INCOMPATIBLE_TOOLS]
+        if bad:
+            raise ValueError(
+                "Tools {} are not supported for --target-type lncrna; "
+                "they only work on 3' UTR (gene) targets. Drop them or use "
+                "--target-type gene.".format(', '.join(bad))
+            )
+
     # Create output folder if it doesn't exist
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
@@ -1052,23 +1087,47 @@ def main():
     sequences = parse_fasta(mirna)
     save_to_json(sequences, tools, num_cores, "{}/mirna_prediction_parameters.json".format(output_folder))
     
-    # Determine the 3' UTR file based on the genome/species code
-    _UTR_FILE_MAP = {
-        "hg19": HUMAN_HG19_3UTR,
-        "hg38": HUMAN_HG38_3UTR,
-        "cel":  ROUNDWORM_3UTR,
-        "cfa":  DOG_3UTR,
-        "dme":  FRUITFLY_3UTR,
-        "dre":  ZEBRAFISH_3UTR,
-        "mdo":  GRAYSHORTTAILEDOPOSSUM_3UTR,
-        "mml":  RHESUSMACAQUE_3UTR,
-        "mmu":  HOUSEMOUSE_3UTR,
-        "ptr":  CHIMPANZEE_3UTR,
-        "rno":  NORWAYRAT_3UTR,
+    # Reference sequence pool, keyed by (target_type, genome/species code).
+    # "gene"   -> 3' UTRs of protein-coding genes (legacy default)
+    # "lncrna" -> lncRNA transcripts (Ensembl, biotype-filtered)
+    _TARGET_FILE_MAP = {
+        "gene": {
+            "hg19": HUMAN_HG19_3UTR,
+            "hg38": HUMAN_HG38_3UTR,
+            "cel":  ROUNDWORM_3UTR,
+            "cfa":  DOG_3UTR,
+            "dme":  FRUITFLY_3UTR,
+            "dre":  ZEBRAFISH_3UTR,
+            "mdo":  GRAYSHORTTAILEDOPOSSUM_3UTR,
+            "mml":  RHESUSMACAQUE_3UTR,
+            "mmu":  HOUSEMOUSE_3UTR,
+            "ptr":  CHIMPANZEE_3UTR,
+            "rno":  NORWAYRAT_3UTR,
+        },
+        "lncrna": {
+            "hg19": HUMAN_HG19_LNCRNA,
+            "hg38": HUMAN_HG38_LNCRNA,
+            "cel":  ROUNDWORM_LNCRNA,
+            "cfa":  DOG_LNCRNA,
+            "dme":  FRUITFLY_LNCRNA,
+            "dre":  ZEBRAFISH_LNCRNA,
+            "mdo":  GRAYSHORTTAILEDOPOSSUM_LNCRNA,
+            "mml":  RHESUSMACAQUE_LNCRNA,
+            "mmu":  HOUSEMOUSE_LNCRNA,
+            "ptr":  CHIMPANZEE_LNCRNA,
+            "rno":  NORWAYRAT_LNCRNA,
+        },
     }
-    utr_file = _UTR_FILE_MAP[genome]
+    utr_file = _TARGET_FILE_MAP[target_type][genome]
 
     if args.target_file:
+        # The target-gene filter keys on RefSeq accessions in 3' UTR headers;
+        # lncRNA targets use Ensembl headers and are not gene-symbol filterable.
+        if target_type != "gene":
+            raise ValueError(
+                "--target_file is only supported for --target-type gene, "
+                "not '{}'.".format(target_type)
+            )
         with open(args.target_file, 'r') as f:
             target_genes = [line.strip() for line in f if line.strip()]
         if target_genes:

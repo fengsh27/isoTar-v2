@@ -1,0 +1,5 @@
+# Raw Ensembl ncrna dumps used only to BUILD the lncRNA reference FASTAs
+# (see scripts/build_lncrna_references.sh). The filtered *_lncRNAs.fasta outputs
+# live one level up in v2/opt/reference_files/ and ARE shipped; the ~70 MB of
+# gzipped source dumps must not be copied into the image.
+v2/opt/reference_files/lncRNA/
