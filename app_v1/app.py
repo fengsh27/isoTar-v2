@@ -33,9 +33,10 @@ _WORKFLOW_TARGET_TYPE = {
     "mir-lncrna": "lncrna",
 }
 # Tools that cannot run against a lncRNA target pool: TargetScan ignores the
-# target FASTA and reads its own precomputed 3' UTR datasets, and PITA scores in
-# a 3' UTR context. Mirrors LNCRNA_INCOMPATIBLE_TOOLS in v2/mirna_predicting.py.
-LNCRNA_INCOMPATIBLE_TOOLS = {"Targetscan", "PITA"}
+# target FASTA and reads its own precomputed 3' UTR datasets. (PITA is fine -- it
+# scores whatever FASTA is passed to -utr.) Mirrors LNCRNA_INCOMPATIBLE_TOOLS in
+# v2/mirna_predicting.py.
+LNCRNA_INCOMPATIBLE_TOOLS = {"Targetscan"}
 
 app = Flask(__name__)
 

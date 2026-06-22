@@ -21,9 +21,10 @@ import time
 ALLOWED_TOOLS = ["miRanda", "miRmap", "Targetscan", "RNAhybrid", "PITA", "DMISO"]
 # Tools that cannot run against an arbitrary lncRNA target pool: TargetScan
 # ignores the target FASTA and reads its own precomputed 3' UTR + conservation
-# datasets (so it would silently return gene results), and PITA scores in a 3'
-# UTR context. Restrict them to gene target-type.
-LNCRNA_INCOMPATIBLE_TOOLS = ["Targetscan", "PITA"]
+# datasets (so it would silently return gene results). PITA is compatible -- it
+# scores whatever FASTA is passed to its -utr flag, so the lncRNA reference is
+# fed there directly. Restrict TargetScan to gene target-type.
+LNCRNA_INCOMPATIBLE_TOOLS = ["Targetscan"]
 # miRanda path
 MIRANDA = '/usr/local/bin/miranda'
 # RNAhybrid path

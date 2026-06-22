@@ -9,8 +9,9 @@ This module builds the same SQLite schema (gene_tools/gene_info) so the existing
 result_db.query_genes() pagination + Venn logic can be reused unchanged -- but it
 aggregates by lncRNA transcript ID and performs NO gene mapping:
 
-  * only the four lncRNA-compatible tools are read (miRanda, RNAhybrid, miRmap,
-    DMISO); TargetScan/PITA are rejected upstream for this workflow.
+  * only the five lncRNA-compatible tools are read (miRanda, RNAhybrid, miRmap,
+    DMISO, PITA); TargetScan is rejected upstream for this workflow (it ignores
+    the target FASTA and reads its own precomputed 3' UTR datasets).
   * each tool's raw output file is read with parse_result's per-tool parser,
     which extracts the ENST transcript and applies the same biophysical hit
     filters (seed match, dG/ddG cutoffs) as the gene flow.
@@ -28,6 +29,7 @@ from app_v1.parse_result import (
     parseRnahybridResults,
     parseMirmapResults,
     parseDMISOResults,
+    parsePITAResults,
     _extract_lncrna_transcript_id,
 )
 
@@ -77,6 +79,12 @@ def _collect_transcript_tools(output_dir):
             )
             for tid in r["prediction"].get("DMISO", []):
                 _add(tid, "DMISO")
+
+        p_pita = os.path.join(output_dir, "PITA", "{}_PITA_results.tab".format(header))
+        if os.path.exists(p_pita):
+            r = parsePITAResults(p_pita, {}, id_extractor=_extract_lncrna_transcript_id)
+            for tid in r["prediction"].get("PITA", []):
+                _add(tid, "PITA")
 
     return transcript_tools
 

@@ -196,14 +196,14 @@ def parseTargetScanResults(output_f_path, result_dict, enst_to_refseq=None, targ
 
     return result_dict
 
-def parsePITAResults(output_f_path, result_dict):
+def parsePITAResults(output_f_path, result_dict, id_extractor=_extract_transcript_id):
     results = []
     if os.path.exists(output_f_path):
-        with open(output_f_path, 'r') as f:        
+        with open(output_f_path, 'r') as f:
             handler = csv.reader(f, delimiter='\t')
             for line in handler:
                 if len(line) == 13:
-                    tar = _extract_transcript_id(line[0])
+                    tar = id_extractor(line[0])
                     if tar:
                         ddG = float(line[12])
                         if ddG <= -10.0:
