@@ -140,8 +140,19 @@ def run_job(self, job_id):
         _write_meta(job_id, meta)
         logger.info("step=predicting job_id=%s", job_id)
 
+        # The tools run as two independent subprocess groups: the python3.6
+        # tools, then miRmap under python2.7. A failure in one group must not
+        # discard the results of the other -- so each group is run in its own
+        # try/except and failures are recorded in tool_errors. The job is only
+        # marked failed if EVERY group failed (nothing to return); otherwise it
+        # succeeds and publishes whatever results were produced, with the failed
+        # tools noted in meta["tool_errors"].
+        tool_errors = {}
+        groups_run = 0
+
         other_tools = [t for t in tools if t != "miRmap"]
         if other_tools:
+            groups_run += 1
             logger.info("running python3.6 tools=%s job_id=%s", other_tools, job_id)
             cmd = [
                 "python3.6",
@@ -152,9 +163,15 @@ def run_job(self, job_id):
             ] + other_tools + ["-g", genome, "-tt", target_type, "-o", output_dir]
             if target_file:
                 cmd += ["-tf", target_file]
-            subprocess.check_call(cmd)
+            try:
+                subprocess.check_call(cmd)
+            except subprocess.CalledProcessError as e:
+                tool_errors["+".join(other_tools)] = str(e)
+                logger.error("tool group failed job_id=%s tools=%s error=%s",
+                             job_id, other_tools, e)
 
         if "miRmap" in tools:
+            groups_run += 1
             logger.info("running python2.7 tools=['miRmap'] job_id=%s", job_id)
             cmd = [
                 "python2.7",
@@ -168,13 +185,29 @@ def run_job(self, job_id):
             ]
             if target_file:
                 cmd += ["-tf", target_file]
-            subprocess.check_call(cmd)
+            try:
+                subprocess.check_call(cmd)
+            except subprocess.CalledProcessError as e:
+                tool_errors["miRmap"] = str(e)
+                logger.error("tool group failed job_id=%s tools=['miRmap'] error=%s",
+                             job_id, e)
+
+        if tool_errors and len(tool_errors) >= groups_run:
+            # Every tool group failed -- there are no results to return.
+            meta["status"] = "failed"
+            meta["finished_at"] = int(time.time())
+            meta["error"] = "All prediction tools failed: {}".format(tool_errors)
+            _write_meta(job_id, meta)
+            logger.error("job failed job_id=%s error=%s", job_id, tool_errors)
+            return
 
         meta["status"] = "succeeded"
         meta["finished_at"] = int(time.time())
         meta["result_path"] = output_dir
+        if tool_errors:
+            meta["tool_errors"] = tool_errors
         _write_meta(job_id, meta)
-        logger.info("job succeeded job_id=%s", job_id)
+        logger.info("job succeeded job_id=%s tool_errors=%s", job_id, tool_errors)
     except subprocess.CalledProcessError as e:
         meta["status"] = "failed"
         meta["finished_at"] = int(time.time())

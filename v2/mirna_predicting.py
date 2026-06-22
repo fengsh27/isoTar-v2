@@ -36,6 +36,16 @@ TARGETSCAN = "/opt/TargetScan/"
 # DMISO path
 DMISO = "/usr/local/bin/dmiso"
 
+# miRmap's thermodynamic/probability scoring (spatt, dG-open) does not scale to
+# very long sequences: on multi-100 kb transcripts it can raise or hang, which
+# aborts the pool worker and fails the whole job. The gene/3' UTR workflow never
+# hits this (UTRs are short -- p99.9 well under 10 kb), but the lncRNA reference
+# contains a few extreme outliers (human hg38 has transcripts up to ~347 kb).
+# Transcripts longer than this many nucleotides are skipped for miRmap only and
+# recorded as a no-hit; every other tool still scores them. Override with the
+# MIRMAP_MAX_UTR_LENGTH env var (set to 0 to disable the guard).
+MIRMAP_MAX_UTR_LENGTH = int(os.environ.get("MIRMAP_MAX_UTR_LENGTH", "30000"))
+
 # 3 UTR PATH
 HUMAN_HG19_3UTR = '/opt/reference_files/hsa_HG19_only_3UTRs.fasta'
 HUMAN_HG38_3UTR = '/opt/reference_files/hsa_HG38_only_3UTRs.fasta'
@@ -354,7 +364,17 @@ def run_rnahybrid_with_params(params):
 
 
 def run_mirmap_with_params(params):
-    return run_mirmap(*params)
+    # Isolate each parallel shard. If one shard raises, returning None (instead
+    # of letting it propagate) keeps pool.map from re-raising and aborting the
+    # whole miRmap step, so the surviving shards' results are still merged.
+    # run_mirmap writes incrementally, so a shard that fails partway still
+    # leaves its already-processed transcripts on disk for the merge step.
+    try:
+        return run_mirmap(*params)
+    except Exception as e:
+        utr_file = params[2] if len(params) > 2 else "?"
+        print("miRmap shard failed ({}); other shards continue: {}".format(utr_file, e))
+        return None
 
 
 def run_dmiso_with_params(params):
@@ -430,39 +450,62 @@ def run_mirmap(mirna_seq, mirna_header, utr_file, output_file):
         # Process each UTR sequence
         for i in range(len(utr_headers)):
             out_f.write(">"+mirna_header+" "+utr_headers[i]+"\n\n")
-            # Convert miRNA sequence (U to T)
-            mirna_seq_t = mirna_seq.replace("U", "T")
-                
-            # Initialize miRmap object
-            mm_obj = mirmap.mm(utr_sequences[i], mirna_seq_t)
-            spatt_path = os.environ.get("MIRMAP_SPATT_LIB", "/opt/miRmap/libs/default/libspatt2.so")
-            if os.path.exists(spatt_path):
-                mm_obj.libs = mirmap.library_link.LibraryLink(os.path.dirname(spatt_path))
-            else:
-                print("Warning: Spatt library not found at {}. Continuing without Spatt.".format(spatt_path))
 
-            # Find targets with seed
-            mm_obj.find_potential_targets_with_seed()
-            if len(mm_obj.end_sites) == 0:
+            # Skip transcripts too long for miRmap to score safely (see
+            # MIRMAP_MAX_UTR_LENGTH). Record a no-hit so the worker neither
+            # raises nor hangs on lncRNA outliers; the format matches the
+            # "no targets" branch below so downstream parsing is unchanged.
+            if MIRMAP_MAX_UTR_LENGTH and len(utr_sequences[i]) > MIRMAP_MAX_UTR_LENGTH:
+                print("miRmap: skipping {} ({} nt > {} nt limit)".format(
+                    utr_headers[i], len(utr_sequences[i]), MIRMAP_MAX_UTR_LENGTH))
                 out_f.write("\n")
                 continue
 
-            # Evaluate scores (best effort)
-            mm_obj.eval_tgs_au()
-            mm_obj.eval_tgs_position()
-            mm_obj.eval_tgs_pairing3p()
-            mm_obj.eval_tgs_score()
-            mm_obj.eval_dg_duplex()
-            mm_obj.eval_dg_open()
-            mm_obj.eval_dg_total()
-            mm_obj.eval_prob_exact()
-            mm_obj.eval_prob_binomial()
-            mm_obj.cons_blss = [0.0] * len(mm_obj.end_sites)
-            mm_obj.selec_phylops = [1.0] * len(mm_obj.end_sites)
-            mm_obj.eval_score()
+            # Convert miRNA sequence (U to T)
+            mirna_seq_t = mirna_seq.replace("U", "T")
 
-            # Write report
-            out_f.write(mm_obj.report() + "\n\n")
+            # Evaluate one transcript inside try/except so a single sequence
+            # that breaks miRmap (e.g. an unexpected thermodynamic edge case)
+            # is recorded as a no-hit and skipped, instead of aborting the whole
+            # shard -- which would lose every other transcript's result and, via
+            # pool.map, fail the entire job. Note: this catches Python-level
+            # exceptions only; a hard hang on a pathological sequence is handled
+            # separately by the MIRMAP_MAX_UTR_LENGTH guard above.
+            try:
+                # Initialize miRmap object
+                mm_obj = mirmap.mm(utr_sequences[i], mirna_seq_t)
+                spatt_path = os.environ.get("MIRMAP_SPATT_LIB", "/opt/miRmap/libs/default/libspatt2.so")
+                if os.path.exists(spatt_path):
+                    mm_obj.libs = mirmap.library_link.LibraryLink(os.path.dirname(spatt_path))
+                else:
+                    print("Warning: Spatt library not found at {}. Continuing without Spatt.".format(spatt_path))
+
+                # Find targets with seed
+                mm_obj.find_potential_targets_with_seed()
+                if len(mm_obj.end_sites) == 0:
+                    out_f.write("\n")
+                    continue
+
+                # Evaluate scores (best effort)
+                mm_obj.eval_tgs_au()
+                mm_obj.eval_tgs_position()
+                mm_obj.eval_tgs_pairing3p()
+                mm_obj.eval_tgs_score()
+                mm_obj.eval_dg_duplex()
+                mm_obj.eval_dg_open()
+                mm_obj.eval_dg_total()
+                mm_obj.eval_prob_exact()
+                mm_obj.eval_prob_binomial()
+                mm_obj.cons_blss = [0.0] * len(mm_obj.end_sites)
+                mm_obj.selec_phylops = [1.0] * len(mm_obj.end_sites)
+                mm_obj.eval_score()
+
+                # Write report
+                out_f.write(mm_obj.report() + "\n\n")
+            except Exception as e:
+                print("miRmap: error on {} (skipped): {}".format(utr_headers[i], e))
+                out_f.write("\n")
+                continue
 
 def parse_dmiso_results(dmiso_file, output_file):
     """Parse DMISO results."""
