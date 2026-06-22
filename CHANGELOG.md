@@ -6,6 +6,10 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.4 - 2026-06-22
+
+- feat(lncrna): support PITA in the miR-LncRNA workflow
+
 ## 0.3.3 - 2026-06-16
 
 - feat(download): include job.json and mirna.fa in result.zip
