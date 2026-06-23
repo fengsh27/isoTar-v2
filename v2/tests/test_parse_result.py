@@ -28,6 +28,15 @@ from v2.parse_result import (  # noqa: E402
     _mirna_seed_match_pattern,
 )
 
+# The live result-building path (app_v1) carries the lncRNA-aware parsers; the
+# v2 copy is the legacy gene-only version. Import the app_v1 PITA parser and the
+# lenient lncRNA id extractor directly to lock the header-row regression.
+from app_v1.parse_result import (  # noqa: E402
+    parsePITAResults as parsePITAResults_app,
+    _extract_lncrna_transcript_id,
+    _extract_transcript_id,
+)
+
 
 def _make_ref_db(path, gene_rows, ensembl_rows):
     """Build a minimal reference_mapping.db with the supplied rows.
@@ -459,6 +468,53 @@ class ParseDMISOResultsTests(unittest.TestCase):
         self.assertEqual(rd["header"], "x")
         self.assertEqual(rd["type"], "WT")
         self.assertIn("DMISO", rd["prediction"])
+
+
+class ParsePITAResultsHeaderTests(unittest.TestCase):
+    """Regression for the lncRNA PITA crash: the PITA output starts with a
+    header row (``UTR ... ddG``). The gene flow skips it because
+    _extract_transcript_id returns None for the "UTR" cell, but the lenient
+    lncRNA extractor returns "UTR" verbatim, which used to reach float("ddG")
+    and raise ValueError -- crashing the whole result build."""
+
+    HEADER = "UTR\tmicroRNA\tStart\tEnd\tSeed\tLoop\tdGduplex\tdG5\tdG3\tdG0\tdG1\tdGopen\tddG\n"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="pita_test_")
+        self.path = os.path.join(self.tmp, "x_PITA_results.tab")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _row(self, target, ddg):
+        # 13 columns; only col0 (target) and col12 (ddG) are read.
+        return "{}\thsa-let-7a-3p,WT\t1\t8\t7:0:0\t0\t-5\t-5\t0\t\t\t\t{}\n".format(target, ddg)
+
+    def _write(self, rows):
+        with open(self.path, "w") as f:
+            f.write(self.HEADER)
+            for target, ddg in rows:
+                f.write(self._row(target, ddg))
+
+    def test_lncrna_header_row_does_not_crash_and_is_excluded(self):
+        hdr = "ENST00000357591.3 ncrna chromosome:GRCh38:4:1:2:1 gene_biotype:lncRNA"
+        self._write([(hdr, "-11.9"), ("ENST00000111111.1 ncrna foo", "-6.62")])
+        rd = parsePITAResults_app(self.path, {}, id_extractor=_extract_lncrna_transcript_id)
+        # ddG <= -10 kept (full header collapsed to the version-stripped
+        # accession, matching every other lncRNA parser); ddG > -10 dropped.
+        self.assertEqual(rd["prediction"]["PITA"], ["ENST00000357591"])
+        self.assertNotIn("UTR", rd["prediction"]["PITA"])
+
+    def test_gene_flow_unchanged(self):
+        self._write([("hg19_refGene_NM_000051 range=a", "-11.9"),
+                     ("hg19_refGene_NM_000546 range=b", "-6.62")])
+        rd = parsePITAResults_app(self.path, {})  # default gene extractor
+        self.assertEqual(rd["prediction"]["PITA"], ["NM_000051"])
+
+    def test_non_numeric_ddg_row_skipped(self):
+        self._write([("ENST00000357591.3 x", "n/a"), ("ENST00000222222.2 y", "-12.0")])
+        rd = parsePITAResults_app(self.path, {}, id_extractor=_extract_lncrna_transcript_id)
+        self.assertEqual(rd["prediction"]["PITA"], ["ENST00000222222"])
 
 
 if __name__ == "__main__":

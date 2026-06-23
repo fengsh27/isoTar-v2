@@ -205,7 +205,16 @@ def parsePITAResults(output_f_path, result_dict, id_extractor=_extract_transcrip
                 if len(line) == 13:
                     tar = id_extractor(line[0])
                     if tar:
-                        ddG = float(line[12])
+                        try:
+                            ddG = float(line[12])
+                        except ValueError:
+                            # Skip PITA's header row ("UTR ... ddG") and any row
+                            # whose ddG column is non-numeric. The gene flow skips
+                            # the header implicitly because _extract_transcript_id
+                            # returns None for the "UTR" cell, but the lenient
+                            # lncRNA extractor returns "UTR" verbatim, so the guard
+                            # must be explicit here.
+                            continue
                         if ddG <= -10.0:
                             if tar not in results:
                                 results.append(tar)
