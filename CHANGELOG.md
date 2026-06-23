@@ -6,6 +6,11 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.6 - 2026-06-23
+
+- feat(network): add mir-network workflow for gene↔miRNA↔lncRNA visualization
+- fix header-row fix for PITA
+
 ## 0.3.5 - 2026-06-22
 
 - fix(lncrna): make miRmap resilient to oversized transcripts and partial failures
