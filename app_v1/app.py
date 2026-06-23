@@ -17,6 +17,12 @@ from app_v1.logger import get_logger
 from app_v1.version import get_version
 from app_v1.result_db import ensure_db, query_genes
 from app_v1.lncrna_results import ensure_lncrna_db
+from app_v1.network_results import (
+    build_network,
+    load_pairs,
+    DEFAULT_TOP_GENES,
+    DEFAULT_TOP_LNCRNA,
+)
 from app_v1.target_resolver import (
     genome_to_species as _genome_to_species,
     resolve_targets as _resolve_targets,
@@ -37,6 +43,15 @@ _WORKFLOW_TARGET_TYPE = {
 # scores whatever FASTA is passed to -utr.) Mirrors LNCRNA_INCOMPATIBLE_TOOLS in
 # v2/mirna_predicting.py.
 LNCRNA_INCOMPATIBLE_TOOLS = {"Targetscan"}
+
+# The Network workflow runs BOTH target pools (gene + lncRNA) over a list of
+# miRNAs in a single job, then joins gene-target <-> miRNA <-> lncRNA-target into
+# a tripartite graph. It is handled separately from _WORKFLOW_TARGET_TYPE because
+# it is not a single-pool run.
+NETWORK_WORKFLOW = "mir-network"
+# Compute scales as (miRNAs x full reference x 2 pools); cap the list so a single
+# job can't fan out into an unbounded run.
+MAX_NETWORK_MIRNAS = int(os.environ.get("ISOTAR_MAX_NETWORK_MIRNAS", "20"))
 
 app = Flask(__name__)
 
@@ -87,6 +102,125 @@ def _load_progress(job_id):
         return None
 
 
+def _process_single_mirna(job_id, mirna_id, fasta_path, modifications, shift, pre_id):
+    """Generate mirna.fa for one miRNA (WT + optional modifications/shift)."""
+    cmd = [
+        "python2.7",
+        "/opt/v2/mirna_processing.py",
+        mirna_id,
+        "-o",
+        fasta_path,
+    ]
+    for mod in modifications:
+        cmd.extend(["-m", mod])
+    if shift:
+        cmd.extend(["-s", shift])
+    if modifications and shift:
+        cmd.append("-b")
+    if pre_id:
+        cmd.extend(["--pre-id", pre_id])
+    logger.info("step=processing job_id=%s", job_id)
+    subprocess.check_call(cmd)
+
+
+def _process_mirna_list(job_id, mirna_ids, fasta_path, meta):
+    """Process each miRNA (WT only) and concatenate into one mirna.fa.
+
+    Per-miRNA processing failures are recorded in meta['mirna_errors'] and that
+    miRNA is skipped; the job only aborts if EVERY miRNA failed. stdin is closed
+    so an interactive precursor prompt (multi-precursor miRNA without a pre-id)
+    raises EOFError instead of hanging the worker."""
+    job_dir = _job_path(job_id)
+    parts_dir = os.path.join(job_dir, "mirna_parts")
+    os.makedirs(parts_dir, exist_ok=True)
+    logger.info("step=processing job_id=%s mirnas=%d", job_id, len(mirna_ids))
+
+    mirna_errors = {}
+    part_paths = []
+    for idx, mirna_id in enumerate(mirna_ids):
+        part = os.path.join(parts_dir, "{}.fa".format(idx))
+        cmd = ["python2.7", "/opt/v2/mirna_processing.py", mirna_id, "-o", part]
+        try:
+            with open(os.devnull, "rb") as devnull:
+                subprocess.check_call(cmd, stdin=devnull)
+            part_paths.append(part)
+        except subprocess.CalledProcessError as e:
+            mirna_errors[mirna_id] = str(e)
+            logger.error("mirna processing failed job_id=%s mirna=%s error=%s",
+                         job_id, mirna_id, e)
+
+    if not part_paths:
+        raise RuntimeError("all miRNAs failed processing: {}".format(mirna_errors))
+
+    with open(fasta_path, "w") as out:
+        for part in part_paths:
+            with open(part, "r") as pf:
+                data = pf.read()
+            out.write(data)
+            if data and not data.endswith("\n"):
+                out.write("\n")
+
+    if mirna_errors:
+        meta["mirna_errors"] = mirna_errors
+
+
+def _run_prediction_pool(job_id, fasta_path, tools, genome, target_type,
+                         pool_output_dir, cores, target_file, tool_errors, label=None):
+    """Run the selected tools against one target pool as two subprocess groups:
+    the python3.6 tools, then miRmap under python2.7. A failure in one group is
+    recorded in tool_errors (keyed '<label>:<tools>' when label is set, or the
+    bare tool key otherwise) and never discards the other group's results.
+    Returns the number of groups attempted."""
+    os.makedirs(pool_output_dir, exist_ok=True)
+    groups_run = 0
+
+    other_tools = [t for t in tools if t != "miRmap"]
+    if other_tools:
+        groups_run += 1
+        key = "+".join(other_tools) if label is None else "{}:{}".format(label, "+".join(other_tools))
+        logger.info("running python3.6 tools=%s pool=%s job_id=%s", other_tools, label or target_type, job_id)
+        cmd = [
+            "python3.6",
+            "/opt/v2/mirna_predicting.py",
+            "-c", str(cores),
+            "-i", fasta_path,
+            "-t",
+        ] + other_tools + ["-g", genome, "-tt", target_type, "-o", pool_output_dir]
+        if target_file:
+            cmd += ["-tf", target_file]
+        try:
+            subprocess.check_call(cmd)
+        except subprocess.CalledProcessError as e:
+            tool_errors[key] = str(e)
+            logger.error("tool group failed job_id=%s pool=%s tools=%s error=%s",
+                         job_id, label or target_type, other_tools, e)
+
+    if "miRmap" in tools:
+        groups_run += 1
+        key = "miRmap" if label is None else "{}:miRmap".format(label)
+        logger.info("running python2.7 tools=['miRmap'] pool=%s job_id=%s", label or target_type, job_id)
+        cmd = [
+            "python2.7",
+            "/opt/v2/mirna_predicting.py",
+            "-c", str(cores),
+            "-i", fasta_path,
+            "-t", "miRmap",
+            "-g", genome,
+            "-tt", target_type,
+            "-o", pool_output_dir,
+        ]
+        if target_file:
+            cmd += ["-tf", target_file]
+        try:
+            subprocess.check_call(cmd)
+        except subprocess.CalledProcessError as e:
+            tool_errors[key] = str(e)
+            logger.error("tool group failed job_id=%s pool=%s tools=['miRmap'] error=%s",
+                         job_id, label or target_type, e)
+
+    return groups_run
+
+
 @celery_app.task(bind=True)
 def run_job(self, job_id):
     meta = _load_meta(job_id)
@@ -100,39 +234,27 @@ def run_job(self, job_id):
     os.makedirs(output_dir, exist_ok=True)
 
     try:
-        mirna_id = meta["mirna_id"]
         tools = meta["tools"]
         genome = meta.get("genome", "hg38")
-        # Map the product workflow to the runner's target sequence pool.
-        # Default keeps pre-existing job metas (no "workflow" field) on the gene flow.
-        target_type = _WORKFLOW_TARGET_TYPE.get(meta.get("workflow", "mir-target"), "gene")
         cores = int(meta.get("cores", 1))
-        modifications = meta.get("modifications", [])
-        shift = meta.get("shift")
-        pre_id = meta.get("pre_id")
-        target_file = meta.get("target_file")
-
-        logger.info("job started job_id=%s mirna_id=%s tools=%s genome=%s cores=%s",
-                    job_id, mirna_id, tools, genome, cores)
-
+        workflow = meta.get("workflow", "mir-target")
+        is_network = workflow == NETWORK_WORKFLOW
         fasta_path = os.path.join(job_dir, "mirna.fa")
-        cmd = [
-            "python2.7",
-            "/opt/v2/mirna_processing.py",
-            mirna_id,
-            "-o",
-            fasta_path,
-        ]
-        for mod in modifications:
-            cmd.extend(["-m", mod])
-        if shift:
-            cmd.extend(["-s", shift])
-        if modifications and shift:
-            cmd.append("-b")
-        if pre_id:
-            cmd.extend(["--pre-id", pre_id])
-        logger.info("step=processing job_id=%s", job_id)
-        subprocess.check_call(cmd)
+
+        # --- processing: generate mirna.fa (one miRNA, or a list for network) ---
+        if is_network:
+            mirna_ids = meta.get("mirna_ids", [])
+            logger.info("network job started job_id=%s mirnas=%d tools=%s genome=%s cores=%s",
+                        job_id, len(mirna_ids), tools, genome, cores)
+            _process_mirna_list(job_id, mirna_ids, fasta_path, meta)
+        else:
+            mirna_id = meta["mirna_id"]
+            logger.info("job started job_id=%s mirna_id=%s tools=%s genome=%s cores=%s",
+                        job_id, mirna_id, tools, genome, cores)
+            _process_single_mirna(
+                job_id, mirna_id, fasta_path,
+                meta.get("modifications", []), meta.get("shift"), meta.get("pre_id"),
+            )
         meta["step"] = "processing"
         _write_meta(job_id, meta)
 
@@ -140,57 +262,33 @@ def run_job(self, job_id):
         _write_meta(job_id, meta)
         logger.info("step=predicting job_id=%s", job_id)
 
-        # The tools run as two independent subprocess groups: the python3.6
-        # tools, then miRmap under python2.7. A failure in one group must not
-        # discard the results of the other -- so each group is run in its own
-        # try/except and failures are recorded in tool_errors. The job is only
-        # marked failed if EVERY group failed (nothing to return); otherwise it
-        # succeeds and publishes whatever results were produced, with the failed
-        # tools noted in meta["tool_errors"].
+        # The tools run as two independent subprocess groups per pool (python3.6
+        # tools, then miRmap under python2.7). A failure in one group must not
+        # discard the results of the others -- each runs in its own try/except
+        # (in _run_prediction_pool) and failures are recorded in tool_errors. The
+        # job is only marked failed if EVERY group failed (nothing to return);
+        # otherwise it succeeds with whatever results were produced and the
+        # failed tools noted in meta["tool_errors"].
         tool_errors = {}
         groups_run = 0
 
-        other_tools = [t for t in tools if t != "miRmap"]
-        if other_tools:
-            groups_run += 1
-            logger.info("running python3.6 tools=%s job_id=%s", other_tools, job_id)
-            cmd = [
-                "python3.6",
-                "/opt/v2/mirna_predicting.py",
-                "-c", str(cores),
-                "-i", fasta_path,
-                "-t",
-            ] + other_tools + ["-g", genome, "-tt", target_type, "-o", output_dir]
-            if target_file:
-                cmd += ["-tf", target_file]
-            try:
-                subprocess.check_call(cmd)
-            except subprocess.CalledProcessError as e:
-                tool_errors["+".join(other_tools)] = str(e)
-                logger.error("tool group failed job_id=%s tools=%s error=%s",
-                             job_id, other_tools, e)
-
-        if "miRmap" in tools:
-            groups_run += 1
-            logger.info("running python2.7 tools=['miRmap'] job_id=%s", job_id)
-            cmd = [
-                "python2.7",
-                "/opt/v2/mirna_predicting.py",
-                "-c", str(cores),
-                "-i", fasta_path,
-                "-t", "miRmap",
-                "-g", genome,
-                "-tt", target_type,
-                "-o", output_dir,
-            ]
-            if target_file:
-                cmd += ["-tf", target_file]
-            try:
-                subprocess.check_call(cmd)
-            except subprocess.CalledProcessError as e:
-                tool_errors["miRmap"] = str(e)
-                logger.error("tool group failed job_id=%s tools=['miRmap'] error=%s",
-                             job_id, e)
+        if is_network:
+            # Run BOTH target pools over the same miRNA list. TargetScan can only
+            # scan the 3' UTR (gene) pool -- drop it on the lncRNA pass. No target
+            # filter: the ceRNA pairs filter at result-build time, not here.
+            groups_run += _run_prediction_pool(
+                job_id, fasta_path, tools, genome, "gene",
+                os.path.join(output_dir, "gene"), cores, None, tool_errors, label="gene")
+            lncrna_tools = [t for t in tools if t not in LNCRNA_INCOMPATIBLE_TOOLS]
+            if lncrna_tools:
+                groups_run += _run_prediction_pool(
+                    job_id, fasta_path, lncrna_tools, genome, "lncrna",
+                    os.path.join(output_dir, "lncrna"), cores, None, tool_errors, label="lncrna")
+        else:
+            target_type = _WORKFLOW_TARGET_TYPE.get(workflow, "gene")
+            groups_run += _run_prediction_pool(
+                job_id, fasta_path, tools, genome, target_type,
+                output_dir, cores, meta.get("target_file"), tool_errors, label=None)
 
         if tool_errors and len(tool_errors) >= groups_run:
             # Every tool group failed -- there are no results to return.
@@ -222,10 +320,103 @@ def run_job(self, job_id):
         logger.error("job failed job_id=%s error=%s", job_id, e)
 
 
+def _submit_network_job(data, tools):
+    """Validate, resolve, and enqueue a mir-network job (list of miRNAs + both
+    target pools + optional ceRNA (gene, lncRNA) pairs)."""
+    mirna_ids = data.get("mirna_ids") or []
+    pairs_in = data.get("pairs") or []
+
+    if not tools:
+        return jsonify({"error": "tools are required"}), 400
+    if (not isinstance(mirna_ids, list) or not mirna_ids
+            or not all(isinstance(m, str) and m.strip() for m in mirna_ids)):
+        return jsonify({"error": "mirna_ids must be a non-empty list of miRNA ID strings"}), 400
+
+    # Dedupe while preserving the user's order.
+    seen = set()
+    mirna_ids = [m.strip() for m in mirna_ids
+                 if m.strip() not in seen and not seen.add(m.strip())]
+    if len(mirna_ids) > MAX_NETWORK_MIRNAS:
+        return jsonify({"error": "too many miRNAs for one network job",
+                        "max": MAX_NETWORK_MIRNAS, "count": len(mirna_ids)}), 400
+
+    cores, cores_err = validate_cores(data.get("cores"))
+    if cores_err:
+        msg, status = cores_err
+        return jsonify({"error": msg, "max_cores_per_job": MAX_CORES_PER_JOB}), status
+
+    genome = data.get("genome", "hg38")
+
+    if not isinstance(pairs_in, list):
+        return jsonify({"error": "pairs must be a list of {gene, lncrna} objects"}), 400
+
+    # Resolve each pair's gene symbol/accession to RefSeq before creating job
+    # state, so a 400 leaves no orphan dir. A symbol may expand to several RefSeq.
+    resolved_pairs = []
+    unresolved_genes = []
+    for p in pairs_in:
+        if not isinstance(p, dict):
+            return jsonify({"error": "each pair must be an object with gene and lncrna"}), 400
+        gene = (p.get("gene") or "").strip()
+        lncrna = (p.get("lncrna") or "").strip()
+        if not gene or not lncrna:
+            return jsonify({"error": "each pair requires a non-empty gene and lncrna"}), 400
+        refseqs, unresolved = _resolve_targets([gene], genome)
+        if unresolved:
+            unresolved_genes.extend(unresolved)
+            continue
+        resolved_pairs.append({
+            "gene": gene,
+            "gene_refseqs": sorted(refseqs),
+            "lncrna": lncrna,
+        })
+    if unresolved_genes:
+        return jsonify({
+            "error": "unresolved pair genes",
+            "unresolved": unresolved_genes,
+            "hint": "gene symbols not found in gene_mapping for species {}".format(
+                _genome_to_species(genome)),
+        }), 400
+
+    job_id = str(uuid.uuid4())
+    job_dir = _job_path(job_id)
+    os.makedirs(job_dir, exist_ok=True)
+
+    if resolved_pairs:
+        with open(os.path.join(job_dir, "pairs.json"), "w") as f:
+            json.dump({"pairs": resolved_pairs}, f, indent=2)
+
+    meta = {
+        "job_id": job_id,
+        "status": "queued",
+        "created_at": int(time.time()),
+        "mirna_ids": mirna_ids,
+        "tools": tools,
+        "workflow": NETWORK_WORKFLOW,
+        "genome": genome,
+        "cores": cores,
+        "pair_count": len(resolved_pairs),
+    }
+    _write_meta(job_id, meta)
+    task = run_job.delay(job_id)
+    meta["task_id"] = task.id
+    _write_meta(job_id, meta)
+    logger.info("network job queued job_id=%s mirnas=%d tools=%s genome=%s pairs=%d",
+                job_id, len(mirna_ids), tools, genome, len(resolved_pairs))
+    return jsonify({"job_id": job_id, "task_id": task.id}), 202
+
+
 @app.route("/api/v1/jobs", methods=["POST"])
 def submit_job():
     data = request.get_json(force=True, silent=True) or {}
     tools = data.get("tools", [])
+    workflow = data.get("workflow", "mir-target")
+
+    # The Network workflow takes a list of miRNAs (not a single mirna_id) and
+    # optional (gene, lncRNA) pairs, so it has its own validation/enqueue path.
+    if workflow == NETWORK_WORKFLOW:
+        return _submit_network_job(data, tools)
+
     mirna_id = data.get("mirna_id")
     modifications = data.get("modifications", [])
     shift = data.get("shift")
@@ -236,7 +427,6 @@ def submit_job():
         logger.warning("job rejected: missing tools or mirna_id")
         return jsonify({"error": "tools and mirna_id are required"}), 400
 
-    workflow = data.get("workflow", "mir-target")
     if workflow not in _WORKFLOW_TARGET_TYPE:
         return jsonify({"error": "workflow must be one of {}".format(
             sorted(_WORKFLOW_TARGET_TYPE))}), 400
@@ -394,6 +584,55 @@ def job_result(job_id):
     logger.info("result queried job_id=%s sort_by=%s order=%s offset=%d number=%d keyword=%s total=%d total_genes=%d",
                 job_id, sort_by, order, offset, number, keyword, data["total"], data["total_genes"])
     return jsonify(data)
+
+
+@app.route("/api/v1/jobs/<job_id>/network", methods=["GET"])
+def job_network(job_id):
+    """Tripartite gene <-> miRNA <-> lncRNA network for a mir-network job.
+
+    Builds (and caches) network.db from both prediction pools, then shapes the
+    graph: with user (gene, lncRNA) pairs it returns only the ceRNA co-target
+    bridges; without pairs it returns a bounded discovery graph over the
+    top-degree genes/lncRNAs (topGenes/topLncrna query params)."""
+    if not os.path.exists(_job_meta_path(job_id)):
+        return jsonify({"error": "job not found"}), 404
+    meta = _load_meta(job_id)
+    if meta.get("workflow") != NETWORK_WORKFLOW:
+        return jsonify({"error": "network is only available for the mir-network workflow"}), 400
+    if meta.get("status") != "succeeded":
+        logger.warning("network requested but job not succeeded job_id=%s status=%s",
+                       job_id, meta.get("status"))
+        return jsonify({"error": "job not completed", "status": meta.get("status")}), 409
+
+    output_dir = meta.get("result_path")
+    if not output_dir or not os.path.exists(output_dir):
+        logger.error("result directory missing job_id=%s result_path=%s", job_id, output_dir)
+        return jsonify({"error": "result not found"}), 404
+
+    try:
+        top_genes = int(request.args.get("topGenes", DEFAULT_TOP_GENES))
+        top_lncrna = int(request.args.get("topLncrna", DEFAULT_TOP_LNCRNA))
+    except ValueError:
+        return jsonify({"error": "topGenes and topLncrna must be integers"}), 400
+    if top_genes < 1 or top_lncrna < 1:
+        return jsonify({"error": "topGenes and topLncrna must be >= 1"}), 400
+
+    pairs = load_pairs(_job_path(job_id))
+    try:
+        data = build_network(output_dir, pairs=pairs,
+                             top_genes=top_genes, top_lncrna=top_lncrna)
+    except Exception as e:
+        logger.error("network build failed job_id=%s error=%s", job_id, e)
+        return jsonify({"error": "network build failed: {}".format(str(e))}), 500
+
+    data["job_id"] = job_id
+    summary = data.get("summary", {})
+    logger.info("network queried job_id=%s mode=%s genes=%s mirnas=%s lncrnas=%s edges=%s pairs=%s",
+                job_id, data.get("mode"), summary.get("gene_count"), summary.get("mirna_count"),
+                summary.get("lncrna_count"), summary.get("edge_count"), summary.get("pair_count"))
+    resp = jsonify(data)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.route("/api/v1/jobs/<job_id>/result/download", methods=["GET"])
