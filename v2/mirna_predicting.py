@@ -70,10 +70,17 @@ NORWAYRAT_LNCRNA = '/opt/reference_files/rno_RGSC6_rn6_lncRNAs.fasta'
 MIRMAP_SRC = "/opt/miRmap/src"
 # Only the legacy miRmap 1.x source (Python 2.7) lives here. Under Python 3 --
 # the miRmap 2 path, run via python3.11 -- the pip-installed `mirmap` 2.x package
-# is used instead, so the 1.x source must NOT go on sys.path where it could
-# shadow miRmap 2.
-if sys.version_info[0] < 3 and MIRMAP_SRC not in sys.path:
-    sys.path.append(MIRMAP_SRC)
+# (in site-packages) is used instead. The container sets PYTHONPATH=/opt/miRmap/src,
+# which Python places on sys.path AHEAD of site-packages and would shadow miRmap 2
+# (the 1.x source has no `target` submodule, so `import mirmap.target` fails and
+# every transcript silently becomes a no-hit). So append it under Py2, strip it
+# under Py3.
+if sys.version_info[0] < 3:
+    if MIRMAP_SRC not in sys.path:
+        sys.path.append(MIRMAP_SRC)
+else:
+    _mirmap_src_norm = os.path.normpath(MIRMAP_SRC)
+    sys.path[:] = [p for p in sys.path if os.path.normpath(p) != _mirmap_src_norm]
 
 def parse_fasta(fasta_file):
     """
