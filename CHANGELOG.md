@@ -6,6 +6,10 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.8 - 2026-06-25
+
+- (no changes recorded since v0.3.7)
+
 ## 0.3.7 - 2026-06-25
 
 - feat(mirna): support custom user-supplied miRNA sequences
