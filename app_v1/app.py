@@ -167,7 +167,7 @@ def _process_mirna_list(job_id, mirna_ids, fasta_path, meta):
 def _run_prediction_pool(job_id, fasta_path, tools, genome, target_type,
                          pool_output_dir, cores, target_file, tool_errors, label=None):
     """Run the selected tools against one target pool as two subprocess groups:
-    the python3.6 tools, then miRmap under python2.7. A failure in one group is
+    the python3.6 tools, then miRmap under python3.11. A failure in one group is
     recorded in tool_errors (keyed '<label>:<tools>' when label is set, or the
     bare tool key otherwise) and never discards the other group's results.
     Returns the number of groups attempted."""
@@ -198,9 +198,9 @@ def _run_prediction_pool(job_id, fasta_path, tools, genome, target_type,
     if "miRmap" in tools:
         groups_run += 1
         key = "miRmap" if label is None else "{}:miRmap".format(label)
-        logger.info("running python2.7 tools=['miRmap'] pool=%s job_id=%s", label or target_type, job_id)
+        logger.info("running python3.11 tools=['miRmap'] pool=%s job_id=%s", label or target_type, job_id)
         cmd = [
-            "python2.7",
+            "python3.11",
             "/opt/v2/mirna_predicting.py",
             "-c", str(cores),
             "-i", fasta_path,
@@ -263,7 +263,7 @@ def run_job(self, job_id):
         logger.info("step=predicting job_id=%s", job_id)
 
         # The tools run as two independent subprocess groups per pool (python3.6
-        # tools, then miRmap under python2.7). A failure in one group must not
+        # tools, then miRmap under python3.11). A failure in one group must not
         # discard the results of the others -- each runs in its own try/except
         # (in _run_prediction_pool) and failures are recorded in tool_errors. The
         # job is only marked failed if EVERY group failed (nothing to return);
