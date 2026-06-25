@@ -1,4 +1,4 @@
-FROM frankfeng78/isotar-v2-base:0.2.2
+FROM frankfeng78/isotar-v2-base:0.2.3
 
 LABEL maintainer="rosario.distefano.ict@gmail.com"
 ENV DEBIAN_FRONTEND=noninteractive
@@ -66,7 +66,6 @@ RUN cd /opt/R \
 RUN mkdir -p /app
 RUN python2.7 -m pip install --no-cache-dir --upgrade "pip==20.3.4" "setuptools==44.1.1" \
 	&& python2.7 -m pip install --no-cache-dir "numpy==1.16.6" \
-	&& python2.7 -m pip install --no-cache-dir "dendropy==4.3.0" \
 	&& python2.7 -m pip install --no-cache-dir -r /opt/requirements.txt
 
 # Setup app_v1
@@ -103,10 +102,10 @@ RUN cd /opt/miRanda \
 	&& make \
 	&& make install
 
-# Setup miRmap
-RUN cd /opt/miRmap/libs \
-	&& mv lib-archlinux-x86_64/ default
-	
+# miRmap 1.x removed -- superseded by pip-installed miRmap 2 (python3.11, see
+# isotar-base.Dockerfile). The old /opt/miRmap/libs/default libspatt setup is
+# no longer needed.
+
 # RNAhybrid-2.1.2 setup
 RUN cd /opt/RNAhybrid \
 	&& make clean \
@@ -123,12 +122,13 @@ RUN cd /opt/RNAhybrid \
 #########################
 ENV PATH="${PATH}:/opt/miRanda/bin"
 
-#########################
-## miRmap v1.1         ##
-#########################
-ENV PATH="${PATH}:/opt/miRmap/scripts"
-ENV PYTHONPATH=/opt/miRmap/src/
-ENV LD_LIBRARY_PATH=/opt/miRmap/libs/default
+###########################
+## miRmap 2 (python3.11)  ##
+###########################
+# miRmap 1.x removed. It ran under python2.7 and put /opt/miRmap/src on
+# PYTHONPATH, which shadowed the pip-installed miRmap 2; miRmap 2 lives in
+# python3.11 site-packages (isotar-base.Dockerfile) and needs no PATH /
+# PYTHONPATH / LD_LIBRARY_PATH entries here.
 
 ###############################
 ## Setting PERL5LIB for PITA ##
