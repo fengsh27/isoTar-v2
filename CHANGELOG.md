@@ -6,6 +6,13 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.7 - 2026-06-25
+
+- feat(mirna): support custom user-supplied miRNA sequences
+- chore(mirmap): remove miRmap 1.x from the image
+- fix(mirmap): stop PYTHONPATH=/opt/miRmap/src shadowing miRmap 2
+- feat(mirmap): migrate miRmap to miRmap 2 on python3.11
+
 ## 0.3.6 - 2026-06-23
 
 - feat(network): add mir-network workflow for gene↔miRNA↔lncRNA visualization
