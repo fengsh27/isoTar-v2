@@ -143,3 +143,47 @@ RUN wget -q https://www.python.org/ftp/python/3.6.13/Python-3.6.13.tgz -O /tmp/P
 	&& make altinstall \
 	&& cd / \
 	&& rm -rf /tmp/Python-3.6.13 /tmp/Python-3.6.13.tgz
+
+# --- miRmap 2 toolchain: Python 3.11 (needs OpenSSL >= 1.1.1, which ubuntu:16.04
+# does not ship). Built with altinstall so it sits alongside python2.7/3.5/3.6
+# without clobbering the system python3. Invoke explicitly as `python3.11`. The
+# DMISO (python3.6) and miRmap-1 (python2.7) paths are untouched; this is purely
+# additive. Required build headers (libffi/zlib/bz2/sqlite/readline/lzma/ssl)
+# are already installed by the apt blocks above. ---
+
+# OpenSSL 1.1.1 into a private prefix (16.04's system OpenSSL is 1.0.2, too old
+# for Python 3.10+ to build a working `ssl` module -> pip can't reach PyPI).
+RUN wget -q https://www.openssl.org/source/openssl-1.1.1w.tar.gz -O /tmp/openssl-1.1.1w.tar.gz \
+	&& tar -xzf /tmp/openssl-1.1.1w.tar.gz -C /tmp \
+	&& cd /tmp/openssl-1.1.1w \
+	&& ./config --prefix=/usr/local/openssl-1.1.1 --openssldir=/usr/local/openssl-1.1.1 shared zlib \
+	&& make -j$(nproc) \
+	&& make install_sw \
+	&& cd / \
+	&& rm -rf /tmp/openssl-1.1.1w /tmp/openssl-1.1.1w.tar.gz
+
+# Python 3.11 built against that OpenSSL. --with-openssl-rpath=auto bakes the lib
+# path into the binary so no LD_LIBRARY_PATH is needed at runtime.
+RUN wget -q https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz -O /tmp/Python-3.11.9.tgz \
+	&& tar -xzf /tmp/Python-3.11.9.tgz -C /tmp \
+	&& cd /tmp/Python-3.11.9 \
+	&& ./configure --with-openssl=/usr/local/openssl-1.1.1 \
+	               --with-openssl-rpath=auto \
+	               --with-ensurepip=install \
+	&& make -j$(nproc) \
+	&& make altinstall \
+	&& cd / \
+	&& rm -rf /tmp/Python-3.11.9 /tmp/Python-3.11.9.tgz
+
+# Verify ssl actually compiled (fails the build early if not), then miRmap 2.
+# miRmap declares bare `ViennaRNA`/`dendropy` (no version pins), so pip would
+# otherwise grab the newest ViennaRNA, whose wheels target a glibc newer than
+# 16.04's (glibc 2.23) -> no matching wheel -> source build -> fail. Pin to a
+# release that still ships a manylinux_2_17 (glibc 2.17) cp311 wheel and force a
+# binary install (--only-binary :all: fails loudly instead of compiling). This
+# also satisfies miRmap's unpinned dep so `pip install mirmap` keeps this version.
+RUN python3.11 -m pip install --no-cache-dir --upgrade pip \
+	&& python3.11 -c "import ssl; print('python3.11 OpenSSL:', ssl.OPENSSL_VERSION)" \
+	&& python3.11 -m pip install --no-cache-dir --only-binary :all: "ViennaRNA==2.7.0" dendropy \
+	&& python3.11 -m pip install --no-cache-dir mirmap \
+	&& python3.11 -c "import mirmap, RNA, dendropy; print('miRmap 2 import OK')"

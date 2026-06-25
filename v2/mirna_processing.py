@@ -288,6 +288,11 @@ def main():
                            "(otherwise resolved from the miRNA id's species prefix)")
     parser.add_argument('--strict', action='store_true',
                       help="Exit if any modification or shift fails")
+    parser.add_argument('--seq', '--sequence', dest='seq',
+                      help="Use this raw miRNA sequence directly (custom miRNA) "
+                           "instead of looking the id up in miRBase metadata. "
+                           "{}-{} nt, alphabet {}; modifications/shift are ignored.".format(
+                               MIN_LENGTH, MAX_LENGTH, ' '.join(sorted(VALID_NUCLEOTIDES))))
 
     args = parser.parse_args()
 
@@ -295,6 +300,25 @@ def main():
         # Validate arguments
         if args.both and not (args.modification and args.shift):
             raise ValueError("--both requires both --modification and --shift")
+
+        # Custom miRNA: a user-supplied raw sequence bypasses the miRBase
+        # metadata lookup entirely. The id is a free-form label (e.g.
+        # "my-mir-X1") with no species prefix, so resolve_metadata_path would
+        # raise FileNotFoundError. Emit a single WT record (header carries the
+        # ",WT" comma downstream parsers expect); modifications/shift need
+        # precursor context a custom sequence lacks, so they are ignored.
+        if args.seq:
+            seq = args.seq.strip().upper()
+            invalid = sorted(set(seq) - VALID_NUCLEOTIDES)
+            if invalid:
+                raise ValueError("Invalid nucleotides {} in custom sequence for {} (allowed: {})".format(
+                    invalid, args.mirna_id, ' '.join(sorted(VALID_NUCLEOTIDES))))
+            if not (MIN_LENGTH <= len(seq) <= MAX_LENGTH):
+                raise ValueError("Custom sequence length {} for {} is outside the allowed range ({}-{})".format(
+                    len(seq), args.mirna_id, MIN_LENGTH, MAX_LENGTH))
+            write_fasta(args.output, [("{},WT".format(args.mirna_id), seq)])
+            print("Successfully wrote 1 sequences to {}".format(args.output))
+            return
 
         # Load and validate data
         metadata_path = resolve_metadata_path(args.mirna_id, override=args.metadata)

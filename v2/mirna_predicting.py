@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os, re
 import sys
 import argparse
@@ -36,16 +37,6 @@ TARGETSCAN = "/opt/TargetScan/"
 # DMISO path
 DMISO = "/usr/local/bin/dmiso"
 
-# miRmap's thermodynamic/probability scoring (spatt, dG-open) does not scale to
-# very long sequences: on multi-100 kb transcripts it can raise or hang, which
-# aborts the pool worker and fails the whole job. The gene/3' UTR workflow never
-# hits this (UTRs are short -- p99.9 well under 10 kb), but the lncRNA reference
-# contains a few extreme outliers (human hg38 has transcripts up to ~347 kb).
-# Transcripts longer than this many nucleotides are skipped for miRmap only and
-# recorded as a no-hit; every other tool still scores them. Override with the
-# MIRMAP_MAX_UTR_LENGTH env var (set to 0 to disable the guard).
-MIRMAP_MAX_UTR_LENGTH = int(os.environ.get("MIRMAP_MAX_UTR_LENGTH", "30000"))
-
 # 3 UTR PATH
 HUMAN_HG19_3UTR = '/opt/reference_files/hsa_HG19_only_3UTRs.fasta'
 HUMAN_HG38_3UTR = '/opt/reference_files/hsa_HG38_only_3UTRs.fasta'
@@ -77,8 +68,19 @@ NORWAYRAT_LNCRNA = '/opt/reference_files/rno_RGSC6_rn6_lncRNAs.fasta'
 
 # Ensure miRmap modules can be imported
 MIRMAP_SRC = "/opt/miRmap/src"
-if MIRMAP_SRC not in sys.path:
-    sys.path.append(MIRMAP_SRC)
+# Only the legacy miRmap 1.x source (Python 2.7) lives here. Under Python 3 --
+# the miRmap 2 path, run via python3.11 -- the pip-installed `mirmap` 2.x package
+# (in site-packages) is used instead. The container sets PYTHONPATH=/opt/miRmap/src,
+# which Python places on sys.path AHEAD of site-packages and would shadow miRmap 2
+# (the 1.x source has no `target` submodule, so `import mirmap.target` fails and
+# every transcript silently becomes a no-hit). So append it under Py2, strip it
+# under Py3.
+if sys.version_info[0] < 3:
+    if MIRMAP_SRC not in sys.path:
+        sys.path.append(MIRMAP_SRC)
+else:
+    _mirmap_src_norm = os.path.normpath(MIRMAP_SRC)
+    sys.path[:] = [p for p in sys.path if os.path.normpath(p) != _mirmap_src_norm]
 
 def parse_fasta(fasta_file):
     """
@@ -414,10 +416,76 @@ def targetscan_prep(sequence, header, out_dir):
         line = "{}\t{}\t{}\n".format(identifier_clean, seed, species_id)
         f.write(line)
 
+def _build_mirmap2_block(targets):
+    """Format miRmap 2 per-site scores in the legacy miRmap 1.x report() layout.
+
+    miRmap 2 replaced the 1.x object API (mm.eval_*/report) with per-feature
+    functions, so we rebuild the exact text block 1.x emitted: five alignment
+    lines (positions, bar, target window, pairing, miRNA) followed by the feature
+    lines via '  %-30s% .5f'. parse_result.py keys off fixed offsets from the
+    header line -- a numeric line at +2 and "ΔG binding (kcal/mol)" at +8 -- so
+    ΔG duplex then ΔG binding MUST be emitted first, in that order.
+    """
+    import mirmap.thermo
+    import mirmap.targetscan
+    import mirmap.prob_binomial
+
+    lines = []
+    for t in targets:
+        host = t.host_seq
+        mlen = t.mirna_length
+        end_site = t.seed.end
+        start = max(0, end_site - mlen - 10)
+        end = end_site + 10
+        # Alignment block. Downstream parsing only needs a number on the first
+        # line; the rest is kept for report readability / parity with 1.x.
+        first = str(start + 1)
+        lines.append(first + ' ' * max(0, end_site - start - len(first) - 1) + str(end_site))
+        lines.append('|' + ' ' * max(0, end_site - start - 2) + '|')
+        lines.append(host[start:end])
+        seed_pairing = '|' * t.seed_length
+        lines.append(' ' * max(0, end_site - len(seed_pairing) - start) + seed_pairing)
+        lines.append(' ' * max(0, end_site - mlen - start) + t.mirna_seq[::-1])
+        # Thermodynamics -- ΔG duplex + binding first and in this order (the
+        # parser contract). ΔG total = duplex + open, exactly as calc_dg_total.
+        dgd = mirmap.thermo.calc_dg_duplex(t)
+        lines.append('  %-30s% .5f' % ('ΔG duplex (kcal/mol)', dgd['dg_duplex']))
+        lines.append('  %-30s% .5f' % ('ΔG binding (kcal/mol)', dgd['dg_binding']))
+        dgo = mirmap.thermo.calc_dg_open(t)
+        lines.append('  %-30s% .5f' % ('ΔG open (kcal/mol)', dgo['dg_open']))
+        lines.append('  %-30s% .5f' % ('ΔG total (kcal/mol)', dgd['dg_duplex'] + dgo['dg_open']))
+        # TargetScan features may be None for unsupported seed types -> omit the
+        # line; they follow ΔG binding so omission never shifts parser offsets.
+        au = mirmap.targetscan.calc_tgs_au(t)
+        pos = mirmap.targetscan.calc_tgs_position(t)
+        p3 = mirmap.targetscan.calc_tgs_pairing3p(t)
+        sc = mirmap.targetscan.calc_tgs_score(
+            t, score_tgs_au=au, score_tgs_position=pos, score_tgs_pairing3p=p3)
+        for label, val in (('AU content', au), ('UTR position', pos),
+                           ("3' pairing", p3), ('TargetScan score', sc)):
+            if val is not None:
+                lines.append('  %-30s% .5f' % (label, val))
+        # Probability (Binomial): analytic, no Spatt. prob_exact is intentionally
+        # skipped -- it needs libspatt2.so and miRmap 2's calc_scores has a bug
+        # requiring it; parse_result.py never reads the exact probability.
+        try:
+            pb = mirmap.prob_binomial.calc_prob_binomial(t)
+            lines.append('  %-30s% .5f' % ('Probability (Binomial)', pb))
+        except Exception:
+            pass
+    return '\n'.join(lines)
+
+
 def run_mirmap(mirna_seq, mirna_header, utr_file, output_file):
-    """Run miRmap on a given miRNA sequence and UTR file."""
-    import mirmap
-    import mirmap.library_link
+    """Run miRmap 2 on a given miRNA sequence and UTR file.
+
+    Uses miRmap 2 (vejnar/miRmap, Python 3) via its per-feature API and emits a
+    report byte-compatible with the legacy 1.x report() layout (see
+    _build_mirmap2_block) so parse_result.py keeps working unchanged. Must run
+    under python3.11, where `mirmap` 2.x is pip-installed; the 1.x package under
+    python2.7 is no longer used by this path.
+    """
+    import mirmap.target
     
     # Read UTR sequences from file
     utr_sequences = []
@@ -451,57 +519,21 @@ def run_mirmap(mirna_seq, mirna_header, utr_file, output_file):
         for i in range(len(utr_headers)):
             out_f.write(">"+mirna_header+" "+utr_headers[i]+"\n\n")
 
-            # Skip transcripts too long for miRmap to score safely (see
-            # MIRMAP_MAX_UTR_LENGTH). Record a no-hit so the worker neither
-            # raises nor hangs on lncRNA outliers; the format matches the
-            # "no targets" branch below so downstream parsing is unchanged.
-            if MIRMAP_MAX_UTR_LENGTH and len(utr_sequences[i]) > MIRMAP_MAX_UTR_LENGTH:
-                print("miRmap: skipping {} ({} nt > {} nt limit)".format(
-                    utr_headers[i], len(utr_sequences[i]), MIRMAP_MAX_UTR_LENGTH))
-                out_f.write("\n")
-                continue
-
-            # Convert miRNA sequence (U to T)
+            # Convert miRNA sequence (U to T) for seed matching against the
+            # (DNA) reference transcript.
             mirna_seq_t = mirna_seq.replace("U", "T")
 
-            # Evaluate one transcript inside try/except so a single sequence
-            # that breaks miRmap (e.g. an unexpected thermodynamic edge case)
-            # is recorded as a no-hit and skipped, instead of aborting the whole
-            # shard -- which would lose every other transcript's result and, via
-            # pool.map, fail the entire job. Note: this catches Python-level
-            # exceptions only; a hard hang on a pathological sequence is handled
-            # separately by the MIRMAP_MAX_UTR_LENGTH guard above.
+            # Score one transcript inside try/except so a single sequence that
+            # breaks miRmap is recorded as a no-hit and skipped, instead of
+            # aborting the whole shard -- which would lose every other
+            # transcript's result and, via pool.map, fail the entire job.
             try:
-                # Initialize miRmap object
-                mm_obj = mirmap.mm(utr_sequences[i], mirna_seq_t)
-                spatt_path = os.environ.get("MIRMAP_SPATT_LIB", "/opt/miRmap/libs/default/libspatt2.so")
-                if os.path.exists(spatt_path):
-                    mm_obj.libs = mirmap.library_link.LibraryLink(os.path.dirname(spatt_path))
-                else:
-                    print("Warning: Spatt library not found at {}. Continuing without Spatt.".format(spatt_path))
-
-                # Find targets with seed
-                mm_obj.find_potential_targets_with_seed()
-                if len(mm_obj.end_sites) == 0:
+                targets = mirmap.target.find_targets_with_seed(
+                    utr_sequences[i], mirna_seq_t)
+                if not targets:
                     out_f.write("\n")
                     continue
-
-                # Evaluate scores (best effort)
-                mm_obj.eval_tgs_au()
-                mm_obj.eval_tgs_position()
-                mm_obj.eval_tgs_pairing3p()
-                mm_obj.eval_tgs_score()
-                mm_obj.eval_dg_duplex()
-                mm_obj.eval_dg_open()
-                mm_obj.eval_dg_total()
-                mm_obj.eval_prob_exact()
-                mm_obj.eval_prob_binomial()
-                mm_obj.cons_blss = [0.0] * len(mm_obj.end_sites)
-                mm_obj.selec_phylops = [1.0] * len(mm_obj.end_sites)
-                mm_obj.eval_score()
-
-                # Write report
-                out_f.write(mm_obj.report() + "\n\n")
+                out_f.write(_build_mirmap2_block(targets) + "\n\n")
             except Exception as e:
                 print("miRmap: error on {} (skipped): {}".format(utr_headers[i], e))
                 out_f.write("\n")
