@@ -2,6 +2,7 @@ import csv
 import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -102,8 +103,37 @@ def _load_progress(job_id):
         return None
 
 
-def _process_single_mirna(job_id, mirna_id, fasta_path, modifications, shift, pre_id):
-    """Generate mirna.fa for one miRNA (WT + optional modifications/shift)."""
+# Custom miRNA sequence bounds -- mirror v2/mirna_processing.py
+# (MIN_LENGTH / MAX_LENGTH / VALID_NUCLEOTIDES).
+_MIRNA_SEQ_MIN_LEN = 17
+_MIRNA_SEQ_MAX_LEN = 30
+_MIRNA_SEQ_ALPHABET = set("ACGTU")
+
+
+def _validate_mirna_seq(seq):
+    """Validate a user-supplied custom miRNA sequence.
+
+    Returns (normalized_seq, error) where error is (message, status) or None.
+    Mirrors mirna_processing.py: 17-30 nt, alphabet A C G T U (case-insensitive).
+    """
+    if not isinstance(seq, str):
+        return None, ("mirna_seq must be a string", 400)
+    s = seq.strip().upper()
+    if not s:
+        return None, ("mirna_seq must not be empty", 400)
+    invalid = sorted(set(s) - _MIRNA_SEQ_ALPHABET)
+    if invalid:
+        return None, ("mirna_seq contains invalid nucleotides {} (allowed: A C G T U)".format(invalid), 400)
+    if not (_MIRNA_SEQ_MIN_LEN <= len(s) <= _MIRNA_SEQ_MAX_LEN):
+        return None, ("mirna_seq length {} is outside the allowed range ({}-{})".format(
+            len(s), _MIRNA_SEQ_MIN_LEN, _MIRNA_SEQ_MAX_LEN), 400)
+    return s, None
+
+
+def _process_single_mirna(job_id, mirna_id, fasta_path, modifications, shift, pre_id,
+                          mirna_seq=None):
+    """Generate mirna.fa for one miRNA: a user-supplied custom sequence when
+    mirna_seq is given, otherwise the miRBase WT (+ optional modifications/shift)."""
     cmd = [
         "python2.7",
         "/opt/v2/mirna_processing.py",
@@ -111,14 +141,20 @@ def _process_single_mirna(job_id, mirna_id, fasta_path, modifications, shift, pr
         "-o",
         fasta_path,
     ]
-    for mod in modifications:
-        cmd.extend(["-m", mod])
-    if shift:
-        cmd.extend(["-s", shift])
-    if modifications and shift:
-        cmd.append("-b")
-    if pre_id:
-        cmd.extend(["--pre-id", pre_id])
+    if mirna_seq:
+        # Custom miRNA: pass the raw sequence straight through. modifications/
+        # shift/pre_id need miRBase precursor context a custom sequence lacks,
+        # so they are not applied.
+        cmd.extend(["--seq", mirna_seq])
+    else:
+        for mod in modifications:
+            cmd.extend(["-m", mod])
+        if shift:
+            cmd.extend(["-s", shift])
+        if modifications and shift:
+            cmd.append("-b")
+        if pre_id:
+            cmd.extend(["--pre-id", pre_id])
     logger.info("step=processing job_id=%s", job_id)
     subprocess.check_call(cmd)
 
@@ -254,6 +290,7 @@ def run_job(self, job_id):
             _process_single_mirna(
                 job_id, mirna_id, fasta_path,
                 meta.get("modifications", []), meta.get("shift"), meta.get("pre_id"),
+                meta.get("mirna_seq"),
             )
         meta["step"] = "processing"
         _write_meta(job_id, meta)
@@ -418,6 +455,7 @@ def submit_job():
         return _submit_network_job(data, tools)
 
     mirna_id = data.get("mirna_id")
+    mirna_seq = data.get("mirna_seq")
     modifications = data.get("modifications", [])
     shift = data.get("shift")
     pre_id = data.get("pre_id")
@@ -449,6 +487,25 @@ def submit_job():
     if shift is not None and not isinstance(shift, str):
         logger.warning("job rejected: invalid shift mirna_id=%s shift=%s", mirna_id, shift)
         return jsonify({"error": "shift must be a string in format 'left|right' (e.g. '-4|-6')"}), 400
+
+    # Custom miRNA: a raw sequence supplied alongside the (free-form) mirna_id
+    # label. When present it bypasses the miRBase lookup; modifications/shift do
+    # not apply to a custom sequence, so they are ignored downstream.
+    if mirna_seq is not None:
+        # The custom name flows into the FASTA header and downstream output
+        # filenames (<header>_<tool>_results.txt), so constrain it to a safe
+        # charset -- no spaces or path separators.
+        if not isinstance(mirna_id, str) or not re.match(r'^[A-Za-z0-9._-]+$', mirna_id):
+            logger.warning("job rejected: invalid custom mirna_id=%r", mirna_id)
+            return jsonify({
+                "error": "mirna_id must contain only letters, digits, '.', '_' or '-' "
+                         "(no spaces or path separators) for a custom miRNA sequence",
+            }), 400
+        mirna_seq, seq_err = _validate_mirna_seq(mirna_seq)
+        if seq_err:
+            msg, status = seq_err
+            logger.warning("job rejected: %s mirna_id=%s", msg, mirna_id)
+            return jsonify({"error": msg}), status
 
     if targets is not None:
         if not isinstance(targets, list) or not targets or not all(isinstance(g, str) for g in targets):
@@ -496,6 +553,7 @@ def submit_job():
         "status": "queued",
         "created_at": int(time.time()),
         "mirna_id": mirna_id,
+        "mirna_seq": mirna_seq,
         "tools": tools,
         "workflow": workflow,
         "genome": genome,
