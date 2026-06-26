@@ -6,6 +6,10 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.10 - 2026-06-26
+
+- fix the error that -s parsed incorrectly for mirna_processing.py
+
 ## 0.3.9 - 2026-06-25
 
 - (no changes recorded since v0.3.8)
