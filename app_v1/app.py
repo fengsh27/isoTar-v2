@@ -150,7 +150,13 @@ def _process_single_mirna(job_id, mirna_id, fasta_path, modifications, shift, pr
         for mod in modifications:
             cmd.extend(["-m", mod])
         if shift:
-            cmd.extend(["-s", shift])
+            # Use the --shift=VALUE form (not ["-s", shift]): a negative
+            # left-shift like "-7|1" starts with "-" and isn't a valid negative
+            # number (the "|1" breaks argparse's negative-number matcher), so
+            # space-separated argparse treats it as an unknown option and dies
+            # with "expected one argument" (exit 2). The =-joined form binds the
+            # value directly and parses cleanly.
+            cmd.append("--shift=" + shift)
         if modifications and shift:
             cmd.append("-b")
         if pre_id:
