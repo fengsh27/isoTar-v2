@@ -177,11 +177,17 @@ def _process_mirna_list(job_id, mirna_ids, fasta_path, meta):
     os.makedirs(parts_dir, exist_ok=True)
     logger.info("step=processing job_id=%s mirnas=%d", job_id, len(mirna_ids))
 
+    # Per-miRNA precursor selection (from the submit request). A multi-precursor
+    # miRNA without an entry here still fails processing and is dropped below.
+    pre_ids = meta.get("pre_ids") or {}
     mirna_errors = {}
     part_paths = []
     for idx, mirna_id in enumerate(mirna_ids):
         part = os.path.join(parts_dir, "{}.fa".format(idx))
         cmd = ["python2.7", "/opt/v2/mirna_processing.py", mirna_id, "-o", part]
+        pre_id = pre_ids.get(mirna_id)
+        if pre_id:
+            cmd.extend(["--pre-id", pre_id])
         try:
             with open(os.devnull, "rb") as devnull:
                 subprocess.check_call(cmd, stdin=devnull)
@@ -383,6 +389,24 @@ def _submit_network_job(data, tools):
         return jsonify({"error": "too many miRNAs for one network job",
                         "max": MAX_NETWORK_MIRNAS, "count": len(mirna_ids)}), 400
 
+    # Optional per-miRNA precursor selection: {"<mirna_id>": "<pre_id>", ...}.
+    # Only multi-precursor miRNAs (e.g. hsa-let-7a-5p -> let-7a-1/-2/-3) need an
+    # entry; unambiguous ids resolve on their own in mirna_processing.py. Keys
+    # must reference a submitted miRNA so a typo surfaces as a 400 instead of
+    # being silently ignored (and the miRNA then dropped for missing a pre-id).
+    pre_ids_in = data.get("pre_ids") or {}
+    if not isinstance(pre_ids_in, dict):
+        return jsonify({"error": "pre_ids must be an object mapping miRNA id -> precursor id"}), 400
+    pre_ids = {}
+    for k, v in pre_ids_in.items():
+        if not (isinstance(k, str) and isinstance(v, str) and k.strip() and v.strip()):
+            return jsonify({"error": "pre_ids must map non-empty miRNA id strings to non-empty precursor id strings"}), 400
+        pre_ids[k.strip()] = v.strip()
+    unknown_pre_ids = sorted(k for k in pre_ids if k not in mirna_ids)
+    if unknown_pre_ids:
+        return jsonify({"error": "pre_ids references miRNAs not in mirna_ids",
+                        "unknown": unknown_pre_ids}), 400
+
     cores, cores_err = validate_cores(data.get("cores"))
     if cores_err:
         msg, status = cores_err
@@ -439,6 +463,7 @@ def _submit_network_job(data, tools):
         "genome": genome,
         "cores": cores,
         "pair_count": len(resolved_pairs),
+        "pre_ids": pre_ids,
     }
     _write_meta(job_id, meta)
     task = run_job.delay(job_id)
