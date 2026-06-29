@@ -82,6 +82,71 @@ def _progress_path(job_id):
     return os.path.join(_job_path(job_id), "output", "progress.json")
 
 
+# mir-network runs every tool against two target pools (gene + lncRNA), each in
+# its own output subdirectory, so each pool writes its OWN progress.json. There
+# is no top-level output/progress.json for a network job -- without merging
+# these the API would serve no progress and the UI would show every tool stuck
+# "pending". These are the pool subdirectories run_job() passes as `-o`.
+_NETWORK_POOLS = ("gene", "lncrna")
+
+
+def _combine_tool_status(entries):
+    """Combine one tool's status across the pools it ran in. A tool is only
+    'done' when every pool finished it; 'running' if any pool is running it;
+    'pending' otherwise. Timing spans the pools (earliest start, latest finish)."""
+    statuses = [e.get("status") for e in entries]
+    if "running" in statuses:
+        status = "running"
+    elif statuses and all(s == "done" for s in statuses):
+        status = "done"
+    else:
+        status = "pending"
+
+    starts = [e.get("started_at") for e in entries if e.get("started_at") is not None]
+    started_at = min(starts) if starts else None
+    if status == "done":
+        finishes = [e.get("finished_at") for e in entries if e.get("finished_at") is not None]
+        finished_at = max(finishes) if finishes else None
+    else:
+        finished_at = None
+    return {"status": status, "started_at": started_at, "finished_at": finished_at}
+
+
+def _merge_pool_progress(pool_files):
+    """Merge per-pool progress.json files into a single per-tool view keyed by
+    bare tool name (what the frontend matches against job['tools']). Returns None
+    when no pool file is readable."""
+    by_tool = {}
+    order = []
+    updated_at = 0
+    for path in pool_files:
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except (ValueError, IOError):
+            continue
+        updated_at = max(updated_at, data.get("updated_at") or 0)
+        for tool, info in (data.get("tools_status") or {}).items():
+            if tool not in by_tool:
+                by_tool[tool] = []
+                order.append(tool)
+            by_tool[tool].append(info)
+
+    if not by_tool:
+        return None
+
+    tools_status = {tool: _combine_tool_status(by_tool[tool]) for tool in order}
+    completed = sum(1 for t in tools_status if tools_status[t]["status"] == "done")
+    current = next((t for t in order if tools_status[t]["status"] == "running"), None)
+    return {
+        "total_tools": len(tools_status),
+        "completed_tools": completed,
+        "current_tool": current,
+        "tools_status": tools_status,
+        "updated_at": updated_at,
+    }
+
+
 def _write_meta(job_id, data):
     with open(_job_meta_path(job_id), "w") as f:
         json.dump(data, f, indent=2)
@@ -94,13 +159,23 @@ def _load_meta(job_id):
 
 def _load_progress(job_id):
     path = _progress_path(job_id)
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, "r") as f:
-            return json.load(f)
-    except (ValueError, IOError):
-        return None
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except (ValueError, IOError):
+            return None
+
+    # No top-level progress.json -- a network job writes one per pool instead.
+    output_dir = os.path.join(_job_path(job_id), "output")
+    pool_files = [
+        os.path.join(output_dir, pool, "progress.json")
+        for pool in _NETWORK_POOLS
+    ]
+    pool_files = [p for p in pool_files if os.path.exists(p)]
+    if pool_files:
+        return _merge_pool_progress(pool_files)
+    return None
 
 
 # Custom miRNA sequence bounds -- mirror v2/mirna_processing.py
