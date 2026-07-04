@@ -27,6 +27,11 @@ from app_v1.network_results import (
 from app_v1.target_resolver import (
     genome_to_species as _genome_to_species,
     resolve_targets as _resolve_targets,
+    validate_gene_targets as _validate_gene_targets,
+)
+from app_v1.lncrna_reference import (
+    validate_lncrna_targets as _validate_lncrna_targets,
+    normalize_lncrna_id as _normalize_lncrna_id,
 )
 
 logger = get_logger()
@@ -549,6 +554,52 @@ def _submit_network_job(data, tools):
     return jsonify({"job_id": job_id, "task_id": task.id}), 202
 
 
+_VALIDATE_TARGET_TYPES = ("gene", "lncrna")
+MAX_VALIDATE_TARGETS = int(os.environ.get("ISOTAR_MAX_VALIDATE_TARGETS", "5000"))
+
+
+@app.route("/api/v1/targets/validate", methods=["POST"])
+def validate_targets():
+    """Check whether user-supplied targets exist in our reference data.
+
+    body: {targets:[...], genome:"hg38", target_type:"gene"|"lncrna"}
+    ->    {genome, species, target_type, results:[{target,valid,matched_by}],
+           valid_count, invalid:[...]}
+    'gene' checks HGNC symbols / RefSeq accessions in gene_mapping; 'lncrna'
+    checks Ensembl/FlyBase/WormBase lncRNA transcript & gene ids. Read-only:
+    creates no job state."""
+    data = request.get_json(force=True, silent=True) or {}
+    targets = data.get("targets")
+    genome = data.get("genome", "hg38")
+    target_type = data.get("target_type", "gene")
+
+    if target_type not in _VALIDATE_TARGET_TYPES:
+        return jsonify({"error": "target_type must be one of {}".format(
+            list(_VALIDATE_TARGET_TYPES))}), 400
+    if (not isinstance(targets, list) or not targets
+            or not all(isinstance(t, str) for t in targets)):
+        return jsonify({"error": "targets must be a non-empty list of strings"}), 400
+    if len(targets) > MAX_VALIDATE_TARGETS:
+        return jsonify({"error": "too many targets (max {})".format(MAX_VALIDATE_TARGETS),
+                        "max_targets": MAX_VALIDATE_TARGETS}), 400
+
+    try:
+        if target_type == "lncrna":
+            out = _validate_lncrna_targets(targets, genome)
+        else:
+            out = _validate_gene_targets(targets, genome)
+    except Exception:
+        logger.exception("target validation failed target_type=%s genome=%s",
+                         target_type, genome)
+        return jsonify({"error": "internal error during target validation"}), 500
+
+    out["genome"] = genome
+    out["target_type"] = target_type
+    logger.info("validated %d targets target_type=%s genome=%s valid=%d",
+                len(targets), target_type, genome, out["valid_count"])
+    return jsonify(out)
+
+
 @app.route("/api/v1/jobs", methods=["POST"])
 def submit_job():
     data = request.get_json(force=True, silent=True) or {}
@@ -581,10 +632,6 @@ def submit_job():
                 "error": "tools {} are not supported for the miR-LncRNA workflow".format(bad),
                 "hint": "TargetScan/PITA only work on 3' UTR (gene) targets",
             }), 400
-        if data.get("targets"):
-            return jsonify({
-                "error": "target gene filtering is not supported for the miR-LncRNA workflow",
-            }), 400
 
     if not isinstance(modifications, list):
         logger.warning("job rejected: modifications not a list mirna_id=%s", mirna_id)
@@ -615,7 +662,7 @@ def submit_job():
 
     if targets is not None:
         if not isinstance(targets, list) or not targets or not all(isinstance(g, str) for g in targets):
-            return jsonify({"error": "targets must be a non-empty list of gene symbol strings"}), 400
+            return jsonify({"error": "targets must be a non-empty list of target id strings"}), 400
 
     cores, cores_err = validate_cores(data.get("cores"))
     if cores_err:
@@ -624,35 +671,54 @@ def submit_job():
         return jsonify({"error": msg, "max_cores_per_job": MAX_CORES_PER_JOB}), status
 
     genome = data.get("genome", "hg38")
+    target_type = _WORKFLOW_TARGET_TYPE[workflow]
 
-    # Resolve targets before creating any job state so a 400 leaves no orphan dir.
-    accessions = None
+    # Resolve/validate targets before creating any job state so a 400 leaves no
+    # orphan dir. gene -> RefSeq accessions filtered from the 3' UTR reference;
+    # lncrna -> normalized transcript/gene ids filtered from the lncRNA reference.
+    # Strict: any unknown target rejects the whole job.
+    target_tokens = None
     if targets:
-        accessions, unresolved = _resolve_targets(targets, genome)
-        if unresolved:
-            logger.warning("job rejected: unresolved targets unresolved=%s species=%s",
-                           unresolved, _genome_to_species(genome))
-            return jsonify({
-                "error": "unresolved targets",
-                "unresolved": unresolved,
-                "hint": "gene symbols not found in gene_mapping for species {}".format(
-                    _genome_to_species(genome)),
-            }), 400
-        if not accessions:
-            return jsonify({"error": "targets resolved to zero RefSeq accessions"}), 400
+        if target_type == "lncrna":
+            vres = _validate_lncrna_targets(targets, genome)
+            if vres["invalid"]:
+                logger.warning("job rejected: unknown lncRNA targets unknown=%s species=%s",
+                               vres["invalid"], vres["species"])
+                return jsonify({
+                    "error": "unresolved targets",
+                    "unresolved": vres["invalid"],
+                    "hint": "lncRNA transcript/gene ids not found for species {}".format(
+                        vres["species"]),
+                }), 400
+            target_tokens = sorted({n for n in
+                                    (_normalize_lncrna_id(t) for t in targets) if n})
+        else:
+            accessions, unresolved = _resolve_targets(targets, genome)
+            if unresolved:
+                logger.warning("job rejected: unresolved targets unresolved=%s species=%s",
+                               unresolved, _genome_to_species(genome))
+                return jsonify({
+                    "error": "unresolved targets",
+                    "unresolved": unresolved,
+                    "hint": "gene symbols not found in gene_mapping for species {}".format(
+                        _genome_to_species(genome)),
+                }), 400
+            if not accessions:
+                return jsonify({"error": "targets resolved to zero RefSeq accessions"}), 400
+            target_tokens = sorted(accessions)
 
     job_id = str(uuid.uuid4())
     job_dir = _job_path(job_id)
     os.makedirs(job_dir, exist_ok=True)
 
     target_file = None
-    if accessions:
+    if target_tokens:
         target_file = os.path.join(job_dir, "targets.txt")
         with open(target_file, "w") as f:
-            for acc in sorted(accessions):
-                f.write(acc + "\n")
-        logger.info("resolved %d target tokens to %d UTR identifiers job_id=%s",
-                    len(targets), len(accessions), job_id)
+            for tok in target_tokens:
+                f.write(tok + "\n")
+        logger.info("resolved %d target tokens to %d %s identifiers job_id=%s",
+                    len(targets), len(target_tokens), target_type, job_id)
 
     meta = {
         "job_id": job_id,
