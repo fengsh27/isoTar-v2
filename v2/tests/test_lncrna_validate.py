@@ -180,6 +180,15 @@ class ValidateGeneTargetsTests(unittest.TestCase):
         out = self._run(["FOOBAR"])
         self.assertFalse(out["results"][0]["valid"])
 
+    def test_ensembl_ids_are_invalid_for_gene(self):
+        # mir-target targets are HGNC symbol / RefSeq only; Ensembl is the
+        # lncRNA lane. ENST/ENSG must report invalid on the gene path.
+        out = self._run(["ENST00000269305", "ENSG00000141510"])
+        self.assertFalse(out["results"][0]["valid"])
+        self.assertIsNone(out["results"][0]["matched_by"])
+        self.assertFalse(out["results"][1]["valid"])
+        self.assertEqual(out["valid_count"], 0)
+
     def test_species_scoping(self):
         out = self._run(["TP53"], genome="mmu")
         self.assertFalse(out["results"][0]["valid"])
@@ -237,15 +246,23 @@ class ValidateEndpointTests(unittest.TestCase):
         self.assertFalse(by_target["ENST00000000000"]["valid"])
         self.assertEqual(body["invalid"], ["ENST00000000000"])
 
-    def test_gene_valid_and_invalid(self):
+    def test_gene_target_id_types(self):
+        # mir-target job inputs: gene symbol + RefSeq are accepted; Ensembl is
+        # rejected (that's the lncRNA lane). ENST00000269305 maps to TP53 in
+        # ensembl_mapping yet must still be invalid here -- we don't silently
+        # resolve it, which would let validation disagree with job submission.
         resp = self._post({
             "target_type": "gene", "genome": "hg38",
-            "targets": ["TP53", "NM_999999"],
+            "targets": ["TP53", "NM_000546", "ENST00000269305",
+                        "ENSG00000141510", "NM_999999"],
         })
         self.assertEqual(resp.status_code, 200)
-        by_target = {r["target"]: r for r in resp.get_json()["results"]}
-        self.assertTrue(by_target["TP53"]["valid"])
-        self.assertFalse(by_target["NM_999999"]["valid"])
+        by = {r["target"]: r for r in resp.get_json()["results"]}
+        self.assertEqual(by["TP53"]["matched_by"], "symbol")
+        self.assertEqual(by["NM_000546"]["matched_by"], "accession")
+        self.assertFalse(by["ENST00000269305"]["valid"])
+        self.assertFalse(by["ENSG00000141510"]["valid"])
+        self.assertFalse(by["NM_999999"]["valid"])
 
     def test_bad_target_type(self):
         resp = self._post({"target_type": "protein", "targets": ["x"]})
