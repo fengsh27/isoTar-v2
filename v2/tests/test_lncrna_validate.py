@@ -13,11 +13,15 @@ Run:
     python3 -m unittest v2.tests.test_lncrna_validate
 """
 
+import json
 import os
+import shutil
 import sys
 import sqlite3
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(os.path.dirname(_HERE))
@@ -219,6 +223,81 @@ class BuildHeaderParseTests(unittest.TestCase):
         tid, gene = self.parse(">ENST00000761542.1 ncrna description:novel")
         self.assertEqual(tid, "ENST00000761542")
         self.assertIsNone(gene)
+
+
+class NormalizerParityTests(unittest.TestCase):
+    """The backend validator (app_v1) and the predictor filter (v2) each own a
+    copy of the normalizer; they MUST agree or a validated target gets dropped
+    at predict time. This locks the two copies together."""
+
+    def test_backend_and_runner_normalizers_agree(self):
+        from v2.lncrna_ids import normalize_lncrna_id as runner_norm
+        cases = [
+            "ENST00000761542.1", "ENSG00000299200.1", "ENSMUST00000199504.1",
+            "ENSMUSG00000104544.4", "ENSCAFT00000087990.1", "FBtr0347114",
+            "FBgn0267657", "Y51H4A.27", "WBGene00003296", "ENST00000761542",
+            "  ENST00000761542.1  ", "", "   ", None,
+        ]
+        for c in cases:
+            self.assertEqual(normalize_lncrna_id(c), runner_norm(c), repr(c))
+
+
+@unittest.skipUnless(_HAVE_APP, "flask app deps not available (run in backend container)")
+class LncrnaSubmissionTests(unittest.TestCase):
+    """mir-lncrna job submission with lncRNA targets (Phase 2, strict-reject).
+
+    Runs against the committed lncrna_reference.db; job state goes to a temp dir
+    and run_job.delay is mocked so no broker/worker is needed."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp(prefix="isotar_test_jobs_")
+        self._orig_base_dir = app_module.BASE_DIR
+        app_module.BASE_DIR = self._tmp
+        self.client = app_module.app.test_client()
+
+    def tearDown(self):
+        app_module.BASE_DIR = self._orig_base_dir
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _post(self, body):
+        return self.client.post("/api/v1/jobs", json=body)
+
+    def test_valid_targets_written_normalized(self):
+        fake = types.SimpleNamespace(id="task-lnc-1")
+        with mock.patch.object(app_module.run_job, "delay", return_value=fake):
+            resp = self._post({
+                "workflow": "mir-lncrna",
+                "mirna_id": "hsa-miR-21-5p",
+                "tools": ["miRanda"],
+                "genome": "hg38",
+                "cores": 1,
+                # versioned transcript + a gene id -> normalized, deduped, sorted.
+                "targets": ["ENST00000761542.1", "ENSG00000299200"],
+            })
+        self.assertEqual(resp.status_code, 202)
+        job_id = resp.get_json()["job_id"]
+        with open(os.path.join(self._tmp, job_id, "targets.txt")) as f:
+            written = sorted(line.strip() for line in f if line.strip())
+        self.assertEqual(written, ["ENSG00000299200", "ENST00000761542"])
+        with open(os.path.join(self._tmp, job_id, "job.json")) as f:
+            meta = json.load(f)
+        self.assertTrue(meta["target_file"].endswith("targets.txt"))
+
+    def test_unknown_target_rejects_job(self):
+        with mock.patch.object(app_module.run_job, "delay") as delay:
+            resp = self._post({
+                "workflow": "mir-lncrna",
+                "mirna_id": "hsa-miR-21-5p",
+                "tools": ["miRanda"],
+                "genome": "hg38",
+                "cores": 1,
+                "targets": ["ENST00000761542", "ENST00000000000"],
+            })
+        self.assertEqual(resp.status_code, 400)
+        body = resp.get_json()
+        self.assertEqual(body["error"], "unresolved targets")
+        self.assertIn("ENST00000000000", body["unresolved"])
+        delay.assert_not_called()  # strict: no job enqueued
 
 
 @unittest.skipUnless(_HAVE_APP, "flask app deps not available (run in backend container)")

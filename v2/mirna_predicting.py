@@ -17,6 +17,15 @@ import json
 import shutil
 import time
 
+# Canonical lncRNA id normalizer shared with the backend validator so a
+# validated target matches the reference record here. Works both when this file
+# is run as a script (/opt/v2 on sys.path -> `lncrna_ids`) and when it is
+# imported as a package module in tests (`v2.lncrna_ids`).
+try:
+    from lncrna_ids import normalize_lncrna_id
+except ImportError:  # pragma: no cover - import-path shim
+    from v2.lncrna_ids import normalize_lncrna_id
+
 
 # Predefined list of tools
 ALLOWED_TOOLS = ["miRanda", "miRmap", "Targetscan", "RNAhybrid", "PITA", "DMISO"]
@@ -259,6 +268,57 @@ def filter_utr_fasta(utr_file, targets, output_path):
             if write:
                 fout.write(line)
     print("Target filter: kept {} UTR records (target set size: {})".format(kept, len(target_set)))
+    return output_path
+
+
+def _lncrna_header_ids(header):
+    """Return the normalized {transcript_id, gene_id} advertised by a lncRNA
+    FASTA header, e.g.
+        '>ENST00000761542.1 ncrna ... gene:ENSG00000299200.1 gene_biotype:lncRNA'
+    -> {'ENST00000761542', 'ENSG00000299200'}
+    The transcript id is the first whitespace token; the gene id is the token
+    after 'gene:'. Both are version-normalized so an unversioned user target
+    matches. None entries are dropped."""
+    ids = set()
+    body = header[1:].strip()          # drop leading '>'
+    if not body:
+        return ids
+    parts = body.split()
+    tx = normalize_lncrna_id(parts[0])
+    if tx:
+        ids.add(tx)
+    for tok in parts[1:]:
+        if tok.startswith("gene:"):
+            gene = normalize_lncrna_id(tok[len("gene:"):])
+            if gene:
+                ids.add(gene)
+            break
+    return ids
+
+
+def filter_lncrna_fasta(lncrna_file, targets, output_path):
+    """Write a filtered copy of lncrna_file keeping only records whose transcript
+    id OR gene id (version-normalized) is in targets. A gene id target therefore
+    keeps every transcript of that gene.
+
+    Mirrors the normalization used by the backend validator (normalize_lncrna_id)
+    so a target that validated as present is actually kept here."""
+    target_set = set()
+    for t in targets:
+        norm = normalize_lncrna_id(t)
+        if norm:
+            target_set.add(norm)
+    kept = 0
+    write = False
+    with open(lncrna_file, 'r') as fin, open(output_path, 'w') as fout:
+        for line in fin:
+            if line.startswith(">"):
+                write = bool(_lncrna_header_ids(line) & target_set)
+                if write:
+                    kept += 1
+            if write:
+                fout.write(line)
+    print("lncRNA target filter: kept {} records (target set size: {})".format(kept, len(target_set)))
     return output_path
 
 
@@ -1197,19 +1257,18 @@ def main():
     utr_file = _TARGET_FILE_MAP[target_type][genome]
 
     if args.target_file:
-        # The target-gene filter keys on RefSeq accessions in 3' UTR headers;
-        # lncRNA targets use Ensembl headers and are not gene-symbol filterable.
-        if target_type != "gene":
-            raise ValueError(
-                "--target_file is only supported for --target-type gene, "
-                "not '{}'.".format(target_type)
-            )
         with open(args.target_file, 'r') as f:
-            target_genes = [line.strip() for line in f if line.strip()]
-        if target_genes:
-            filtered_utr_path = os.path.join(temp_folder, "filtered_3utr.fasta")
-            utr_file = filter_utr_fasta(utr_file, target_genes, filtered_utr_path)
-            print("Scanning {} target genes from: {}".format(len(target_genes), args.target_file))
+            target_ids = [line.strip() for line in f if line.strip()]
+        if target_ids:
+            # gene: RefSeq/symbol filter on 3' UTR headers. lncrna: transcript/
+            # gene-id filter on Ensembl/FlyBase/WormBase headers.
+            if target_type == "gene":
+                filtered_path = os.path.join(temp_folder, "filtered_3utr.fasta")
+                utr_file = filter_utr_fasta(utr_file, target_ids, filtered_path)
+            else:
+                filtered_path = os.path.join(temp_folder, "filtered_lncrna.fasta")
+                utr_file = filter_lncrna_fasta(utr_file, target_ids, filtered_path)
+            print("Scanning {} targets from: {}".format(len(target_ids), args.target_file))
 
     # Create output directory
     for tool in tools:
