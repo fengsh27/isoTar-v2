@@ -6,6 +6,10 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.14 - 2026-07-04
+
+- (no changes recorded since v0.3.13)
+
 ## 0.3.13 - 2026-07-04
 
 - feat(mir-lncrna): filter predictions by user-provided lncRNA targets
