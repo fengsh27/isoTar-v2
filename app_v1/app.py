@@ -27,7 +27,9 @@ from app_v1.network_results import (
 from app_v1.target_resolver import (
     genome_to_species as _genome_to_species,
     resolve_targets as _resolve_targets,
+    validate_gene_targets as _validate_gene_targets,
 )
+from app_v1.lncrna_reference import validate_lncrna_targets as _validate_lncrna_targets
 
 logger = get_logger()
 
@@ -547,6 +549,52 @@ def _submit_network_job(data, tools):
     logger.info("network job queued job_id=%s mirnas=%d tools=%s genome=%s pairs=%d",
                 job_id, len(mirna_ids), tools, genome, len(resolved_pairs))
     return jsonify({"job_id": job_id, "task_id": task.id}), 202
+
+
+_VALIDATE_TARGET_TYPES = ("gene", "lncrna")
+MAX_VALIDATE_TARGETS = int(os.environ.get("ISOTAR_MAX_VALIDATE_TARGETS", "5000"))
+
+
+@app.route("/api/v1/targets/validate", methods=["POST"])
+def validate_targets():
+    """Check whether user-supplied targets exist in our reference data.
+
+    body: {targets:[...], genome:"hg38", target_type:"gene"|"lncrna"}
+    ->    {genome, species, target_type, results:[{target,valid,matched_by}],
+           valid_count, invalid:[...]}
+    'gene' checks HGNC symbols / RefSeq accessions in gene_mapping; 'lncrna'
+    checks Ensembl/FlyBase/WormBase lncRNA transcript & gene ids. Read-only:
+    creates no job state."""
+    data = request.get_json(force=True, silent=True) or {}
+    targets = data.get("targets")
+    genome = data.get("genome", "hg38")
+    target_type = data.get("target_type", "gene")
+
+    if target_type not in _VALIDATE_TARGET_TYPES:
+        return jsonify({"error": "target_type must be one of {}".format(
+            list(_VALIDATE_TARGET_TYPES))}), 400
+    if (not isinstance(targets, list) or not targets
+            or not all(isinstance(t, str) for t in targets)):
+        return jsonify({"error": "targets must be a non-empty list of strings"}), 400
+    if len(targets) > MAX_VALIDATE_TARGETS:
+        return jsonify({"error": "too many targets (max {})".format(MAX_VALIDATE_TARGETS),
+                        "max_targets": MAX_VALIDATE_TARGETS}), 400
+
+    try:
+        if target_type == "lncrna":
+            out = _validate_lncrna_targets(targets, genome)
+        else:
+            out = _validate_gene_targets(targets, genome)
+    except Exception:
+        logger.exception("target validation failed target_type=%s genome=%s",
+                         target_type, genome)
+        return jsonify({"error": "internal error during target validation"}), 500
+
+    out["genome"] = genome
+    out["target_type"] = target_type
+    logger.info("validated %d targets target_type=%s genome=%s valid=%d",
+                len(targets), target_type, genome, out["valid_count"])
+    return jsonify(out)
 
 
 @app.route("/api/v1/jobs", methods=["POST"])
