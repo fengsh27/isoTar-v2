@@ -6,6 +6,12 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.13 - 2026-07-04
+
+- feat(mir-lncrna): filter predictions by user-provided lncRNA targets
+- test(targets): assert Ensembl IDs are rejected on the gene path
+- feat(targets): add lncRNA/gene target validation endpoint
+
 ## 0.3.12 - 2026-06-29
 
 - fix(network): serve merged per-pool progress for mir-network jobs
