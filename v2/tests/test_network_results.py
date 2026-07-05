@@ -20,7 +20,40 @@ if _REPO not in sys.path:
 from app_v1.network_results import (  # noqa: E402
     compute_network,
     strip_lncrna_version,
+    _mirna_node_id,
+    _mirna_base_id,
+    _mirna_node_label,
 )
+
+
+class MirnaNodeIdTests(unittest.TestCase):
+    """Variant-aware node identity: WT collapses to the base id (backward
+    compatible); modified/shifted variants stay distinct."""
+
+    def test_wt_collapses_to_base(self):
+        self.assertEqual(_mirna_node_id("hsa-miR-21-5p,WT"), "hsa-miR-21-5p")
+
+    def test_plain_header_without_variant(self):
+        self.assertEqual(_mirna_node_id("hsa-miR-21-5p"), "hsa-miR-21-5p")
+
+    def test_shifted_keeps_full_header(self):
+        self.assertEqual(_mirna_node_id("hsa-miR-21-5p,-7|1,shifted"),
+                         "hsa-miR-21-5p,-7|1,shifted")
+
+    def test_modified_keeps_full_header(self):
+        self.assertEqual(_mirna_node_id("hsa-miR-21-5p,8:A>U,modified"),
+                         "hsa-miR-21-5p,8:A>U,modified")
+
+    def test_base_id(self):
+        self.assertEqual(_mirna_base_id("hsa-miR-21-5p,-7|1,shifted"), "hsa-miR-21-5p")
+        self.assertEqual(_mirna_base_id("hsa-miR-21-5p"), "hsa-miR-21-5p")
+
+    def test_labels(self):
+        self.assertEqual(_mirna_node_label("hsa-miR-21-5p"), "hsa-miR-21-5p")
+        self.assertEqual(_mirna_node_label("hsa-miR-21-5p,-7|1,shifted"),
+                         "hsa-miR-21-5p (shifted -7|1)")
+        self.assertEqual(_mirna_node_label("hsa-miR-21-5p,8:A>U&-4|0,modified_shifted"),
+                         "hsa-miR-21-5p (modified+shifted 8:A>U&-4|0)")
 
 
 class StripLncrnaVersionTests(unittest.TestCase):
@@ -110,6 +143,37 @@ class ComputeNetworkPairsModeTests(unittest.TestCase):
                               pairs=pairs, labels=self.labels)
         self.assertEqual(len(net["pairs"]), 1)
         self.assertIn("ENST1", {n["id"] for n in net["nodes"]})
+
+
+class ComputeNetworkVariantNodeTests(unittest.TestCase):
+    """A modified/shifted miRNA appears as a node distinct from its WT baseline
+    (Option B), so WT vs modified targeting is comparable in the graph."""
+
+    def test_wt_and_shifted_variant_are_separate_nodes(self):
+        # Gene NM_1 and lncRNA ENST1 are each hit by BOTH the WT miR-21 and its
+        # shifted variant -> both bridge the pair, as two distinct miRNA nodes.
+        gene_edges = {"NM_1": {
+            "hsa-miR-21-5p": {"miRanda"},
+            "hsa-miR-21-5p,-7|1,shifted": {"PITA"},
+        }}
+        lncrna_edges = {"ENST1": {
+            "hsa-miR-21-5p": {"DMISO"},
+            "hsa-miR-21-5p,-7|1,shifted": {"RNAhybrid"},
+        }}
+        pairs = [{"gene": "G", "gene_refseqs": ["NM_1"], "lncrna": "ENST1"}]
+        net = compute_network(gene_edges, lncrna_edges, pairs=pairs)
+
+        mirna_nodes = {n["id"]: n for n in net["nodes"] if n["type"] == "mirna"}
+        self.assertEqual(set(mirna_nodes),
+                         {"hsa-miR-21-5p", "hsa-miR-21-5p,-7|1,shifted"})
+        # WT node: bare label; variant node: pretty label; both share a base.
+        self.assertEqual(mirna_nodes["hsa-miR-21-5p"]["label"], "hsa-miR-21-5p")
+        variant = mirna_nodes["hsa-miR-21-5p,-7|1,shifted"]
+        self.assertEqual(variant["label"], "hsa-miR-21-5p (shifted -7|1)")
+        self.assertEqual(variant["base"], "hsa-miR-21-5p")
+        self.assertEqual(mirna_nodes["hsa-miR-21-5p"]["base"], "hsa-miR-21-5p")
+        self.assertEqual(sorted(net["pairs"][0]["bridge_mirnas"]),
+                         ["hsa-miR-21-5p", "hsa-miR-21-5p,-7|1,shifted"])
 
 
 class ComputeNetworkDiscoveryModeTests(unittest.TestCase):

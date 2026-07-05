@@ -210,6 +210,28 @@ def _validate_mirna_seq(seq):
     return s, None
 
 
+def _append_processing_args(cmd, modifications, shift, pre_id):
+    """Append the miRBase-relative operation flags shared by the single-miRNA and
+    network processing paths, so the two cannot drift.
+
+    modifications: list of modification strings (or None); shift: 'left|right'
+    string (or None); pre_id: precursor id for multi-precursor miRNAs (or None)."""
+    for mod in modifications or []:
+        cmd.extend(["-m", mod])
+    if shift:
+        # Use the --shift=VALUE form (not ["-s", shift]): a negative left-shift
+        # like "-7|1" starts with "-" and isn't a valid negative number (the
+        # "|1" breaks argparse's negative-number matcher), so space-separated
+        # argparse treats it as an unknown option and dies with "expected one
+        # argument" (exit 2). The =-joined form binds the value and parses cleanly.
+        cmd.append("--shift=" + shift)
+    if modifications and shift:
+        cmd.append("-b")
+    if pre_id:
+        cmd.extend(["--pre-id", pre_id])
+    return cmd
+
+
 def _process_single_mirna(job_id, mirna_id, fasta_path, modifications, shift, pre_id,
                           mirna_seq=None):
     """Generate mirna.fa for one miRNA: a user-supplied custom sequence when
@@ -227,20 +249,7 @@ def _process_single_mirna(job_id, mirna_id, fasta_path, modifications, shift, pr
         # so they are not applied.
         cmd.extend(["--seq", mirna_seq])
     else:
-        for mod in modifications:
-            cmd.extend(["-m", mod])
-        if shift:
-            # Use the --shift=VALUE form (not ["-s", shift]): a negative
-            # left-shift like "-7|1" starts with "-" and isn't a valid negative
-            # number (the "|1" breaks argparse's negative-number matcher), so
-            # space-separated argparse treats it as an unknown option and dies
-            # with "expected one argument" (exit 2). The =-joined form binds the
-            # value directly and parses cleanly.
-            cmd.append("--shift=" + shift)
-        if modifications and shift:
-            cmd.append("-b")
-        if pre_id:
-            cmd.extend(["--pre-id", pre_id])
+        _append_processing_args(cmd, modifications, shift, pre_id)
     logger.info("step=processing job_id=%s", job_id)
     subprocess.check_call(cmd)
 
@@ -257,17 +266,20 @@ def _process_mirna_list(job_id, mirna_ids, fasta_path, meta):
     os.makedirs(parts_dir, exist_ok=True)
     logger.info("step=processing job_id=%s mirnas=%d", job_id, len(mirna_ids))
 
-    # Per-miRNA precursor selection (from the submit request). A multi-precursor
-    # miRNA without an entry here still fails processing and is dropped below.
+    # Per-miRNA precursor selection + sequence operations (from the submit
+    # request). A multi-precursor miRNA without a pre-id entry still fails
+    # processing and is dropped below. shifts/modifications add variant records
+    # (WT plus each variant) that the network keeps as distinct nodes.
     pre_ids = meta.get("pre_ids") or {}
+    shifts = meta.get("shifts") or {}
+    modifications = meta.get("modifications") or {}
     mirna_errors = {}
     part_paths = []
     for idx, mirna_id in enumerate(mirna_ids):
         part = os.path.join(parts_dir, "{}.fa".format(idx))
         cmd = ["python2.7", "/opt/v2/mirna_processing.py", mirna_id, "-o", part]
-        pre_id = pre_ids.get(mirna_id)
-        if pre_id:
-            cmd.extend(["--pre-id", pre_id])
+        _append_processing_args(cmd, modifications.get(mirna_id),
+                                shifts.get(mirna_id), pre_ids.get(mirna_id))
         try:
             with open(os.devnull, "rb") as devnull:
                 subprocess.check_call(cmd, stdin=devnull)
@@ -487,6 +499,32 @@ def _submit_network_job(data, tools):
         return jsonify({"error": "pre_ids references miRNAs not in mirna_ids",
                         "unknown": unknown_pre_ids}), 400
 
+    # Optional per-miRNA sequence operations, applied on top of the miRBase WT:
+    #   shifts:        {"<mirna_id>": "left|right"}  (e.g. "-7|1")
+    #   modifications: {"<mirna_id>": ["<mod>", ...]}
+    # mirna_processing.py emits the WT plus a record per variant; the network
+    # keeps each variant as its own node (see _mirna_node_id). Keys must be a
+    # submitted miRNA so a typo 400s instead of being silently ignored.
+    shifts_in = data.get("shifts") or {}
+    mods_in = data.get("modifications") or {}
+    if not isinstance(shifts_in, dict) or not isinstance(mods_in, dict):
+        return jsonify({"error": "shifts and modifications must be objects keyed by miRNA id"}), 400
+    shifts = {}
+    for k, v in shifts_in.items():
+        if not (isinstance(k, str) and isinstance(v, str) and k.strip() and v.strip()):
+            return jsonify({"error": "shifts must map a miRNA id to a non-empty 'left|right' string"}), 400
+        shifts[k.strip()] = v.strip()
+    modifications = {}
+    for k, v in mods_in.items():
+        if not (isinstance(k, str) and k.strip() and isinstance(v, list)
+                and v and all(isinstance(x, str) and x.strip() for x in v)):
+            return jsonify({"error": "modifications must map a miRNA id to a non-empty list of modification strings"}), 400
+        modifications[k.strip()] = [x.strip() for x in v]
+    unknown_ops = sorted((set(shifts) | set(modifications)) - set(mirna_ids))
+    if unknown_ops:
+        return jsonify({"error": "shifts/modifications reference miRNAs not in mirna_ids",
+                        "unknown": unknown_ops}), 400
+
     cores, cores_err = validate_cores(data.get("cores"))
     if cores_err:
         msg, status = cores_err
@@ -544,6 +582,8 @@ def _submit_network_job(data, tools):
         "cores": cores,
         "pair_count": len(resolved_pairs),
         "pre_ids": pre_ids,
+        "shifts": shifts,
+        "modifications": modifications,
     }
     _write_meta(job_id, meta)
     task = run_job.delay(job_id)

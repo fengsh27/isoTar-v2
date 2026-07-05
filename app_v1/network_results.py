@@ -76,11 +76,36 @@ def strip_lncrna_version(transcript_id):
 # File parsing -> per-pool (mirna -> target -> tools) maps
 # ---------------------------------------------------------------------------
 
-def _mirna_id_from_header(header):
-    """The runner names output files by miRNA header "<id>,<variant>". Network
-    mode is WT-only, but collapse any variant suffix to the base miRNA id so all
-    of a miRNA's edges merge under one node."""
-    return header.split(",")[0]
+def _mirna_node_id(header):
+    """Node id for a miRNA record, from the runner header "<id>,<variant...>".
+
+    A WT record keeps the plain base id (so a miRNA with no shift/modification
+    is a single node, exactly as before). A modified/shifted variant keeps its
+    full header, so it becomes a node distinct from its WT baseline -- letting
+    the graph show how the modification redirects targeting.
+        "hsa-miR-21-5p,WT"            -> "hsa-miR-21-5p"
+        "hsa-miR-21-5p,-7|1,shifted"  -> "hsa-miR-21-5p,-7|1,shifted"
+    """
+    parts = header.split(",")
+    if len(parts) <= 1 or parts[-1] == "WT":
+        return parts[0]
+    return header
+
+
+def _mirna_base_id(node_id):
+    """Base miRNA id a (possibly variant) node belongs to, for grouping."""
+    return node_id.split(",")[0]
+
+
+def _mirna_node_label(node_id):
+    """Human-readable label, e.g. 'hsa-miR-21-5p (shifted -7|1)'. WT/plain nodes
+    keep the bare id."""
+    parts = node_id.split(",")
+    if len(parts) <= 1:
+        return parts[0]
+    base, vtype = parts[0], parts[-1].replace("_", "+")
+    detail = ",".join(parts[1:-1])
+    return "{} ({} {})".format(base, vtype, detail).strip()
 
 
 def _collect_gene_edges(pool_dir, enst_to_refseq):
@@ -94,7 +119,7 @@ def _collect_gene_edges(pool_dir, enst_to_refseq):
     if not os.path.exists(json_file):
         return edges
     for sequence in read_sequences_from_json(json_file):
-        mirna_id = _mirna_id_from_header(sequence["header"])
+        mirna_id = _mirna_node_id(sequence["header"])
         targets = edges.setdefault(mirna_id, {})
         results = process_sequence(
             sequence, pool_dir, enst_to_refseq=enst_to_refseq, targets=None,
@@ -118,7 +143,7 @@ def _collect_lncrna_edges(pool_dir):
     ext = _extract_lncrna_transcript_id
     for sequence in read_sequences_from_json(json_file):
         header = sequence["header"]
-        mirna_id = _mirna_id_from_header(header)
+        mirna_id = _mirna_node_id(header)
         targets = edges.setdefault(mirna_id, {})
 
         def _add(tid, tool):
@@ -332,7 +357,10 @@ def compute_network(gene_edges, lncrna_edges, pairs=None, labels=None,
             "id": lncrna, "type": "lncrna", "label": lncrna, "name": None,
         })
         for m in bridges:
-            mirna_nodes.setdefault(m, {"id": m, "type": "mirna", "label": m})
+            mirna_nodes.setdefault(m, {
+                "id": m, "type": "mirna",
+                "label": _mirna_node_label(m), "base": _mirna_base_id(m),
+            })
             gene_mirna.setdefault((gene, m), set()).update(g_mirnas[m])
             mirna_lncrna.setdefault((m, lncrna), set()).update(l_mirnas[m])
 

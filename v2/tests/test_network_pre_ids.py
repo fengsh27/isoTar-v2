@@ -121,6 +121,43 @@ class PreIdsValidationTests(_BaseDirTestCase):
             meta = json.load(f)
         self.assertEqual(meta["pre_ids"], {})
 
+    def test_valid_shifts_and_modifications_persisted(self):
+        fake_task = types.SimpleNamespace(id="task-ops")
+        with mock.patch.object(app_module.run_job, "delay", return_value=fake_task):
+            resp = self._post({
+                "workflow": "mir-network",
+                "mirna_ids": ["hsa-miR-21-5p", "hsa-miR-155-5p"],
+                "tools": ["miRanda"],
+                "cores": 1,
+                "shifts": {"hsa-miR-21-5p": "-7|1"},
+                "modifications": {"hsa-miR-155-5p": ["8:A>U"]},
+            })
+        self.assertEqual(resp.status_code, 202)
+        job_id = resp.get_json()["job_id"]
+        with open(os.path.join(self._tmp, job_id, "job.json")) as f:
+            meta = json.load(f)
+        self.assertEqual(meta["shifts"], {"hsa-miR-21-5p": "-7|1"})
+        self.assertEqual(meta["modifications"], {"hsa-miR-155-5p": ["8:A>U"]})
+
+    def test_shifts_referencing_unknown_mirna_rejected(self):
+        resp = self._post({
+            "workflow": "mir-network",
+            "mirna_ids": ["hsa-miR-21-5p"],
+            "tools": ["miRanda"],
+            "shifts": {"hsa-miR-999-5p": "-7|1"},
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("hsa-miR-999-5p", resp.get_json()["unknown"])
+
+    def test_modifications_must_be_lists(self):
+        resp = self._post({
+            "workflow": "mir-network",
+            "mirna_ids": ["hsa-miR-21-5p"],
+            "tools": ["miRanda"],
+            "modifications": {"hsa-miR-21-5p": "8:A>U"},  # string, not a list
+        })
+        self.assertEqual(resp.status_code, 400)
+
 
 class ProcessMirnaListPreIdTests(_BaseDirTestCase):
     """_process_mirna_list passes --pre-id only for miRNAs present in pre_ids."""
@@ -159,6 +196,41 @@ class ProcessMirnaListPreIdTests(_BaseDirTestCase):
         # No spurious errors recorded; concatenated FASTA written.
         self.assertNotIn("mirna_errors", meta)
         self.assertTrue(os.path.exists(fasta_path))
+
+    def test_shift_and_modifications_appended_per_mirna(self):
+        job_id = "job-ops"
+        os.makedirs(app_module._job_path(job_id))
+        mirna_ids = ["hsa-miR-21-5p", "hsa-let-7a-5p"]
+        meta = {
+            "shifts": {"hsa-miR-21-5p": "-7|1"},
+            "modifications": {"hsa-miR-21-5p": ["8:A>U"]},
+        }
+
+        captured = []
+
+        def fake_check_call(cmd, **kwargs):
+            captured.append(cmd)
+            out_path = cmd[cmd.index("-o") + 1]
+            with open(out_path, "w") as f:
+                f.write(">{},WT\nACGUACGUACGUACGUACGU\n".format(cmd[2]))
+            return 0
+
+        fasta_path = os.path.join(app_module._job_path(job_id), "mirna.fa")
+        with mock.patch.object(app_module.subprocess, "check_call", side_effect=fake_check_call):
+            app_module._process_mirna_list(job_id, mirna_ids, fasta_path, meta)
+
+        by_mirna = {cmd[2]: cmd for cmd in captured}
+        m21 = by_mirna["hsa-miR-21-5p"]
+        self.assertIn("-m", m21)
+        self.assertEqual(m21[m21.index("-m") + 1], "8:A>U")
+        self.assertIn("--shift=-7|1", m21)   # =-form for the negative shift
+        self.assertIn("-b", m21)             # both mods and shift -> combined
+
+        # The miRNA with no ops gets none of the operation flags.
+        let7 = by_mirna["hsa-let-7a-5p"]
+        self.assertNotIn("-m", let7)
+        self.assertNotIn("-b", let7)
+        self.assertFalse(any(a.startswith("--shift=") for a in let7))
 
 
 if __name__ == "__main__":
