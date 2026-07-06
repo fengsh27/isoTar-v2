@@ -210,6 +210,75 @@ def _validate_mirna_seq(seq):
     return s, None
 
 
+def _append_processing_args(cmd, modifications, shift, pre_id):
+    """Append the miRBase-relative operation flags shared by the single-miRNA and
+    network processing paths, so the two cannot drift.
+
+    modifications: list of modification strings (or None); shift: 'left|right'
+    string (or None); pre_id: precursor id for multi-precursor miRNAs (or None)."""
+    for mod in modifications or []:
+        cmd.extend(["-m", mod])
+    if shift:
+        # Use the --shift=VALUE form (not ["-s", shift]): a negative left-shift
+        # like "-7|1" starts with "-" and isn't a valid negative number (the
+        # "|1" breaks argparse's negative-number matcher), so space-separated
+        # argparse treats it as an unknown option and dies with "expected one
+        # argument" (exit 2). The =-joined form binds the value and parses cleanly.
+        cmd.append("--shift=" + shift)
+    if modifications and shift:
+        cmd.append("-b")
+    if pre_id:
+        cmd.extend(["--pre-id", pre_id])
+    return cmd
+
+
+def _normalize_mirna_variants(mirna_ids, shifts, modifications, variants):
+    """Fold the single shifts/modifications maps and the multi `variants` map into
+    one {mirna_id: [ {shift, modifications}, ... ]} structure.
+
+    Each spec is a sequence operation that mirna_processing.py turns into one
+    variant record (WT is emitted alongside regardless). The single shifts/
+    modifications maps contribute at most one implicit spec per miRNA; `variants`
+    contributes an explicit list. A miRNA with no operation is absent from the
+    result (processed WT-only). Identical specs are de-duplicated."""
+    out = {}
+    for mid in mirna_ids:
+        specs = []
+        s, m = shifts.get(mid), modifications.get(mid)
+        if s or m:
+            specs.append({"shift": s or None, "modifications": list(m or [])})
+        for spec in variants.get(mid, []):
+            norm = {"shift": spec.get("shift") or None,
+                    "modifications": list(spec.get("modifications") or [])}
+            if norm not in specs:
+                specs.append(norm)
+        if specs:
+            out[mid] = specs
+    return out
+
+
+def _concat_fasta_dedup(part_paths, out_path):
+    """Concatenate FASTA parts into out_path, keeping the first record per header.
+
+    Each variant run of a miRNA emits an identical ',WT' record, so dedup by
+    header yields a single WT plus one record per distinct variant. Streams line
+    by line (records are header + sequence lines) like filter_utr_fasta."""
+    seen = set()
+    with open(out_path, "w") as out:
+        for part in part_paths:
+            with open(part, "r") as pf:
+                write = False
+                for line in pf:
+                    if line.startswith(">"):
+                        header = line.rstrip("\n")
+                        write = header not in seen
+                        if write:
+                            seen.add(header)
+                    if write:
+                        out.write(line if line.endswith("\n") else line + "\n")
+    return out_path
+
+
 def _process_single_mirna(job_id, mirna_id, fasta_path, modifications, shift, pre_id,
                           mirna_seq=None):
     """Generate mirna.fa for one miRNA: a user-supplied custom sequence when
@@ -227,66 +296,63 @@ def _process_single_mirna(job_id, mirna_id, fasta_path, modifications, shift, pr
         # so they are not applied.
         cmd.extend(["--seq", mirna_seq])
     else:
-        for mod in modifications:
-            cmd.extend(["-m", mod])
-        if shift:
-            # Use the --shift=VALUE form (not ["-s", shift]): a negative
-            # left-shift like "-7|1" starts with "-" and isn't a valid negative
-            # number (the "|1" breaks argparse's negative-number matcher), so
-            # space-separated argparse treats it as an unknown option and dies
-            # with "expected one argument" (exit 2). The =-joined form binds the
-            # value directly and parses cleanly.
-            cmd.append("--shift=" + shift)
-        if modifications and shift:
-            cmd.append("-b")
-        if pre_id:
-            cmd.extend(["--pre-id", pre_id])
+        _append_processing_args(cmd, modifications, shift, pre_id)
     logger.info("step=processing job_id=%s", job_id)
     subprocess.check_call(cmd)
 
 
 def _process_mirna_list(job_id, mirna_ids, fasta_path, meta):
-    """Process each miRNA (WT only) and concatenate into one mirna.fa.
+    """Process each miRNA (WT plus any requested variants) into one mirna.fa.
 
-    Per-miRNA processing failures are recorded in meta['mirna_errors'] and that
-    miRNA is skipped; the job only aborts if EVERY miRNA failed. stdin is closed
-    so an interactive precursor prompt (multi-precursor miRNA without a pre-id)
-    raises EOFError instead of hanging the worker."""
+    A miRNA with sequence operations is run once per variant spec (each emits WT
+    plus that variant); the WT records dedupe on concat, so the FASTA holds a
+    single WT and one record per distinct variant. Per-run failures are recorded
+    in meta['mirna_errors'] and that variant is skipped; the job only aborts if
+    EVERY run failed. stdin is closed so an interactive precursor prompt
+    (multi-precursor miRNA without a pre-id) raises EOFError instead of hanging."""
     job_dir = _job_path(job_id)
     parts_dir = os.path.join(job_dir, "mirna_parts")
     os.makedirs(parts_dir, exist_ok=True)
     logger.info("step=processing job_id=%s mirnas=%d", job_id, len(mirna_ids))
 
-    # Per-miRNA precursor selection (from the submit request). A multi-precursor
-    # miRNA without an entry here still fails processing and is dropped below.
+    # Per-miRNA precursor selection + variant specs. mirna_variants is normalized
+    # at submit; recompute from the raw maps if an older/hand-built meta lacks it.
     pre_ids = meta.get("pre_ids") or {}
+    mirna_variants = meta.get("mirna_variants")
+    if mirna_variants is None:
+        mirna_variants = _normalize_mirna_variants(
+            mirna_ids, meta.get("shifts") or {}, meta.get("modifications") or {},
+            meta.get("variants") or {})
+
     mirna_errors = {}
     part_paths = []
     for idx, mirna_id in enumerate(mirna_ids):
-        part = os.path.join(parts_dir, "{}.fa".format(idx))
-        cmd = ["python2.7", "/opt/v2/mirna_processing.py", mirna_id, "-o", part]
         pre_id = pre_ids.get(mirna_id)
-        if pre_id:
-            cmd.extend(["--pre-id", pre_id])
-        try:
-            with open(os.devnull, "rb") as devnull:
-                subprocess.check_call(cmd, stdin=devnull)
-            part_paths.append(part)
-        except subprocess.CalledProcessError as e:
-            mirna_errors[mirna_id] = str(e)
-            logger.error("mirna processing failed job_id=%s mirna=%s error=%s",
-                         job_id, mirna_id, e)
+        # No specs -> a single WT-only run (spec is None). Otherwise one run per
+        # variant, each also emitting the shared WT (deduped on concat).
+        specs = mirna_variants.get(mirna_id) or [None]
+        for vidx, spec in enumerate(specs):
+            part = os.path.join(parts_dir, "{}_{}.fa".format(idx, vidx))
+            cmd = ["python2.7", "/opt/v2/mirna_processing.py", mirna_id, "-o", part]
+            if spec is None:
+                _append_processing_args(cmd, None, None, pre_id)
+            else:
+                _append_processing_args(cmd, spec.get("modifications"),
+                                        spec.get("shift"), pre_id)
+            try:
+                with open(os.devnull, "rb") as devnull:
+                    subprocess.check_call(cmd, stdin=devnull)
+                part_paths.append(part)
+            except subprocess.CalledProcessError as e:
+                key = mirna_id if spec is None else "{}#{}".format(mirna_id, vidx)
+                mirna_errors[key] = str(e)
+                logger.error("mirna processing failed job_id=%s mirna=%s variant=%s error=%s",
+                             job_id, mirna_id, vidx, e)
 
     if not part_paths:
         raise RuntimeError("all miRNAs failed processing: {}".format(mirna_errors))
 
-    with open(fasta_path, "w") as out:
-        for part in part_paths:
-            with open(part, "r") as pf:
-                data = pf.read()
-            out.write(data)
-            if data and not data.endswith("\n"):
-                out.write("\n")
+    _concat_fasta_dedup(part_paths, fasta_path)
 
     if mirna_errors:
         meta["mirna_errors"] = mirna_errors
@@ -487,6 +553,64 @@ def _submit_network_job(data, tools):
         return jsonify({"error": "pre_ids references miRNAs not in mirna_ids",
                         "unknown": unknown_pre_ids}), 400
 
+    # Optional per-miRNA sequence operations, applied on top of the miRBase WT:
+    #   shifts:        {"<mirna_id>": "left|right"}  (e.g. "-7|1")
+    #   modifications: {"<mirna_id>": ["<mod>", ...]}
+    # mirna_processing.py emits the WT plus a record per variant; the network
+    # keeps each variant as its own node (see _mirna_node_id). Keys must be a
+    # submitted miRNA so a typo 400s instead of being silently ignored.
+    shifts_in = data.get("shifts") or {}
+    mods_in = data.get("modifications") or {}
+    if not isinstance(shifts_in, dict) or not isinstance(mods_in, dict):
+        return jsonify({"error": "shifts and modifications must be objects keyed by miRNA id"}), 400
+    shifts = {}
+    for k, v in shifts_in.items():
+        if not (isinstance(k, str) and isinstance(v, str) and k.strip() and v.strip()):
+            return jsonify({"error": "shifts must map a miRNA id to a non-empty 'left|right' string"}), 400
+        shifts[k.strip()] = v.strip()
+    modifications = {}
+    for k, v in mods_in.items():
+        if not (isinstance(k, str) and k.strip() and isinstance(v, list)
+                and v and all(isinstance(x, str) and x.strip() for x in v)):
+            return jsonify({"error": "modifications must map a miRNA id to a non-empty list of modification strings"}), 400
+        modifications[k.strip()] = [x.strip() for x in v]
+
+    # Optional multiple variants per miRNA (superset of shifts/modifications):
+    #   variants: {"<mirna_id>": [{"shift": "-7|1"}, {"modifications": ["8:A|U"]}, ...]}
+    # Each spec needs at least one of shift / modifications and becomes its own
+    # variant node. The single maps above are folded in as one implicit spec.
+    variants_in = data.get("variants") or {}
+    if not isinstance(variants_in, dict):
+        return jsonify({"error": "variants must be an object keyed by miRNA id"}), 400
+    variants = {}
+    for k, specs in variants_in.items():
+        if not (isinstance(k, str) and k.strip() and isinstance(specs, list) and specs):
+            return jsonify({"error": "variants must map a miRNA id to a non-empty list of variant specs"}), 400
+        parsed = []
+        for spec in specs:
+            if not isinstance(spec, dict):
+                return jsonify({"error": "each variant spec must be an object with shift and/or modifications"}), 400
+            vshift = spec.get("shift")
+            vmods = spec.get("modifications")
+            if vshift is not None and not (isinstance(vshift, str) and vshift.strip()):
+                return jsonify({"error": "variant shift must be a non-empty 'left|right' string"}), 400
+            if vmods is not None and not (isinstance(vmods, list) and vmods
+                                          and all(isinstance(x, str) and x.strip() for x in vmods)):
+                return jsonify({"error": "variant modifications must be a non-empty list of modification strings"}), 400
+            vshift = vshift.strip() if vshift else None
+            vmods = [x.strip() for x in vmods] if vmods else []
+            if not vshift and not vmods:
+                return jsonify({"error": "each variant spec needs a shift and/or modifications"}), 400
+            parsed.append({"shift": vshift, "modifications": vmods})
+        variants[k.strip()] = parsed
+
+    unknown_ops = sorted((set(shifts) | set(modifications) | set(variants)) - set(mirna_ids))
+    if unknown_ops:
+        return jsonify({"error": "shifts/modifications/variants reference miRNAs not in mirna_ids",
+                        "unknown": unknown_ops}), 400
+
+    mirna_variants = _normalize_mirna_variants(mirna_ids, shifts, modifications, variants)
+
     cores, cores_err = validate_cores(data.get("cores"))
     if cores_err:
         msg, status = cores_err
@@ -544,6 +668,10 @@ def _submit_network_job(data, tools):
         "cores": cores,
         "pair_count": len(resolved_pairs),
         "pre_ids": pre_ids,
+        "shifts": shifts,
+        "modifications": modifications,
+        "variants": variants,
+        "mirna_variants": mirna_variants,
     }
     _write_meta(job_id, meta)
     task = run_job.delay(job_id)
