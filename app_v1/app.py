@@ -104,6 +104,8 @@ def _combine_tool_status(entries):
         status = "running"
     elif statuses and all(s == "done" for s in statuses):
         status = "done"
+    elif "failed" in statuses:
+        status = "failed"
     else:
         status = "pending"
 
@@ -181,6 +183,50 @@ def _load_progress(job_id):
     if pool_files:
         return _merge_pool_progress(pool_files)
     return None
+
+
+def _finalize_progress(job_id):
+    """Reconcile every progress.json once all prediction groups have returned.
+
+    The run is over, so no tool can still be legitimately 'running' (and none
+    'pending'): a tool left in either state had its runner die mid-tool -- the
+    subprocess exits non-zero and never writes a terminal status, yet the job
+    still succeeds on whatever other tools/pools produced output. Without this
+    the UI shows a finished job with a tool stuck on 'Running'. Flip any
+    non-'done' tool to 'failed' and clear current_tool. Rewrites the top-level
+    progress.json (mir-target/mir-lncrna) and each per-pool file (mir-network)."""
+    output_dir = os.path.join(_job_path(job_id), "output")
+    paths = [os.path.join(output_dir, "progress.json")]
+    paths += [os.path.join(output_dir, pool, "progress.json")
+              for pool in _NETWORK_POOLS]
+    now = int(time.time())
+    for path in paths:
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except (ValueError, IOError):
+            continue
+        tools_status = data.get("tools_status") or {}
+        changed = False
+        for info in tools_status.values():
+            if info.get("status") != "done":
+                info["status"] = "failed"
+                if info.get("finished_at") is None:
+                    info["finished_at"] = now
+                changed = True
+        if not changed:
+            continue
+        data["current_tool"] = None
+        data["completed_tools"] = sum(
+            1 for v in tools_status.values() if v.get("status") == "done")
+        data["updated_at"] = now
+        try:
+            with open(path, "w") as f:
+                json.dump(data, f)
+        except IOError:
+            pass
 
 
 # Custom miRNA sequence bounds -- mirror v2/mirna_processing.py
@@ -484,6 +530,10 @@ def run_job(self, job_id):
             groups_run += _run_prediction_pool(
                 job_id, fasta_path, tools, genome, target_type,
                 output_dir, cores, meta.get("target_file"), tool_errors, label=None)
+
+        # Every prediction group has returned -- reconcile progress so a tool
+        # whose runner died mid-run shows as failed, not eternally "running".
+        _finalize_progress(job_id)
 
         if tool_errors and len(tool_errors) >= groups_run:
             # Every tool group failed -- there are no results to return.
