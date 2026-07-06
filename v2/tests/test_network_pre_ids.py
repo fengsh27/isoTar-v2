@@ -158,6 +158,67 @@ class PreIdsValidationTests(_BaseDirTestCase):
         })
         self.assertEqual(resp.status_code, 400)
 
+    def test_variants_normalized_and_persisted(self):
+        fake_task = types.SimpleNamespace(id="task-var")
+        with mock.patch.object(app_module.run_job, "delay", return_value=fake_task):
+            resp = self._post({
+                "workflow": "mir-network",
+                "mirna_ids": ["hsa-miR-21-5p"],
+                "tools": ["miRanda"],
+                "cores": 1,
+                "variants": {"hsa-miR-21-5p": [
+                    {"shift": "-7|1"}, {"shift": "-4|0"}, {"modifications": ["8:A|U"]},
+                ]},
+            })
+        self.assertEqual(resp.status_code, 202)
+        job_id = resp.get_json()["job_id"]
+        with open(os.path.join(self._tmp, job_id, "job.json")) as f:
+            meta = json.load(f)
+        specs = meta["mirna_variants"]["hsa-miR-21-5p"]
+        self.assertEqual(len(specs), 3)
+        self.assertEqual(specs[0], {"shift": "-7|1", "modifications": []})
+        self.assertEqual(specs[2], {"shift": None, "modifications": ["8:A|U"]})
+
+    def test_variants_merge_with_single_maps(self):
+        # shifts/modifications fold in as an implicit spec alongside variants.
+        fake_task = types.SimpleNamespace(id="task-var2")
+        with mock.patch.object(app_module.run_job, "delay", return_value=fake_task):
+            resp = self._post({
+                "workflow": "mir-network",
+                "mirna_ids": ["hsa-miR-21-5p"],
+                "tools": ["miRanda"],
+                "cores": 1,
+                "shifts": {"hsa-miR-21-5p": "-7|1"},
+                "variants": {"hsa-miR-21-5p": [{"modifications": ["8:A|U"]}]},
+            })
+        self.assertEqual(resp.status_code, 202)
+        job_id = resp.get_json()["job_id"]
+        with open(os.path.join(self._tmp, job_id, "job.json")) as f:
+            meta = json.load(f)
+        specs = meta["mirna_variants"]["hsa-miR-21-5p"]
+        self.assertEqual(len(specs), 2)
+        self.assertIn({"shift": "-7|1", "modifications": []}, specs)
+        self.assertIn({"shift": None, "modifications": ["8:A|U"]}, specs)
+
+    def test_variant_referencing_unknown_mirna_rejected(self):
+        resp = self._post({
+            "workflow": "mir-network",
+            "mirna_ids": ["hsa-miR-21-5p"],
+            "tools": ["miRanda"],
+            "variants": {"hsa-miR-999-5p": [{"shift": "-7|1"}]},
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("hsa-miR-999-5p", resp.get_json()["unknown"])
+
+    def test_empty_variant_spec_rejected(self):
+        resp = self._post({
+            "workflow": "mir-network",
+            "mirna_ids": ["hsa-miR-21-5p"],
+            "tools": ["miRanda"],
+            "variants": {"hsa-miR-21-5p": [{}]},  # neither shift nor modifications
+        })
+        self.assertEqual(resp.status_code, 400)
+
 
 class ProcessMirnaListPreIdTests(_BaseDirTestCase):
     """_process_mirna_list passes --pre-id only for miRNAs present in pre_ids."""
@@ -231,6 +292,45 @@ class ProcessMirnaListPreIdTests(_BaseDirTestCase):
         self.assertNotIn("-m", let7)
         self.assertNotIn("-b", let7)
         self.assertFalse(any(a.startswith("--shift=") for a in let7))
+
+    def test_multiple_variants_run_once_each_and_dedup_wt(self):
+        job_id = "job-multivar"
+        os.makedirs(app_module._job_path(job_id))
+        mirna_ids = ["hsa-miR-21-5p"]
+        meta = {"mirna_variants": {"hsa-miR-21-5p": [
+            {"shift": "-7|1", "modifications": []},
+            {"shift": "-4|0", "modifications": []},
+        ]}}
+
+        captured = []
+
+        def fake_check_call(cmd, **kwargs):
+            captured.append(cmd)
+            out_path = cmd[cmd.index("-o") + 1]
+            mid = cmd[2]
+            # Emulate mirna_processing: always a WT record, plus one variant.
+            recs = [">{},WT".format(mid), "ACGUACGUACGUACGUACGU"]
+            if "--shift=-7|1" in cmd:
+                recs += [">{},-7|1,shifted".format(mid), "ACGUACGUACGUACGUAC"]
+            elif "--shift=-4|0" in cmd:
+                recs += [">{},-4|0,shifted".format(mid), "ACGUACGUACGUACGUACGUAC"]
+            with open(out_path, "w") as f:
+                f.write("\n".join(recs) + "\n")
+            return 0
+
+        fasta_path = os.path.join(app_module._job_path(job_id), "mirna.fa")
+        with mock.patch.object(app_module.subprocess, "check_call", side_effect=fake_check_call):
+            app_module._process_mirna_list(job_id, mirna_ids, fasta_path, meta)
+
+        # One subprocess run per variant spec.
+        self.assertEqual(len(captured), 2)
+        # Concatenated FASTA: a single (deduped) WT + one record per variant.
+        with open(fasta_path) as f:
+            headers = [ln.strip() for ln in f if ln.startswith(">")]
+        self.assertEqual(headers.count(">hsa-miR-21-5p,WT"), 1)
+        self.assertIn(">hsa-miR-21-5p,-7|1,shifted", headers)
+        self.assertIn(">hsa-miR-21-5p,-4|0,shifted", headers)
+        self.assertEqual(len(headers), 3)
 
 
 if __name__ == "__main__":
