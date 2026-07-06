@@ -128,5 +128,105 @@ class LoadProgressNetworkMergeTest(_BaseDirTestCase):
         self.assertIsNone(app_module._load_progress(job_id))
 
 
+class CombineToolStatusTest(unittest.TestCase):
+    """_combine_tool_status folds a tool's per-pool states into one."""
+
+    def test_running_wins(self):
+        s = app_module._combine_tool_status([_done(1, 2), _running(3)])
+        self.assertEqual(s["status"], "running")
+
+    def test_all_done_is_done(self):
+        s = app_module._combine_tool_status([_done(1, 5), _done(6, 9)])
+        self.assertEqual(s["status"], "done")
+        self.assertEqual(s["finished_at"], 9)
+
+    def test_failed_beats_pending_when_not_running(self):
+        failed = {"status": "failed", "started_at": 3, "finished_at": 4}
+        s = app_module._combine_tool_status([failed, _pending()])
+        self.assertEqual(s["status"], "failed")
+
+    def test_pending_when_no_terminal_signal(self):
+        s = app_module._combine_tool_status([_pending(), _pending()])
+        self.assertEqual(s["status"], "pending")
+
+
+class FinalizeProgressTest(_BaseDirTestCase):
+    """Once every prediction group returns, no tool may stay 'running'/'pending':
+    such a tool had its runner die mid-run, so it must show as 'failed'. This is
+    the fix for a finished job displaying a tool stuck on 'Running'."""
+
+    def _read_top(self, job_id):
+        path = os.path.join(app_module._job_path(job_id), "output", "progress.json")
+        with open(path) as f:
+            return json.load(f)
+
+    def test_top_level_running_is_flipped_to_failed(self):
+        job_id = "fin-1"
+        # Mirrors the observed bug: TargetScan crashed after being marked running
+        # while the other tools finished; the job still succeeded on their output.
+        self._write_top(job_id, {
+            "total_tools": 6,
+            "completed_tools": 5,
+            "current_tool": None,
+            "tools_status": {
+                "miRanda": _done(1, 2),
+                "Targetscan": _running(3),
+                "RNAhybrid": _done(4, 5),
+                "PITA": _done(5, 6),
+                "DMISO": _done(6, 7),
+                "miRmap": _done(8, 9),
+            },
+            "updated_at": 9,
+        })
+        app_module._finalize_progress(job_id)
+        data = self._read_top(job_id)
+        ts = data["tools_status"]
+        self.assertEqual(ts["Targetscan"]["status"], "failed")
+        self.assertIsNotNone(ts["Targetscan"]["finished_at"])
+        # Every other tool is untouched.
+        for tool in ("miRanda", "RNAhybrid", "PITA", "DMISO", "miRmap"):
+            self.assertEqual(ts[tool]["status"], "done")
+        self.assertIsNone(data["current_tool"])
+        self.assertEqual(data["completed_tools"], 5)
+
+    def test_pending_is_also_failed(self):
+        job_id = "fin-2"
+        self._write_top(job_id, {
+            "tools_status": {"miRanda": _done(1, 2), "PITA": _pending()},
+        })
+        app_module._finalize_progress(job_id)
+        ts = self._read_top(job_id)["tools_status"]
+        self.assertEqual(ts["PITA"]["status"], "failed")
+
+    def test_all_done_left_unchanged(self):
+        job_id = "fin-3"
+        payload = {
+            "total_tools": 1,
+            "completed_tools": 1,
+            "current_tool": None,
+            "tools_status": {"miRanda": _done(1, 2)},
+            "updated_at": 7,
+        }
+        self._write_top(job_id, payload)
+        app_module._finalize_progress(job_id)
+        # Untouched: still done, updated_at not bumped.
+        self.assertEqual(self._read_top(job_id), payload)
+
+    def test_reconciles_each_network_pool_file(self):
+        job_id = "fin-net"
+        self._write_pool(job_id, "gene", {
+            "miRanda": _done(1, 4),
+            "Targetscan": _running(6),
+        })
+        self._write_pool(job_id, "lncrna", {
+            "miRanda": _running(9),
+        })
+        app_module._finalize_progress(job_id)
+        # Both pool files reconciled; the merged view then reports failures.
+        status = app_module._load_progress(job_id)["tools_status"]
+        self.assertEqual(status["Targetscan"]["status"], "failed")
+        self.assertEqual(status["miRanda"]["status"], "failed")
+
+
 if __name__ == "__main__":
     unittest.main()

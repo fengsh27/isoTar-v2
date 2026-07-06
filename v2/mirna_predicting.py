@@ -43,6 +43,21 @@ RNAHYBRID = "/usr/local/bin/RNAhybrid"
 PITA = "/opt/PITA64bit/pita_prediction.pl"
 # TargetScan path
 TARGETSCAN = "/opt/TargetScan/"
+
+
+def _safe_ts_basename(header):
+    """Shell-safe basename for TargetScan's intermediate files.
+
+    TargetScan's own perl (targetscan_70_BL_PCT.pl) shells out
+    `sort -k8,8n FILE > FILE.sort.txt` with the filename *unquoted*, so any
+    shell metacharacter in the miRNA header breaks it: a shift/modification
+    variant header carries `|` (shift/mod separator, e.g. `2|3`) and `&`
+    (combined-mod joiner), which the shell reads as a pipe / background-op.
+    Map every char outside [A-Za-z0-9._-] to '_' so nothing shell-special ever
+    reaches the perl. Only the perl's working files use this name; the final
+    merged results keep the raw header (written by Python, read back by header
+    in parse_result.py), so variant attribution is unaffected."""
+    return re.sub(r'[^A-Za-z0-9._-]', '_', header)
 # DMISO path
 DMISO = "/usr/local/bin/dmiso"
 
@@ -455,8 +470,11 @@ def targetscan_prep(sequence, header, out_dir):
     # load mirR_Family_Info
     mirna_family_info_path = '/opt/TargetScan/Datasets/miR_Family_Info.json'
     mirna_family_info = load_json(mirna_family_info_path)
-    # Prepare TargetScan miRNA file
-    mirna_fasta_path = "{}/{}_targetscan.txt".format(out_dir, header)
+    # Prepare TargetScan miRNA file. Name it with a shell-safe basename (the raw
+    # header may carry '|'/'&' from a variant): this file is fed to a perl that
+    # shells out on its filename. The miRNA identifier written *inside* still
+    # derives from the header below, so results are unaffected.
+    mirna_fasta_path = "{}/{}_targetscan.txt".format(out_dir, _safe_ts_basename(header))
     with open(mirna_fasta_path, 'w') as f:
         # seed region
         seed = sequence[1:8]        
@@ -816,31 +834,34 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder, rnahyb
                 tool_statuses["Targetscan"]["started_at"] = int(time.time())
                 _write_progress(output_folder, tools, tool_statuses)
                 targetscan_prep(seq['sequence'], seq['header'], targetscan_out_dir)
+                # Shell-safe basename for the files the perl shells out on (the
+                # final merged output above keeps the raw header). See _safe_ts_basename.
+                ts_safe = _safe_ts_basename(seq['header'])
                 # TargetScan Input File path
-                targetscan_input = "{}/{}_targetscan.txt".format(targetscan_out_dir, seq['header'])
+                targetscan_input = "{}/{}_targetscan.txt".format(targetscan_out_dir, ts_safe)
                 # utr path
                 utr_path = "/opt/TargetScan/Datasets/3utr"
                 bln_bins_path = "/opt/TargetScan/Datasets/bln_bins"
                 # Process Targetscan
                 for i in range(64):
                     utr_file = os.path.join(utr_path, 'targetscan_utr_part_{}.txt'.format(i))
-                    output_file_1 = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, seq['header'], i)
+                    output_file_1 = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, ts_safe, i)
                     bln_bins_file = os.path.join(bln_bins_path, 'targetscan_median_bls_bins_part_{}.txt'.format(i))
-                    output_file_2 = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, seq['header'], i)
+                    output_file_2 = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, ts_safe, i)
                     # Run targetscan
                     run_targetscan(targetscan_input, utr_file, output_file_1, bln_bins_file, output_file_2)
                 # Merge results for first output file
                 with open(output_file1, 'w') as merged:
                     # Write header from first file (assuming all have same header)
-                    first_file = "{}/{}_part_0_out1.txt".format(targetscan_out_dir, seq['header'])
+                    first_file = "{}/{}_part_0_out1.txt".format(targetscan_out_dir, ts_safe)
                     if os.path.exists(first_file):
                         with open(first_file, 'r') as first:
                             header = first.readline()
                             merged.write(header)
-                    
+
                     # Apeend content from all files
                     for i in range(64):
-                        part_file = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, seq['header'], i)
+                        part_file = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, ts_safe, i)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
                                 # Skip header for all files
@@ -848,19 +869,19 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder, rnahyb
                                 merged.write(pf.read())
                             # Remove the part file after merging
                             os.remove(part_file)
-                
+
                 # Merge results for second output file
                 with open(output_file2, 'w') as merged:
                     # Write header from first file (assuming all have same header)
-                    first_file = "{}/{}_part_0_out2.txt".format(targetscan_out_dir, seq['header'])
+                    first_file = "{}/{}_part_0_out2.txt".format(targetscan_out_dir, ts_safe)
                     if os.path.exists(first_file):
                         with open(first_file, 'r') as first:
                             header = first.readline()
                             merged.write(header)
-                    
+
                     # Apeend content from all files
                     for i in range(64):
-                        part_file = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, seq['header'], i)
+                        part_file = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, ts_safe, i)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
                                 # Skip header for all files
@@ -1101,7 +1122,10 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 _write_progress(output_folder, tools, tool_statuses)
 
                 targetscan_prep(seq['sequence'], seq['header'], targetscan_out_dir)
-                targetscan_input = "{}/{}_targetscan.txt".format(targetscan_out_dir, seq['header'])
+                # Shell-safe basename for the files the perl shells out on (the
+                # final merged output above keeps the raw header). See _safe_ts_basename.
+                ts_safe = _safe_ts_basename(seq['header'])
+                targetscan_input = "{}/{}_targetscan.txt".format(targetscan_out_dir, ts_safe)
                 ts_utr_dir = "/opt/TargetScan/Datasets/3utr"
                 ts_bln_dir = "/opt/TargetScan/Datasets/bln_bins"
 
@@ -1109,20 +1133,20 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 for i in range(64):
                     utr_part = os.path.join(ts_utr_dir, 'targetscan_utr_part_{}.txt'.format(i))
                     bln_part = os.path.join(ts_bln_dir, 'targetscan_median_bls_bins_part_{}.txt'.format(i))
-                    out1 = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, seq['header'], i)
-                    out2 = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, seq['header'], i)
+                    out1 = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, ts_safe, i)
+                    out2 = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, ts_safe, i)
                     ts_args.append((targetscan_input, utr_part, out1, bln_part, out2))
 
                 pool.map(run_targetscan_with_params, ts_args)
 
                 # Merge per-part outputs (header from part 0, body from all parts).
                 with open(output_file1, 'w') as merged:
-                    first_file = "{}/{}_part_0_out1.txt".format(targetscan_out_dir, seq['header'])
+                    first_file = "{}/{}_part_0_out1.txt".format(targetscan_out_dir, ts_safe)
                     if os.path.exists(first_file):
                         with open(first_file, 'r') as first:
                             merged.write(first.readline())
                     for i in range(64):
-                        part_file = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, seq['header'], i)
+                        part_file = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, ts_safe, i)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
                                 next(pf)
@@ -1130,12 +1154,12 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                             os.remove(part_file)
 
                 with open(output_file2, 'w') as merged:
-                    first_file = "{}/{}_part_0_out2.txt".format(targetscan_out_dir, seq['header'])
+                    first_file = "{}/{}_part_0_out2.txt".format(targetscan_out_dir, ts_safe)
                     if os.path.exists(first_file):
                         with open(first_file, 'r') as first:
                             merged.write(first.readline())
                     for i in range(64):
-                        part_file = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, seq['header'], i)
+                        part_file = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, ts_safe, i)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
                                 next(pf)
