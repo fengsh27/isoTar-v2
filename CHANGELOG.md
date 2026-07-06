@@ -6,6 +6,12 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.15 - 2026-07-06
+
+- fix(targetscan): sanitize filenames so variant miRNAs don't crash the tool
+- feat(mir-network): support multiple sequence variants per miRNA
+- feat(mir-network): support per-miRNA shift/modification variants as graph nodes
+
 ## 0.3.14 - 2026-07-04
 
 - (no changes recorded since v0.3.13)
