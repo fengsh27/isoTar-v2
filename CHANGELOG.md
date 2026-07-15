@@ -6,6 +6,10 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.17 - 2026-07-15
+
+- feat(network): require a numeric score on each ceRNA (gene, lncRNA) pair
+
 ## 0.3.16 - 2026-07-06
 
 - (no changes recorded since v0.3.15)
