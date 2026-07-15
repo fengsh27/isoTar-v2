@@ -302,7 +302,10 @@ def compute_network(gene_edges, lncrna_edges, pairs=None, labels=None,
         gene_edges:   gene_id -> {mirna -> set(tools)}
         lncrna_edges: lncrna_id -> {mirna -> set(tools)}
         pairs:        optional list of {"gene": <refseq or symbol input>,
-                      "gene_refseqs": [refseq, ...], "lncrna": <transcript>}.
+                      "gene_refseqs": [refseq, ...], "lncrna": <transcript>,
+                      "score": <number>}. The score is passed through onto each
+                      kept pair unused (reserved for later); it is required on
+                      submitted pairs but discovery mode synthesizes None.
                       When present -> ceRNA filter mode (only these pairs).
                       When empty/None -> discovery mode over top-degree targets.
         labels:       (target, target_type) -> (label, name) for display.
@@ -321,14 +324,14 @@ def compute_network(gene_edges, lncrna_edges, pairs=None, labels=None,
             lncrna = strip_lncrna_version(p.get("lncrna"))
             refseqs = p.get("gene_refseqs") or ([p["gene"]] if p.get("gene") else [])
             for gene in refseqs:
-                candidate_pairs.append((gene, lncrna, p.get("gene")))
+                candidate_pairs.append((gene, lncrna, p.get("gene"), p.get("score")))
         truncated = False
     else:
         mode = "discovery"
         # Rank by number of distinct miRNAs targeting the node (bridge potential).
         top_g = sorted(gene_edges, key=lambda g: len(gene_edges[g]), reverse=True)[:top_genes]
         top_l = sorted(lncrna_edges, key=lambda l: len(lncrna_edges[l]), reverse=True)[:top_lncrna]
-        candidate_pairs = [(g, l, None) for g in top_g for l in top_l]
+        candidate_pairs = [(g, l, None, None) for g in top_g for l in top_l]
         truncated = len(candidate_pairs) > max_pairs
         candidate_pairs = candidate_pairs[:max_pairs]
 
@@ -339,7 +342,7 @@ def compute_network(gene_edges, lncrna_edges, pairs=None, labels=None,
     mirna_lncrna = {}  # (mirna, lncrna_id) -> set(tools)
     kept_pairs = []
 
-    for gene, lncrna, gene_input in candidate_pairs:
+    for gene, lncrna, gene_input, score in candidate_pairs:
         g_mirnas = gene_edges.get(gene)
         l_mirnas = lncrna_edges.get(lncrna)
         if not g_mirnas or not l_mirnas:
@@ -369,6 +372,7 @@ def compute_network(gene_edges, lncrna_edges, pairs=None, labels=None,
             "gene_input": gene_input,
             "gene_label": g_label[0] or gene,
             "lncrna": lncrna,
+            "score": score,
             "bridge_mirnas": sorted(bridges),
         })
 
