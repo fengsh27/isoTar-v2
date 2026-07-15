@@ -567,7 +567,8 @@ def run_job(self, job_id):
 
 def _submit_network_job(data, tools):
     """Validate, resolve, and enqueue a mir-network job (list of miRNAs + both
-    target pools + optional ceRNA (gene, lncRNA) pairs)."""
+    target pools + optional ceRNA (gene, lncRNA, score) pairs). Each pair
+    requires a numeric score, carried through unused for now (reserved for later)."""
     mirna_ids = data.get("mirna_ids") or []
     pairs_in = data.get("pairs") or []
 
@@ -669,7 +670,7 @@ def _submit_network_job(data, tools):
     genome = data.get("genome", "hg38")
 
     if not isinstance(pairs_in, list):
-        return jsonify({"error": "pairs must be a list of {gene, lncrna} objects"}), 400
+        return jsonify({"error": "pairs must be a list of {gene, lncrna, score} objects"}), 400
 
     # Resolve each pair's gene symbol/accession to RefSeq before creating job
     # state, so a 400 leaves no orphan dir. A symbol may expand to several RefSeq.
@@ -677,11 +678,19 @@ def _submit_network_job(data, tools):
     unresolved_genes = []
     for p in pairs_in:
         if not isinstance(p, dict):
-            return jsonify({"error": "each pair must be an object with gene and lncrna"}), 400
+            return jsonify({"error": "each pair must be an object with gene, lncrna and score"}), 400
         gene = (p.get("gene") or "").strip()
         lncrna = (p.get("lncrna") or "").strip()
         if not gene or not lncrna:
             return jsonify({"error": "each pair requires a non-empty gene and lncrna"}), 400
+        # Required per-pair score, carried through untouched for downstream use
+        # (not consumed yet). Must be a number; bool is an int subclass, so reject
+        # it explicitly so True/False can't pass as a score.
+        score = p.get("score")
+        if score is None:
+            return jsonify({"error": "each pair requires a score"}), 400
+        if isinstance(score, bool) or not isinstance(score, (int, float)):
+            return jsonify({"error": "pair score must be a number"}), 400
         refseqs, unresolved = _resolve_targets([gene], genome)
         if unresolved:
             unresolved_genes.extend(unresolved)
@@ -690,6 +699,7 @@ def _submit_network_job(data, tools):
             "gene": gene,
             "gene_refseqs": sorted(refseqs),
             "lncrna": lncrna,
+            "score": score,
         })
     if unresolved_genes:
         return jsonify({
