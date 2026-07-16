@@ -120,7 +120,15 @@ _NETWORK_POOLS = ("gene", "lncrna")
 def _combine_tool_status(entries):
     """Combine one tool's status across the pools it ran in. A tool is only
     'done' when every pool finished it; 'running' if any pool is running it;
-    'pending' otherwise. Timing spans the pools (earliest start, latest finish)."""
+    'pending' otherwise.
+
+    started_at/finished_at bracket the pools (earliest start, latest finish) and
+    are shown as-is, but they are NOT a duration: a tool's bracket also contains
+    every other tool's work, so reading elapsed off it reported 3h58m for a
+    miRanda that ran for 71 seconds, and the column summed to 21h on a 7h job.
+    Duration comes from `elapsed`, which the runner accumulates per run; here it
+    sums across pools. Left None for pre-`elapsed` jobs so the UI can tell
+    "unknown" apart from zero."""
     statuses = [e.get("status") for e in entries]
     if "running" in statuses:
         status = "running"
@@ -138,7 +146,16 @@ def _combine_tool_status(entries):
         finished_at = max(finishes) if finishes else None
     else:
         finished_at = None
-    return {"status": status, "started_at": started_at, "finished_at": finished_at}
+
+    elapsed_values = [e.get("elapsed") for e in entries if e.get("elapsed") is not None]
+    elapsed = sum(elapsed_values) if elapsed_values else None
+    # Earliest in-flight run, so the UI can live-count elapsed + (now - since)
+    # while a tool is still working in one or both pools.
+    since = [e.get("running_since") for e in entries if e.get("running_since") is not None]
+    running_since = min(since) if since else None
+
+    return {"status": status, "started_at": started_at, "finished_at": finished_at,
+            "elapsed": elapsed, "running_since": running_since}
 
 
 def _merge_pool_progress(pool_files):
@@ -237,6 +254,13 @@ def _finalize_progress(job_id):
                 info["status"] = "failed"
                 if info.get("finished_at") is None:
                     info["finished_at"] = now
+                # Bank the dead run's time and close it out. running_since must
+                # be cleared or the UI live-counts a tool that is never coming
+                # back, and the partial run would otherwise vanish from elapsed.
+                started = info.get("running_since")
+                if started is not None:
+                    info["elapsed"] = (info.get("elapsed") or 0) + max(0, now - started)
+                    info["running_since"] = None
                 changed = True
         if not changed:
             continue
@@ -1064,10 +1088,45 @@ def job_result(job_id):
     if offset < 0 or number < 1 or number > 1000:
         return jsonify({"error": "offset must be >= 0 and number must be between 1 and 1000"}), 400
 
+    # A network job predicts against two target pools, each in its own output
+    # subdirectory with its own parameters file -- there is no single result set
+    # at the top level, so `pool` says which one to read. Previously this fell
+    # through to the single-pool path and raised looking for a
+    # mirna_prediction_parameters.json that a network job never writes there,
+    # surfacing as a 500. Required rather than defaulted: silently answering for
+    # one pool would present half the job's results as if they were all of them.
+    pool = request.args.get("pool")
+    is_network = meta.get("workflow") == NETWORK_WORKFLOW
+    if is_network:
+        if pool not in _NETWORK_POOLS:
+            return jsonify({
+                "error": "pool is required for the mir-network workflow and must be "
+                         "one of: {}".format(", ".join(_NETWORK_POOLS)),
+                "pools": list(_NETWORK_POOLS),
+                "hint": "for the gene <-> miRNA <-> lncRNA graph itself, use "
+                        "/api/v1/jobs/{}/network".format(job_id),
+            }), 400
+        pool_dir = os.path.join(output_dir, pool)
+        if not os.path.exists(pool_dir):
+            logger.error("result pool missing job_id=%s pool=%s", job_id, pool)
+            return jsonify({"error": "result not found for pool {}".format(pool)}), 404
+    elif pool is not None:
+        return jsonify({
+            "error": "pool applies only to the mir-network workflow",
+        }), 400
+
     try:
         # lncRNA results are aggregated by transcript ID with no gene mapping
         # (see lncrna_results.py); the gene flow uses the RefSeq/symbol parser.
-        if meta.get("workflow") == "mir-lncrna":
+        # A network job's lncrna pool is the same shape as a mir-lncrna run, and
+        # its gene pool the same shape as mir-target, so each reuses that
+        # builder against the pool directory.
+        if is_network:
+            if pool == "lncrna":
+                db_path = ensure_lncrna_db(pool_dir)
+            else:
+                db_path = ensure_db(pool_dir)
+        elif meta.get("workflow") == "mir-lncrna":
             db_path = ensure_lncrna_db(output_dir)
         else:
             db_path = ensure_db(output_dir)
@@ -1085,8 +1144,10 @@ def job_result(job_id):
         "number":  number,
         "keyword": keyword,
     })
-    logger.info("result queried job_id=%s sort_by=%s order=%s offset=%d number=%d keyword=%s total=%d total_genes=%d",
-                job_id, sort_by, order, offset, number, keyword, data["total"], data["total_genes"])
+    if is_network:
+        data["pool"] = pool
+    logger.info("result queried job_id=%s pool=%s sort_by=%s order=%s offset=%d number=%d keyword=%s total=%d total_genes=%d",
+                job_id, pool, sort_by, order, offset, number, keyword, data["total"], data["total_genes"])
     return jsonify(data)
 
 
