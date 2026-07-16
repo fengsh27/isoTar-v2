@@ -1002,10 +1002,45 @@ def job_result(job_id):
     if offset < 0 or number < 1 or number > 1000:
         return jsonify({"error": "offset must be >= 0 and number must be between 1 and 1000"}), 400
 
+    # A network job predicts against two target pools, each in its own output
+    # subdirectory with its own parameters file -- there is no single result set
+    # at the top level, so `pool` says which one to read. Previously this fell
+    # through to the single-pool path and raised looking for a
+    # mirna_prediction_parameters.json that a network job never writes there,
+    # surfacing as a 500. Required rather than defaulted: silently answering for
+    # one pool would present half the job's results as if they were all of them.
+    pool = request.args.get("pool")
+    is_network = meta.get("workflow") == NETWORK_WORKFLOW
+    if is_network:
+        if pool not in _NETWORK_POOLS:
+            return jsonify({
+                "error": "pool is required for the mir-network workflow and must be "
+                         "one of: {}".format(", ".join(_NETWORK_POOLS)),
+                "pools": list(_NETWORK_POOLS),
+                "hint": "for the gene <-> miRNA <-> lncRNA graph itself, use "
+                        "/api/v1/jobs/{}/network".format(job_id),
+            }), 400
+        pool_dir = os.path.join(output_dir, pool)
+        if not os.path.exists(pool_dir):
+            logger.error("result pool missing job_id=%s pool=%s", job_id, pool)
+            return jsonify({"error": "result not found for pool {}".format(pool)}), 404
+    elif pool is not None:
+        return jsonify({
+            "error": "pool applies only to the mir-network workflow",
+        }), 400
+
     try:
         # lncRNA results are aggregated by transcript ID with no gene mapping
         # (see lncrna_results.py); the gene flow uses the RefSeq/symbol parser.
-        if meta.get("workflow") == "mir-lncrna":
+        # A network job's lncrna pool is the same shape as a mir-lncrna run, and
+        # its gene pool the same shape as mir-target, so each reuses that
+        # builder against the pool directory.
+        if is_network:
+            if pool == "lncrna":
+                db_path = ensure_lncrna_db(pool_dir)
+            else:
+                db_path = ensure_db(pool_dir)
+        elif meta.get("workflow") == "mir-lncrna":
             db_path = ensure_lncrna_db(output_dir)
         else:
             db_path = ensure_db(output_dir)
@@ -1023,8 +1058,10 @@ def job_result(job_id):
         "number":  number,
         "keyword": keyword,
     })
-    logger.info("result queried job_id=%s sort_by=%s order=%s offset=%d number=%d keyword=%s total=%d total_genes=%d",
-                job_id, sort_by, order, offset, number, keyword, data["total"], data["total_genes"])
+    if is_network:
+        data["pool"] = pool
+    logger.info("result queried job_id=%s pool=%s sort_by=%s order=%s offset=%d number=%d keyword=%s total=%d total_genes=%d",
+                job_id, pool, sort_by, order, offset, number, keyword, data["total"], data["total_genes"])
     return jsonify(data)
 
 
