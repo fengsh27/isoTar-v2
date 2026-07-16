@@ -59,6 +59,28 @@ NETWORK_WORKFLOW = "mir-network"
 # job can't fan out into an unbounded run.
 MAX_NETWORK_MIRNAS = int(os.environ.get("ISOTAR_MAX_NETWORK_MIRNAS", "20"))
 
+
+def _env_bool(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+# A network job scans the whole reference for both pools and only applies the
+# ceRNA pairs when the graph is built, so a pairs run computes the entire
+# genome and keeps a sliver of it: on job 9b4b222b that was 17 of 90,515 3'UTRs
+# and 4 of 195,159 lncRNAs -- over 99.98% of a 7h15m run discarded. Restricting
+# each pool to its pair targets up front produced identical predictions for
+# every pair target in ~37s.
+#
+# Off by default because it also narrows what the run leaves behind: today a
+# pairs job yields a genome-wide table (via /result and the result zip) that the
+# graph itself never shows. Restricting drops that byproduct, which is a real
+# choice rather than a free win -- so it is opt-in per job, with this env var
+# setting the deployment default.
+NETWORK_RESTRICT_TO_PAIRS_DEFAULT = _env_bool("ISOTAR_NETWORK_RESTRICT_TO_PAIRS", False)
+
 app = Flask(__name__)
 
 _cors_origins = os.environ.get("ISOTAR_CORS_ORIGINS", "*")
@@ -515,16 +537,25 @@ def run_job(self, job_id):
 
         if is_network:
             # Run BOTH target pools over the same miRNA list. TargetScan can only
-            # scan the 3' UTR (gene) pool -- drop it on the lncRNA pass. No target
-            # filter: the ceRNA pairs filter at result-build time, not here.
+            # scan the 3' UTR (gene) pool -- drop it on the lncRNA pass.
+            #
+            # Target filter per pool: None means scan the whole reference and let
+            # the ceRNA pairs filter at result-build time (the default, and the
+            # only option for a discovery run, which has no pairs to narrow to).
+            # A restrict_to_pairs job instead narrows each pool to that pair
+            # side's own targets up front -- same predictions for those targets,
+            # a fraction of the work.
+            pool_targets = meta.get("pool_target_files") or {}
             groups_run += _run_prediction_pool(
                 job_id, fasta_path, tools, genome, "gene",
-                os.path.join(output_dir, "gene"), cores, None, tool_errors, label="gene")
+                os.path.join(output_dir, "gene"), cores, pool_targets.get("gene"),
+                tool_errors, label="gene")
             lncrna_tools = [t for t in tools if t not in LNCRNA_INCOMPATIBLE_TOOLS]
             if lncrna_tools:
                 groups_run += _run_prediction_pool(
                     job_id, fasta_path, lncrna_tools, genome, "lncrna",
-                    os.path.join(output_dir, "lncrna"), cores, None, tool_errors, label="lncrna")
+                    os.path.join(output_dir, "lncrna"), cores, pool_targets.get("lncrna"),
+                    tool_errors, label="lncrna")
         else:
             target_type = _WORKFLOW_TARGET_TYPE.get(workflow, "gene")
             groups_run += _run_prediction_pool(
@@ -563,6 +594,38 @@ def run_job(self, job_id):
         meta["error"] = str(e)
         _write_meta(job_id, meta)
         logger.error("job failed job_id=%s error=%s", job_id, e)
+
+
+def _write_pool_target_files(job_id, resolved_pairs):
+    """Write each network pool's target list, for a restrict_to_pairs run.
+
+    One file per pool, written as <output>/<pool>/targets.txt -- the same name
+    and shape the single-pool workflows use, so it serves both purposes:
+      * mirna_predicting.py -tf, which filters that pool's reference FASTA
+        (filter_utr_fasta for gene, filter_lncrna_fasta for lncrna); and
+      * the parse-time targets filter in result_db._build_db, which is what
+        keeps TargetScan consistent -- it ignores the target FASTA and scans
+        its own precomputed datasets, so -tf alone would leave it reporting
+        genome-wide hits alongside four pool-restricted tools.
+
+    Pools get different identifier types (RefSeq vs Ensembl transcript), which
+    is why these are per-pool rather than one shared file.
+    """
+    output_dir = os.path.join(_job_path(job_id), "output")
+    targets = {
+        "gene": sorted({r for p in resolved_pairs for r in p.get("gene_refseqs", [])}),
+        "lncrna": sorted({p["lncrna"] for p in resolved_pairs if p.get("lncrna")}),
+    }
+    paths = {}
+    for pool, ids in targets.items():
+        pool_dir = os.path.join(output_dir, pool)
+        os.makedirs(pool_dir, exist_ok=True)
+        path = os.path.join(pool_dir, "targets.txt")
+        with open(path, "w") as f:
+            for i in ids:
+                f.write(i + "\n")
+        paths[pool] = path
+    return {"paths": paths, "counts": {k: len(v) for k, v in targets.items()}}
 
 
 def _submit_network_job(data, tools):
@@ -709,6 +772,20 @@ def _submit_network_job(data, tools):
                 _genome_to_species(genome)),
         }), 400
 
+    # Scan only the pairs' own targets instead of the whole reference. Opt-in
+    # per job; ISOTAR_NETWORK_RESTRICT_TO_PAIRS sets the default.
+    restrict = data.get("restrict_to_pairs")
+    if restrict is None:
+        restrict = NETWORK_RESTRICT_TO_PAIRS_DEFAULT
+    if not isinstance(restrict, bool):
+        return jsonify({"error": "restrict_to_pairs must be true or false"}), 400
+    if restrict and not resolved_pairs:
+        return jsonify({
+            "error": "restrict_to_pairs requires pairs -- there is nothing to "
+                     "restrict the target pools to",
+            "hint": "omit restrict_to_pairs for a discovery run over the full reference",
+        }), 400
+
     job_id = str(uuid.uuid4())
     job_dir = _job_path(job_id)
     os.makedirs(job_dir, exist_ok=True)
@@ -716,6 +793,13 @@ def _submit_network_job(data, tools):
     if resolved_pairs:
         with open(os.path.join(job_dir, "pairs.json"), "w") as f:
             json.dump({"pairs": resolved_pairs}, f, indent=2)
+
+    pool_target_files = None
+    if restrict:
+        pool_target_files = _write_pool_target_files(job_id, resolved_pairs)
+        logger.info("network job restricted to pairs job_id=%s gene_targets=%d lncrna_targets=%d",
+                    job_id, pool_target_files["counts"]["gene"],
+                    pool_target_files["counts"]["lncrna"])
 
     meta = {
         "job_id": job_id,
@@ -732,6 +816,8 @@ def _submit_network_job(data, tools):
         "modifications": modifications,
         "variants": variants,
         "mirna_variants": mirna_variants,
+        "restrict_to_pairs": restrict,
+        "pool_target_files": (pool_target_files or {}).get("paths"),
     }
     _write_meta(job_id, meta)
     task = run_job.delay(job_id)
