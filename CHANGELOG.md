@@ -6,6 +6,12 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.18 - 2026-07-16
+
+- feat(network): optionally restrict prediction to the ceRNA pair targets
+- fix(result): read the requested pool for network jobs instead of 500ing
+- fix(progress): accumulate per-tool elapsed instead of a start/finish bracket
+
 ## 0.3.17 - 2026-07-15
 
 - feat(network): require a numeric score on each ceRNA (gene, lncRNA) pair
