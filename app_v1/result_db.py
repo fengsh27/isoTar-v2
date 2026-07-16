@@ -71,10 +71,18 @@ def _build_db(output_dir, db_path):
     json_file = os.path.join(output_dir, "mirna_prediction_parameters.json")
     sequences = read_sequences_from_json(json_file)
 
-    # Discover targets.txt (sibling of output_dir, in the job dir) and build
-    # ENST->RefSeq map so TargetScan results are converted to RefSeq IDs and,
-    # if targets are specified, filtered to the user's list.
-    targets_file = os.path.join(os.path.dirname(os.path.abspath(output_dir)), "targets.txt")
+    # Discover targets.txt and build ENST->RefSeq map so TargetScan results are
+    # converted to RefSeq IDs and, if targets are specified, filtered to the
+    # user's list.
+    #
+    # Prefer one inside output_dir, then fall back to the sibling (job dir).
+    # Single-pool workflows write only the sibling, so they are unaffected; a
+    # restrict_to_pairs network job writes one per pool inside the pool dir,
+    # because each pool has its own target list and there is no single job-level
+    # one to share.
+    targets_file = os.path.join(output_dir, "targets.txt")
+    if not os.path.exists(targets_file):
+        targets_file = os.path.join(os.path.dirname(os.path.abspath(output_dir)), "targets.txt")
     targets = load_targets_file(targets_file)
     enst_to_refseq = build_enst_to_refseq_map(REFERENCE_MAPPING_DB)
 
