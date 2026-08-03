@@ -169,17 +169,38 @@ def parseTargetScanResults(output_f_path, result_dict, enst_to_refseq=None, targ
 
 def parsePITAResults(output_f_path, result_dict):
     results = []
+    rows_seen = 0
+    dgopen_seen = 0
     if os.path.exists(output_f_path):
-        with open(output_f_path, 'r') as f:        
+        with open(output_f_path, 'r') as f:
             handler = csv.reader(f, delimiter='\t')
             for line in handler:
                 if len(line) == 13:
                     tar = _extract_transcript_id(line[0])
                     if tar:
+                        rows_seen += 1
+                        # col 11 = dGopen (site accessibility); empty when the
+                        # RNAddG4 binary fails to emit output (see guard below).
+                        if line[11].strip() != '':
+                            dgopen_seen += 1
                         ddG = float(line[12])
                         if ddG <= -10.0:
                             if tar not in results:
                                 results.append(tar)
+    # Accessibility guard: PITA's ddG = dGduplex - dGopen. If the RNAddG4
+    # binary fails (it segfaults in some images), dGopen comes back empty and
+    # ddG silently collapses to dGduplex, so PITA over-predicts ~20-40x. Fail
+    # loudly here rather than emit invalid targets. run_pita discards PITA's
+    # stderr, so a die() inside RNAddG_compute.pl would be swallowed -- this
+    # wrapper-side check is the reliable place to catch it.
+    if rows_seen > 0 and dgopen_seen == 0:
+        raise RuntimeError(
+            "PITA: dGopen is empty for all {} site rows in {} -- the RNAddG4 "
+            "accessibility binary produced no output, so ddG collapsed to "
+            "dGduplex and PITA predictions are invalid (massive over-prediction). "
+            "Replace the broken RNAddG4 binary at /opt/PITA64bit/Bin/ViennaRNA/"
+            "ViennaRNA-1.6/Progs/RNAddG4 and re-run.".format(rows_seen, output_f_path)
+        )
     if 'prediction' not in result_dict:
         result_dict["prediction"] = {}
     result_dict["prediction"]['PITA'] = results
@@ -254,26 +275,45 @@ def parseMirmapResults(output_f_path, result_dict):
     return result_dict
 
 def parseMirandaResults(output_f_path, result_dict):
-    """Extract target accessions from a miRanda -out file.
+    """Extract target accessions from a miRanda -out file, keeping a target
+    only when the miRNA seed is fully Watson-Crick paired -- the canonical
+    seed-match filter isoTar v1 applied. (v1's own comment says "seed region
+    2-7", but its slice actually spans miRNA positions 2-8, i.e. 7mer-m8. The
+    behaviour here is kept identical to v1; only the label is corrected.)
 
-    miRanda -quiet writes only the summary lines: '>' per individual hit and
-    '>>' per (miRNA, target) total, both tab-separated with the UTR accession
-    (e.g. 'hg38_ncbiRefSeqCurated_NM_000051.4') in column 1. The verbose
-    (non-quiet) format also emits these same summary lines after each
-    alignment block, so this parser handles both invocation styles.
+    Reading every '>' summary line (all hits above the -sc/-en thresholds)
+    over-predicts ~7x relative to v1, because miRanda reports many alignments
+    with an imperfect seed. Each hit emits an alignment block: a 'Query:' line,
+    the pairing string on the next line, a 'Ref:' line, then (5 lines further)
+    the '>' summary line whose 2nd tab field is the target id. miranda v3.3a
+    emits these blocks even under -quiet. A truly summary-only output has no
+    alignment block and yields nothing here -- acceptable, since the seed
+    cannot be verified without it.
     """
     results = []
     if os.path.exists(output_f_path):
         with open(output_f_path, 'r') as f:
-            for line in f:
-                if not line.startswith('>'):
-                    continue
-                parts = line.rstrip('\r\n').split('\t')
-                if len(parts) < 2:
-                    continue
-                tar = _extract_transcript_id(parts[1])
-                if tar and tar not in results:
-                    results.append(tar)
+            lines = f.readlines()
+        for i in range(len(lines)):
+            if not re.match(r"^\s+Query:\s+3'\s+\S+\s+5'$", lines[i], re.I):
+                continue
+            # The pairing string is the next line. miRanda prints the miRNA
+            # 3'->5', so position 1 is rightmost; the line ends with a trailing
+            # space (pos 1) then '\n'. Slice [-9:-2] therefore spans miRNA
+            # positions 2-8. It must be all '|' (Watson-Crick): a ' ' (mismatch)
+            # or ':' (G:U wobble) anywhere in that window rejects the hit.
+            if i + 1 >= len(lines) or lines[i + 1][-9:-2].replace('|', '') != '':
+                continue
+            # Query(+0) -> pairing(+1) -> Ref(+2) -> +5 lands on the '>' line.
+            j = i + 7
+            if j >= len(lines) or not lines[j].startswith('>'):
+                continue
+            parts = lines[j].rstrip('\r\n').split('\t')
+            if len(parts) < 2:
+                continue
+            tar = _extract_transcript_id(parts[1])
+            if tar and tar not in results:
+                results.append(tar)
     if 'prediction' not in result_dict:
         result_dict["prediction"] = {}
     result_dict["prediction"]['miRanda'] = results
