@@ -21,9 +21,16 @@ die() { echo "error: $*" >&2; exit 1; }
 [ -f "$VERSION_FILE" ] || die "$VERSION_FILE not found"
 [ $# -eq 1 ] || die "usage: scripts/release.sh <major|minor|patch|X.Y.Z>"
 
-# Refuse to release a dirty tree (so the release commit is clean and reviewable).
-if [ -n "$(git status --porcelain)" ]; then
-    die "working tree is dirty; commit or stash changes first"
+# Refuse to release with uncommitted changes to TRACKED files, so the release
+# commit is clean and reviewable and the tag describes what is actually in it.
+#
+# Untracked files are deliberately allowed (-uno). The release commit adds only
+# VERSION and CHANGELOG by name, so an untracked file can never leak into it,
+# and local run artifacts (out/, work/, scratch tarballs) would otherwise block
+# every release.
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    die "tracked files have uncommitted changes; commit or stash them first
+$(git status --short --untracked-files=no)"
 fi
 
 current="$(tr -d '[:space:]' < "$VERSION_FILE")"

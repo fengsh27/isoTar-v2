@@ -255,3 +255,5 @@ git config core.hooksPath .githooks
 
 The hook only runs when `v2/*.py` files are staged, so it's silent on
 unrelated commits. Bypass in emergencies with `git commit --no-verify`.
+
+
