@@ -606,8 +606,17 @@ def run_mirmap(mirna_seq, mirna_header, utr_file, output_file):
             # aborting the whole shard -- which would lose every other
             # transcript's result and, via pool.map, fail the entire job.
             try:
+                # seed_lengths MUST be passed explicitly. miRmap 2 defaults to
+                # [6, 7] when it is omitted, whereas isoTar v1 asked for
+                # [7, 8] (itutils.py: allowed_lengths=[7,8]). Leaving it
+                # defaulted silently added the weakest, least specific seed
+                # class (6mer) and dropped the strongest (8mer). v1's
+                # allowed_gu_wobbles/allowed_mismatches of {7:0, 8:0} need no
+                # translation: miRmap 2's seed search is an exact
+                # reverse-complement match, so zero wobbles/mismatches is
+                # already its only behaviour.
                 targets = mirmap.target.find_targets_with_seed(
-                    utr_sequences[i], mirna_seq_t)
+                    utr_sequences[i], mirna_seq_t, seed_lengths=[7, 8])
                 if not targets:
                     out_f.write("\n")
                     continue

@@ -10,6 +10,14 @@ import sys
 # Matches Ensembl (ENST00000284637) or RefSeq mRNA (NM_001164664), stripping version suffix
 _TRANSCRIPT_RE = re.compile(r'(ENST\d+|NM_\d+)(?:\.\d+)?')
 _REFSEQ_RE = re.compile(r'^[A-Z]{2,3}_\d+(\.\d+)?$')
+# miRmap report: one header per (miRNA, transcript) pair, then one block per
+# predicted site. The transcript accession is the header's last field. The
+# header historically looked like ">mir,WT NM_000051", but the ",WT" suffix is
+# absent for some run types, so the comma is not required here.
+_MIRMAP_HEADER_RE = re.compile(r'^>.*\s+(\S+)\s*$')
+# Emitted exactly once per site by both the miRmap 1.x report layout and v2's
+# _build_mirmap2_block, so it is a reliable site delimiter.
+_MIRMAP_SITE_RE = re.compile(r'^\s*ΔG binding \(kcal/mol\)\s+([-+]?\d+\.?\d*)\s*$')
 
 def _extract_transcript_id(text):
     """Return ENST or NM_ transcript ID from text, without version suffix. None if not found."""
@@ -243,31 +251,45 @@ def parseRnahybridResults(output_f_path, result_dict):
     return result_dict
 
 def parseMirmapResults(output_f_path, result_dict):
+    """Collect every transcript for which miRmap reported at least one site.
+
+    isoTar v1 applied NO energy threshold here -- it kept every transcript that
+    produced a report block, i.e. every transcript with a seed match. v2 gated
+    on "ΔG binding <= -20", a constant carried over from tools that score a
+    different physical quantity. That cutoff sits past the end of miRmap's
+    actual ΔG binding distribution (median ~-8) and discarded ~99.9% of the
+    output, leaving miRmap at ~0.05x v1. The gate is removed to restore parity.
+
+    The previous implementation also read a fixed offset (+8) from the header,
+    so it only ever saw a transcript's FIRST site. miRmap 2 returns every site
+    sorted by seed end descending -- nearest the UTR 3' end first, which has
+    nothing to do with score -- and real outputs average ~2.9 sites per
+    transcript, so roughly two thirds of sites were never examined. Scanning
+    line by line drops both that limitation and the fixed-offset assumption
+    (the 1.x and 2.x block layouts emit different numbers of feature lines, so
+    the offsets were only accidentally correct).
+    """
     results = []
+    seen = set()
     if os.path.exists(output_f_path):
-        # miRmap writes "DeltaG binding (kcal/mol)" with a literal Greek Delta (UTF-8 0xCE 0x94),
+        # miRmap writes "ΔG binding (kcal/mol)" with a literal Greek Delta (UTF-8 0xCE 0x94),
         # so reading without an explicit encoding fails on containers without a UTF-8 locale.
         # io.open is used (not builtin open) so the encoding= kwarg works under Py2.7 too.
         with io.open(output_f_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-            for i in range(0, len(lines)):
-                # miRNA - Target
-                matchObj = re.match(r'^>[^,]+,.*?\s+(\S+)\s*$', lines[i], re.M|re.I)
-                if matchObj:
-                    tar = _extract_transcript_id(matchObj.group(1))
-                    i += 2
-                    if i < len(lines):
-                        matchObj = re.match(r'.*[0-9]+.*', lines[i], re.M|re.I) # check this line contain any number
-                        if matchObj:
-                            i += 6
-                            if i < len(lines):
-                                matchObj = re.match(r'^\s*ΔG binding \(kcal/mol\)\s+([-+]?\d+\.?\d*)\s*$', lines[i])
-                                if matchObj:
-                                    dg_binding = float(matchObj.group(1))
-                                    # Only add if ΔG binding < -20
-                                    if dg_binding is not None and dg_binding <= -20:
-                                        if tar not in results:
-                                            results.append(tar)
+            tar = None
+            for line in f:
+                header = _MIRMAP_HEADER_RE.match(line)
+                if header:
+                    tar = _extract_transcript_id(header.group(1))
+                    continue
+                # Any site line proves this transcript had a seed match, which
+                # is the whole acceptance criterion now that the gate is gone.
+                if tar is not None and _MIRMAP_SITE_RE.match(line):
+                    if tar not in seen:
+                        seen.add(tar)
+                        results.append(tar)
+                    # Recorded -- skip this transcript's remaining sites.
+                    tar = None
     if 'prediction' not in result_dict:
         result_dict["prediction"] = {}
     result_dict["prediction"]['miRmap'] = results
