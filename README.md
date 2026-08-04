@@ -176,7 +176,12 @@ Response:
 GET /api/v1/jobs/<job_id>/result/download
 ```
 
-Returns a ZIP archive of all raw prediction output files.
+Returns a ZIP archive of all raw prediction output files, the run inputs
+(`job.json`, `mirna.fa`, `targets.txt`), and — if enrichment analysis has been
+run for the job — its outputs under `enrichment/` (`gene_list.csv`, one
+`*.enrichr.reports.txt` per database, and `enrichment_dotplot.png`). Running or
+re-running enrichment after a download invalidates the cached archive, so the
+next download always reflects the latest enrichment results.
 
 ---
 

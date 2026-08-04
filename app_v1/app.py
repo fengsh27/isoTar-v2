@@ -1200,6 +1200,25 @@ def job_network(job_id):
     return resp
 
 
+def _enrichment_artifacts(job_dir):
+    """Enrichment outputs living in the job dir, as (abs_path, name_in_zip).
+
+    Enrichment is optional and runs *after* the job succeeds (POST
+    .../enrichment), writing into the job dir rather than the result dir:
+    gene_list.csv (the genes the user submitted, written by the API),
+    <gene_set>.<organism>.enrichr.reports.txt (one per database, written by
+    gseapy) and enrichment_dotplot.png. Returned empty when enrichment has not
+    been run."""
+    artifacts = []
+    for name in ("gene_list.csv", "enrichment_dotplot.png"):
+        path = os.path.join(job_dir, name)
+        if os.path.exists(path):
+            artifacts.append((path, name))
+    for path in sorted(glob.glob(os.path.join(job_dir, "*.enrichr.reports.txt"))):
+        artifacts.append((path, os.path.basename(path)))
+    return artifacts
+
+
 @app.route("/api/v1/jobs/<job_id>/result/download", methods=["GET"])
 def job_result_download(job_id):
     if not os.path.exists(_job_meta_path(job_id)):
@@ -1212,25 +1231,41 @@ def job_result_download(job_id):
     if not result_dir or not os.path.exists(result_dir):
         return jsonify({"error": "result not found"}), 404
 
-    archive_path = os.path.join(_job_path(job_id), "result.zip")
-    if not os.path.exists(archive_path):
+    job_dir = _job_path(job_id)
+    enrichment = _enrichment_artifacts(job_dir)
+
+    archive_path = os.path.join(job_dir, "result.zip")
+    # The archive is cached, but enrichment can be run (or re-run with a
+    # different gene list / cutoff) long after the first download. Rebuild
+    # whenever an enrichment artifact is newer than the cached zip, otherwise a
+    # user who downloaded before running enrichment keeps getting a zip without
+    # it -- and one who re-ran it keeps getting the superseded results.
+    stale = False
+    if os.path.exists(archive_path) and enrichment:
+        archive_mtime = os.path.getmtime(archive_path)
+        stale = any(os.path.getmtime(p) > archive_mtime for p, _ in enrichment)
+
+    if stale or not os.path.exists(archive_path):
         # Build the archive ourselves (instead of shutil.make_archive) so we
         # can also include files that live in the job dir (sibling of
         # result_dir), not inside result_dir itself: targets.txt plus the run
-        # inputs job.json and mirna.fa. Inside the zip, mirror result_dir/* at
-        # the top level (matching shutil.make_archive's layout) and place those
-        # sibling files alongside it.
+        # inputs job.json and mirna.fa, and the enrichment outputs. Inside the
+        # zip, mirror result_dir/* at the top level (matching
+        # shutil.make_archive's layout) and place those sibling files
+        # alongside it, with enrichment under its own directory.
         with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for root, _dirs, files in os.walk(result_dir):
                 for name in files:
                     abs_path = os.path.join(root, name)
                     zf.write(abs_path, os.path.relpath(abs_path, result_dir))
             for sibling in ("targets.txt", "job.json", "mirna.fa"):
-                sibling_path = os.path.join(_job_path(job_id), sibling)
+                sibling_path = os.path.join(job_dir, sibling)
                 if os.path.exists(sibling_path):
                     zf.write(sibling_path, sibling)
+            for abs_path, name in enrichment:
+                zf.write(abs_path, os.path.join("enrichment", name))
 
-    logger.info("result downloaded job_id=%s", job_id)
+    logger.info("result downloaded job_id=%s enrichment_files=%d", job_id, len(enrichment))
     return send_file(archive_path, as_attachment=True, download_name="{}_result.zip".format(job_id))
 
 
