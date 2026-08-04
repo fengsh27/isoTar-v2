@@ -6,6 +6,10 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.20 - 2026-08-04
+
+- feat(download): include enrichment results in the job result zip
+
 ## 0.3.19 - 2026-08-03
 
 - chore: commit stray trailing newlines in README
