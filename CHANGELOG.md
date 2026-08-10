@@ -6,6 +6,10 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.22 - 2026-08-10
+
+- fix(pita): give each PITA run a private cwd to stop cross-worker corruption
+
 ## 0.3.21 - 2026-08-04
 
 - (no changes recorded since v0.3.20)
