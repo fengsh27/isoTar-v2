@@ -6,8 +6,8 @@ import multiprocessing
 import subprocess
 
 if not hasattr(subprocess, "run"):
-    def _run(cmd, check=False, stdout=None, stderr=None):
-        result = subprocess.call(cmd, stdout=stdout, stderr=stderr)
+    def _run(cmd, check=False, stdout=None, stderr=None, cwd=None):
+        result = subprocess.call(cmd, stdout=stdout, stderr=stderr, cwd=cwd)
         if check and result != 0:
             raise RuntimeError("Command failed with exit status {}: {}".format(result, cmd))
         return result
@@ -15,6 +15,7 @@ if not hasattr(subprocess, "run"):
     subprocess.run = _run
 import json
 import shutil
+import tempfile
 import time
 
 # Canonical lncRNA id normalizer shared with the backend validator so a
@@ -392,7 +393,31 @@ def run_rnahybrid(mirna_file, utr_file, output_file, mirna_length, utr_length, s
         subprocess.run(cmd, check=True, stdout=outfile)
 
 def run_pita(mirna_file, utr_file, output_prefix):
-    """Run PITA on a given miRNA and UTR file."""
+    """Run PITA on a given miRNA and UTR file.
+
+    Each invocation gets a private working directory. PITA's
+    lib/RNAddG_compute.pl writes its scratch files as bare relative names
+    ("tmp_seqfile1" for RNAduplex, "tmp_seqfile2" for RNAddG4), so every worker
+    in the -c > 1 pool resolves them to the same two files and they clobber each
+    other mid-run. Both scratch files are *batched* -- N sequences in, N result
+    lines back, matched by line position with nothing identifying which UTR a
+    line belongs to -- so a collision does not fail loudly:
+
+      * getddG() has no in/out count guard, so a foreign or short result array
+        is zipped onto this worker's targets and every dGopen (and the ddG
+        derived from it) is attributed to the wrong site, still arithmetically
+        self-consistent and so invisible to downstream validation.
+      * getdGduplexes() does guard, and dies -- but pita_prediction.pl discards
+        the return value of its system($runcmd), so the run still exits 0 with
+        that chunk's output silently truncated.
+
+    Isolating the cwd removes the collision at its source.
+    """
+    # Resolved up front: the run below uses a private cwd, so any caller-relative
+    # path would otherwise resolve against the wrong directory.
+    mirna_file = os.path.abspath(mirna_file)
+    utr_file = os.path.abspath(utr_file)
+    output_prefix = os.path.abspath(output_prefix)
     cmd = [
         "perl",
         PITA,
@@ -404,9 +429,13 @@ def run_pita(mirna_file, utr_file, output_prefix):
         "-gu", "7;0;8;0",
         "-m", "7;0;8;0"
     ]
-    # Run PITA and redirect output to /dev/null
-    with open('/dev/null', 'w') as devnull:
-        subprocess.run(cmd, check=True, stdout=devnull, stderr=devnull)
+    work_dir = tempfile.mkdtemp(prefix="pita_")
+    try:
+        # Run PITA and redirect output to /dev/null
+        with open('/dev/null', 'w') as devnull:
+            subprocess.run(cmd, check=True, stdout=devnull, stderr=devnull, cwd=work_dir)
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 def run_targetscan(targetscan_input, utr_input, output_file_1, bln_bins_file, output_file_2):
     """Run TargetScan Script 1"""
