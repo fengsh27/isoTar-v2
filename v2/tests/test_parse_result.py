@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for v2.parse_result helpers added for TargetScan post-processing:
     - load_targets_file
     - build_enst_to_refseq_map
@@ -25,7 +26,9 @@ from v2.parse_result import (  # noqa: E402
     load_targets_file,
     parseTargetScanResults,
     parseDMISOResults,
+    parseMirmapResults,
     _mirna_seed_match_pattern,
+    _MIRMAP_DG_BINDING_MAX,
 )
 
 # The live result-building path (app_v1) carries the lncRNA-aware parsers; the
@@ -515,6 +518,79 @@ class ParsePITAResultsHeaderTests(unittest.TestCase):
         self._write([("ENST00000357591.3 x", "n/a"), ("ENST00000222222.2 y", "-12.0")])
         rd = parsePITAResults_app(self.path, {}, id_extractor=_extract_lncrna_transcript_id)
         self.assertEqual(rd["prediction"]["PITA"], ["ENST00000222222"])
+
+
+class ParseMirmapResultsTests(unittest.TestCase):
+    """parseMirmapResults: keep a transcript when ANY site clears the ΔG gate."""
+
+    # One report block: five alignment lines then the feature lines. Only the
+    # "ΔG binding" line is load-bearing; the rest mirrors _build_mirmap2_block.
+    BLOCK = (
+        u"          100                  121\n"
+        u"          |                    |\n"
+        u"TAGTCAAGAGGGATATTGTTGAAGTTACCTC\n"
+        u"                         |||||||\n"
+        u"          TTGATATGTTGGATGATGGAGT\n"
+        u"  ΔG duplex (kcal/mol)         -18.00000\n"
+        u"  ΔG binding (kcal/mol)        {dg}\n"
+        u"  ΔG open (kcal/mol)            10.00000\n"
+    )
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.path = os.path.join(self.dir, "mirmap.txt")
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def _write(self, blocks):
+        """blocks: [(header_suffix, [dg_binding, ...]), ...]"""
+        with open(self.path, "w") as f:
+            for tar, dgs in blocks:
+                f.write(u">hsa-let-7a-5p,WT %s\n\n" % tar)
+                for dg in dgs:
+                    f.write(self.BLOCK.format(dg=dg))
+                f.write(u"\n")
+
+    def _run(self):
+        return parseMirmapResults(self.path, {})["prediction"]["miRmap"]
+
+    def test_gate_is_active(self):
+        self.assertEqual(_MIRMAP_DG_BINDING_MAX, -20.0)
+
+    def test_strong_site_kept_weak_site_dropped(self):
+        self._write([("NM_000051", ["-24.10000"]), ("NM_000546", ["-11.48000"])])
+        self.assertEqual(self._run(), ["NM_000051"])
+
+    def test_boundary_is_inclusive(self):
+        self._write([("NM_000051", ["-20.00000"])])
+        self.assertEqual(self._run(), ["NM_000051"])
+
+    def test_best_site_wins_when_first_site_is_weak(self):
+        # The regression this guards: miRmap 2 orders sites by seed end, not by
+        # energy, so a transcript's first site is routinely not its strongest.
+        self._write([("NM_000051", ["-12.00000", "-23.50000"])])
+        self.assertEqual(self._run(), ["NM_000051"])
+
+    def test_transcript_recorded_once(self):
+        self._write([("NM_000051", ["-21.00000", "-22.00000"])])
+        self.assertEqual(self._run(), ["NM_000051"])
+
+    def test_transcript_with_no_sites_absent(self):
+        self._write([("NM_000051", []), ("NM_000546", ["-21.00000"])])
+        self.assertEqual(self._run(), ["NM_000546"])
+
+    def test_header_without_wt_suffix(self):
+        # The pre-2026-08 regex required a comma in the header and missed these.
+        with open(self.path, "w") as f:
+            f.write(u">hsa-let-7a-5p NM_000051\n\n")
+            f.write(self.BLOCK.format(dg="-21.00000"))
+        self.assertEqual(self._run(), ["NM_000051"])
+
+    def test_missing_file_yields_empty(self):
+        self.assertEqual(
+            parseMirmapResults(os.path.join(self.dir, "nope.txt"), {})
+            ["prediction"]["miRmap"], [])
 
 
 if __name__ == "__main__":

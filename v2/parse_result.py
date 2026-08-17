@@ -16,8 +16,12 @@ _REFSEQ_RE = re.compile(r'^[A-Z]{2,3}_\d+(\.\d+)?$')
 # absent for some run types, so the comma is not required here.
 _MIRMAP_HEADER_RE = re.compile(r'^>.*\s+(\S+)\s*$')
 # Emitted exactly once per site by both the miRmap 1.x report layout and v2's
-# _build_mirmap2_block, so it is a reliable site delimiter.
+# _build_mirmap2_block, so it is a reliable site delimiter. Group 1 is the site's
+# ΔG binding, which _MIRMAP_DG_BINDING_MAX gates on.
 _MIRMAP_SITE_RE = re.compile(r'^\s*ΔG binding \(kcal/mol\)\s+([-+]?\d+\.?\d*)\s*$')
+# Keep a transcript only if some site binds at least this strongly (kcal/mol).
+# Set to None to accept every seed match (isoTar v1's behaviour).
+_MIRMAP_DG_BINDING_MAX = -20.0
 
 def _extract_transcript_id(text):
     """Return ENST or NM_ transcript ID from text, without version suffix. None if not found."""
@@ -251,23 +255,28 @@ def parseRnahybridResults(output_f_path, result_dict):
     return result_dict
 
 def parseMirmapResults(output_f_path, result_dict):
-    """Collect every transcript for which miRmap reported at least one site.
+    """Collect transcripts with at least one site binding at or below
+    _MIRMAP_DG_BINDING_MAX (kcal/mol).
 
-    isoTar v1 applied NO energy threshold here -- it kept every transcript that
-    produced a report block, i.e. every transcript with a seed match. v2 gated
-    on "ΔG binding <= -20", a constant carried over from tools that score a
-    different physical quantity. That cutoff sits past the end of miRmap's
-    actual ΔG binding distribution (median ~-8) and discarded ~99.9% of the
-    output, leaving miRmap at ~0.05x v1. The gate is removed to restore parity.
+    isoTar v1 applied NO energy threshold -- it kept every transcript with a
+    seed match -- so this gate is a deliberate divergence from v1, kept because
+    the weak tail is not worth reporting. It is only meaningful now that the
+    prediction side asks for 7/8mer seeds (mirna_predicting.run_mirmap). Under
+    miRmap 2's [6,7] default the seed pool was dominated by 6mers, which bind
+    far more weakly: ΔG binding ran min/median/max -24.94/-7.96/-3.62 and -20
+    sat past the end of that distribution, discarding ~99.9% of the output.
+    With [7,8] the same measurement gives -24.02/-15.81/-11.48, where -20 is a
+    stringent but real tail cutoff (~10% of hit transcripts on a 2428-UTR
+    sample; the exact share is miRNA-dependent, since a GC-rich miRNA clears
+    -20 more often). Do NOT restore this gate without the seed-length fix.
 
-    The previous implementation also read a fixed offset (+8) from the header,
-    so it only ever saw a transcript's FIRST site. miRmap 2 returns every site
-    sorted by seed end descending -- nearest the UTR 3' end first, which has
-    nothing to do with score -- and real outputs average ~2.9 sites per
-    transcript, so roughly two thirds of sites were never examined. Scanning
-    line by line drops both that limitation and the fixed-offset assumption
-    (the 1.x and 2.x block layouts emit different numbers of feature lines, so
-    the offsets were only accidentally correct).
+    A transcript qualifies on its BEST site, not its first. The pre-2026-08
+    implementation read a fixed offset (+8) from the header, so it only ever
+    tested a transcript's first site -- and miRmap 2 returns sites sorted by
+    seed end descending (nearest the UTR 3' end first), which has nothing to do
+    with binding energy. Scanning line by line also drops the assumption that
+    every block has a fixed number of feature lines: the 1.x and 2.x layouts
+    differ, so those offsets were only accidentally correct.
     """
     results = []
     seen = set()
@@ -282,14 +291,20 @@ def parseMirmapResults(output_f_path, result_dict):
                 if header:
                     tar = _extract_transcript_id(header.group(1))
                     continue
-                # Any site line proves this transcript had a seed match, which
-                # is the whole acceptance criterion now that the gate is gone.
-                if tar is not None and _MIRMAP_SITE_RE.match(line):
-                    if tar not in seen:
-                        seen.add(tar)
-                        results.append(tar)
-                    # Recorded -- skip this transcript's remaining sites.
-                    tar = None
+                if tar is None:
+                    continue
+                site = _MIRMAP_SITE_RE.match(line)
+                if not site:
+                    continue
+                if (_MIRMAP_DG_BINDING_MAX is not None
+                        and float(site.group(1)) > _MIRMAP_DG_BINDING_MAX):
+                    # Too weak -- keep scanning this transcript's other sites.
+                    continue
+                if tar not in seen:
+                    seen.add(tar)
+                    results.append(tar)
+                # Recorded -- skip this transcript's remaining sites.
+                tar = None
     if 'prediction' not in result_dict:
         result_dict["prediction"] = {}
     result_dict["prediction"]['miRmap'] = results
