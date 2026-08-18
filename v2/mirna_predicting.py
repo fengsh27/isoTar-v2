@@ -931,9 +931,15 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder, rnahyb
                         part_file = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, ts_safe, i)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
-                                # Skip header for all files
-                                next(pf)
-                                merged.write(pf.read())
+                                # Skip the header line, then append the body. A part in which the
+                                # tool found nothing at all is written as a ZERO-BYTE file (PITA's
+                                # `head -n 1` of an empty intermediate emits nothing), so there is
+                                # no header to skip. next() would raise StopIteration there, and
+                                # nothing catches it -- it unwinds out of process_tools_in_parallel
+                                # and kills the entire run, losing every miRNA in the chunk, not
+                                # just the one with the empty part.
+                                if pf.readline():
+                                    merged.write(pf.read())
                             # Remove the part file after merging
                             os.remove(part_file)
 
@@ -951,9 +957,15 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder, rnahyb
                         part_file = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, ts_safe, i)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
-                                # Skip header for all files
-                                next(pf)
-                                merged.write(pf.read())
+                                # Skip the header line, then append the body. A part in which the
+                                # tool found nothing at all is written as a ZERO-BYTE file (PITA's
+                                # `head -n 1` of an empty intermediate emits nothing), so there is
+                                # no header to skip. next() would raise StopIteration there, and
+                                # nothing catches it -- it unwinds out of process_tools_in_parallel
+                                # and kills the entire run, losing every miRNA in the chunk, not
+                                # just the one with the empty part.
+                                if pf.readline():
+                                    merged.write(pf.read())
                             # Remove the part file after merging
                             os.remove(part_file)
                 _tool_finished(tool_statuses, "Targetscan")
@@ -1128,9 +1140,15 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                         part_file = "{}/Seq_{}_temp_3utr_part{}_pita_results.tab".format(pita_out_dir, seq_num, i + 1)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
-                                # Skip header for all files
-                                next(pf)
-                                merged_file.write(pf.read())
+                                # Skip the header line, then append the body. A part in which the
+                                # tool found nothing at all is written as a ZERO-BYTE file (PITA's
+                                # `head -n 1` of an empty intermediate emits nothing), so there is
+                                # no header to skip. next() would raise StopIteration there, and
+                                # nothing catches it -- it unwinds out of process_tools_in_parallel
+                                # and kills the entire run, losing every miRNA in the chunk, not
+                                # just the one with the empty part.
+                                if pf.readline():
+                                    merged_file.write(pf.read())
                             # Remove the part file after merging
                             os.remove(part_file)
                         part_file = "{}/Seq_{}_temp_3utr_part{}_pita_results.gxp".format(pita_out_dir, seq_num, i + 1)
@@ -1149,9 +1167,15 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                         part_file = "{}/Seq_{}_temp_3utr_part{}_pita_results_targets.tab".format(pita_out_dir, seq_num, i + 1)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
-                                # Skip header for all files
-                                next(pf)
-                                merged_file.write(pf.read())
+                                # Skip the header line, then append the body. A part in which the
+                                # tool found nothing at all is written as a ZERO-BYTE file (PITA's
+                                # `head -n 1` of an empty intermediate emits nothing), so there is
+                                # no header to skip. next() would raise StopIteration there, and
+                                # nothing catches it -- it unwinds out of process_tools_in_parallel
+                                # and kills the entire run, losing every miRNA in the chunk, not
+                                # just the one with the empty part.
+                                if pf.readline():
+                                    merged_file.write(pf.read())
                             # Remove the part file after merging
                             os.remove(part_file)
                 
@@ -1202,8 +1226,15 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                         part_file = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, ts_safe, i)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
-                                next(pf)
-                                merged.write(pf.read())
+                                # Skip the header line, then append the body. A part in which the
+                                # tool found nothing at all is written as a ZERO-BYTE file (PITA's
+                                # `head -n 1` of an empty intermediate emits nothing), so there is
+                                # no header to skip. next() would raise StopIteration there, and
+                                # nothing catches it -- it unwinds out of process_tools_in_parallel
+                                # and kills the entire run, losing every miRNA in the chunk, not
+                                # just the one with the empty part.
+                                if pf.readline():
+                                    merged.write(pf.read())
                             os.remove(part_file)
 
                 with open(output_file2, 'w') as merged:
@@ -1215,8 +1246,15 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                         part_file = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, ts_safe, i)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
-                                next(pf)
-                                merged.write(pf.read())
+                                # Skip the header line, then append the body. A part in which the
+                                # tool found nothing at all is written as a ZERO-BYTE file (PITA's
+                                # `head -n 1` of an empty intermediate emits nothing), so there is
+                                # no header to skip. next() would raise StopIteration there, and
+                                # nothing catches it -- it unwinds out of process_tools_in_parallel
+                                # and kills the entire run, losing every miRNA in the chunk, not
+                                # just the one with the empty part.
+                                if pf.readline():
+                                    merged.write(pf.read())
                             os.remove(part_file)
 
                 _tool_finished(tool_statuses, "Targetscan")
