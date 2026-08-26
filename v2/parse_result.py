@@ -225,12 +225,18 @@ def parseRnahybridResults(output_f_path, result_dict):
         with open(output_f_path, 'r') as f:        
             handler = csv.reader(f, delimiter=':')
             for line in handler:
-                if len(line) == 11:
+                # A compact-format record is 11 colon-separated fields, but
+                # field 2 is the miRNA name and isomiR names carry colons
+                # (e.g. "hsa-let-7a-5p,10:A|C,modified"), so the count grows
+                # with them. Both ends are stable -- the target is first and
+                # the four alignment rows are last -- so anchor from the right.
+                # On an 11-field line line[-3]/line[-2] are line[8]/line[9].
+                if len(line) >= 11:
                     tar = _extract_transcript_id(line[0])
                     if tar:
                         # Get the seed region 2-7
-                        target_seq = line[8][-8:-1]
-                        mirna_seq = line[9][-8:-1]
+                        target_seq = line[-3][-8:-1]
+                        mirna_seq = line[-2][-8:-1]
                         if not re.search(r'\s', mirna_seq):
                             seq_check = False
                             for i in range(0, len(mirna_seq)):  # Changed xrange to range
