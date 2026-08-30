@@ -46,10 +46,33 @@ def _default_reference_db():
     return "/app_v1/reference_mapping.db"
 
 
-# Ensembl assembly matching each genome code a job can request. TargetScan
-# reports Ensembl transcript IDs; the reference FASTAs are keyed by RefSeq, so
-# every hit has to be translated before it can be matched against a target.
-_GENOME_BUILD = {"hg19": "GRCh37", "hg38": "GRCh38"}
+# Assembly holding the ENST->RefSeq rows for each genome a job can request.
+# TargetScan reports its own transcript identifiers and the reference FASTAs are
+# keyed by RefSeq, so every hit is translated before it can match a target. The
+# identifier differs per species -- ENST (human), ENSMUST (mouse), FBtr (fly),
+# ENSDARG (zebrafish) -- but all resolve through the same enst_refseq table.
+#
+# Only species where TargetScan publishes an identifier we can resolve appear
+# here. Worm is absent on purpose: its datasets key on an internal numeric
+# ("171590.0") with no RefSeq or Ensembl equivalent in any published file. The
+# remaining genome codes (rno, cfa, mml, ptr, mdo) have no TargetScan release.
+_GENOME_BUILD = {
+    "hg19": "GRCh37",
+    "hg38": "GRCh38",
+    "mmu":  "GRCm38",
+    "dme":  "Release6",
+    "dre":  "GRCz11",
+}
+
+# Genomes TargetScan can be run for. Anything else must not reach the tool --
+# it would silently produce nothing, since targetscan_70.pl skips every UTR row
+# whose species id is absent from the miRNA file.
+TARGETSCAN_GENOMES = frozenset(_GENOME_BUILD)
+
+
+def targetscan_supported(genome):
+    """True when TargetScan ships a dataset for this genome that we can map."""
+    return genome in TARGETSCAN_GENOMES
 
 
 def _has_enst_refseq_table(conn):
@@ -77,7 +100,9 @@ def build_enst_to_refseq_map(ref_db_path=None, genome="hg19"):
     mp = {}
     if not os.path.exists(ref_db_path):
         return mp
-    build = _GENOME_BUILD.get(genome, "GRCh37")
+    build = _GENOME_BUILD.get(genome)
+    if build is None:
+        return mp
     conn = sqlite3.connect(ref_db_path)
     try:
         if not _has_enst_refseq_table(conn):
