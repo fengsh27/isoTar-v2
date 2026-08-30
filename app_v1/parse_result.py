@@ -73,43 +73,71 @@ def _default_reference_db():
     return "/app_v1/reference_mapping.db"
 
 
-def build_enst_to_refseq_map(ref_db_path=None):
+# Ensembl assembly matching each genome code a job can request. TargetScan
+# reports Ensembl transcript IDs; the reference FASTAs are keyed by RefSeq, so
+# every hit has to be translated before it can be matched against a target.
+_GENOME_BUILD = {"hg19": "GRCh37", "hg38": "GRCh38"}
+
+
+def _has_enst_refseq_table(conn):
+    cur = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='enst_refseq'")
+    return cur.fetchone() is not None
+
+
+def build_enst_to_refseq_map(ref_db_path=None, genome="hg19"):
     """Return dict mapping unversioned ENST -> set of unversioned RefSeq IDs.
 
-    Two indexed scans (ensembl_mapping, gene_mapping) joined on UPPER(symbol)
-    in Python. Avoids `COLLATE NOCASE` on the JOIN which defeats the symbol
-    index and turns this into a multi-billion-comparison nested loop."""
+    Reads enst_refseq, which holds one row per real transcript pair as
+    published by Ensembl BioMart, selected for the assembly matching `genome`.
+
+    Falls back to the legacy symbol join only when that table is absent. The
+    join went ENST -> gene symbol -> every RefSeq sharing that symbol, so a
+    single ENST hit expanded to all sibling transcripts of its gene -- mean
+    4.18 RefSeq per ENST against 1.15 here, inflating TargetScan target counts
+    about 4.8x. Symbol-joined IDs are real transcripts that TargetScan never
+    scanned, so they pass an existence check; only the fan-out reveals them.
+    """
     import sqlite3
     if ref_db_path is None:
         ref_db_path = _default_reference_db()
     mp = {}
     if not os.path.exists(ref_db_path):
         return mp
+    build = _GENOME_BUILD.get(genome, "GRCh37")
     conn = sqlite3.connect(ref_db_path)
     try:
-        c = conn.cursor()
-        # symbol(uppercased) -> set of unversioned RefSeq IDs.
-        # Restrict to human species — TargetScan output is filtered to 9606
-        # in parseTargetScanResults, so cross-species symbol collisions
-        # (e.g. mouse "Trp53" sharing a HGNC bucket) would only add noise.
-        symbol_to_refseqs = {}
-        c.execute(
-            "SELECT symbol, raw_id FROM gene_mapping "
-            "WHERE species LIKE 'hsa_%' AND symbol IS NOT NULL AND raw_id IS NOT NULL"
-        )
-        for sym, raw_id in c.fetchall():
-            symbol_to_refseqs.setdefault(sym.upper(), set()).add(raw_id.split(".")[0])
-        # walk ensembl_mapping, project each ENST onto its symbol's RefSeq set
-        c.execute("SELECT ensembl_id, symbol FROM ensembl_mapping WHERE ensembl_id IS NOT NULL AND symbol IS NOT NULL")
-        for ensembl_id, sym in c.fetchall():
-            refseqs = symbol_to_refseqs.get(sym.upper())
-            if not refseqs:
-                continue
-            enst = ensembl_id.split(".")[0]
-            bucket = mp.setdefault(enst, set())
-            bucket.update(refseqs)
+        if not _has_enst_refseq_table(conn):
+            return _legacy_symbol_join(conn)
+        cur = conn.execute(
+            "SELECT enst, refseq FROM enst_refseq WHERE build=?", (build,))
+        for enst, refseq in cur.fetchall():
+            mp.setdefault(enst.split(".")[0], set()).add(refseq.split(".")[0])
     finally:
         conn.close()
+    return mp
+
+
+def _legacy_symbol_join(conn):
+    """Pre-0.3.23 ENST->RefSeq derivation, kept for databases without the
+    enst_refseq table. Over-predicts; see build_enst_to_refseq_map."""
+    mp = {}
+    c = conn.cursor()
+    symbol_to_refseqs = {}
+    c.execute(
+        "SELECT symbol, raw_id FROM gene_mapping "
+        "WHERE species LIKE 'hsa_%' AND symbol IS NOT NULL AND raw_id IS NOT NULL"
+    )
+    for sym, raw_id in c.fetchall():
+        symbol_to_refseqs.setdefault(sym.upper(), set()).add(raw_id.split(".")[0])
+    c.execute("SELECT ensembl_id, symbol FROM ensembl_mapping WHERE ensembl_id IS NOT NULL AND symbol IS NOT NULL")
+    for ensembl_id, sym in c.fetchall():
+        refseqs = symbol_to_refseqs.get(sym.upper())
+        if not refseqs:
+            continue
+        enst = ensembl_id.split(".")[0]
+        bucket = mp.setdefault(enst, set())
+        bucket.update(refseqs)
     return mp
 
 
