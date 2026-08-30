@@ -377,6 +377,92 @@ def rnahybrid_dataset_for_genome(genome):
     return _RNAHYBRID_DATASET_MAP.get(genome, "3utr_human")
 
 
+# TargetScan is run against TargetScan's OWN 3' UTR alignments, not the
+# /opt/reference_files FASTA the other tools read. Its datasets define 3' UTR
+# boundaries differently -- on hsa-miR-21-5p only 33% of shared transcripts have
+# the same UTR length, and the two references agree on 70% of genes -- so
+# swapping them would change what TargetScan predicts rather than merely extend
+# it. Datasets/3utr/ is human and serves hg19 and hg38; the rest are built by
+# scripts/build_targetscan_species_datasets.sh into Datasets/<genome>/3utr/.
+#
+# Only genomes whose datasets carry an identifier resolvable to RefSeq appear
+# here (see _GENOME_BUILD in parse_result.py). Worm is excluded because every
+# worm package keys on an internal numeric with no RefSeq or Ensembl
+# equivalent; rno, cfa, mml, ptr and mdo have no TargetScan release at all.
+_TARGETSCAN_GENOME_DIR = {
+    "hg19": "3utr",
+    "hg38": "3utr",
+    "mmu":  "mmu/3utr",
+    "dme":  "dme/3utr",
+    "dre":  "dre/3utr",
+}
+
+# NCBI taxonomy id of the species each genome code names. targetscan_70.pl skips
+# any UTR row whose species id is absent from the miRNA file, so getting this
+# wrong yields an EMPTY result with no error rather than a failure.
+_GENOME_TAXID = {
+    "hg19": "9606",
+    "hg38": "9606",
+    "mmu":  "10090",
+    "dme":  "7227",
+    "dre":  "7955",
+}
+
+TARGETSCAN_PARTS = 64
+
+
+def targetscan_supported(genome):
+    """True when a TargetScan dataset is installed for this genome."""
+    return genome in _TARGETSCAN_GENOME_DIR
+
+
+def targetscan_utr_dir(genome):
+    """Directory holding this genome's 64 pre-split TargetScan UTR parts."""
+    return os.path.join(TARGETSCAN, "Datasets", _TARGETSCAN_GENOME_DIR[genome])
+
+
+def targetscan_bins_dir(genome):
+    """Precomputed UTR branch-length bins, or None when the genome has none.
+
+    Only human ships these (built from its 84-species alignment by
+    targetscan_70_BL_bins.pl, which needs Statistics::Lite -- not installed in
+    the image, so they cannot be regenerated here). run_targetscan derives a
+    flat stand-in for the other genomes so script 2 still produces results2."""
+    if genome in ("hg19", "hg38"):
+        return os.path.join(TARGETSCAN, "Datasets", "bln_bins")
+    return None
+
+
+def targetscan_mirfam_path(genome):
+    """Path to the miR_Family_Info JSON for a genome.
+
+    Falls back to the shipped vertebrate file, which is correct for human and
+    mouse but has no entries for fly or zebrafish -- for those, targetscan_prep
+    falls back to _GENOME_TAXID, which searches the target species only."""
+    per_genome = os.path.join(TARGETSCAN, "Datasets", genome, "miR_Family_Info.json")
+    if os.path.exists(per_genome):
+        return per_genome
+    return os.path.join(TARGETSCAN, "Datasets", "miR_Family_Info.json")
+
+
+def _write_flat_bins(results1_path, dest):
+    """Write a UTR-bin file assigning every gene in results1 to bin 1.
+
+    targetscan_70_BL_PCT.pl needs one, but it never reads the alignment -- it
+    takes the miRNA file, script 1's output and this bin table. Where the miRNA
+    is searched in a single species the branch length is 0 regardless of bin
+    (verified: bins 1, 5 and 10 give byte-identical output), so a flat table
+    costs nothing and keeps results2 structurally complete instead of absent."""
+    seen = set()
+    with open(results1_path, 'r') as src, open(dest, 'w') as out:
+        src.readline()  # header
+        for line in src:
+            gid = line.split('\t', 1)[0].strip()
+            if gid and gid not in seen:
+                seen.add(gid)
+                out.write("{}\t0\t1\n".format(gid))
+
+
 def run_rnahybrid(mirna_file, utr_file, output_file, mirna_length, utr_length, species_set="3utr_human"):
     """Run RNAhybrid on a given miRNA and UTR file."""
     cmd = [
@@ -438,12 +524,24 @@ def run_pita(mirna_file, utr_file, output_prefix):
         shutil.rmtree(work_dir, ignore_errors=True)
 
 def run_targetscan(targetscan_input, utr_input, output_file_1, bln_bins_file, output_file_2):
-    """Run TargetScan Script 1"""
+    """Run TargetScan script 1 (site finding), then script 2 (branch length/PCT).
+
+    bln_bins_file may be None or missing: only human ships precomputed bins.
+    Script 2 never reads the alignment -- it takes the miRNA file, script 1's
+    output and a UTR-bin table -- so a flat table derived from script 1 keeps
+    results2 present for every genome. See _write_flat_bins."""
     cmd1 = ["perl", TARGETSCAN+"TargetScan_70/targetscan_70.pl", targetscan_input, utr_input, output_file_1]
     subprocess.run(cmd1, check=True)
-    
-    """Run TargetScan Script 2"""
-    cmd2 = ['perl', TARGETSCAN+"TargetScan7_BL_PCT/targetscan_70_BL_PCT.pl", targetscan_input, output_file_1, bln_bins_file]
+
+    if not os.path.exists(output_file_1):
+        return
+
+    bins_file = bln_bins_file
+    if not bins_file or not os.path.exists(bins_file):
+        bins_file = output_file_1 + ".bins"
+        _write_flat_bins(output_file_1, bins_file)
+
+    cmd2 = ['perl', TARGETSCAN+"TargetScan7_BL_PCT/targetscan_70_BL_PCT.pl", targetscan_input, output_file_1, bins_file]
     with open(output_file_2, 'w') as outfile, open(os.devnull, 'w') as devnull:
         subprocess.run(cmd2, stdout=outfile, stderr=devnull, check=True)
         
@@ -494,10 +592,12 @@ def run_pita_with_params(params):
 def run_targetscan_with_params(params):
     return run_targetscan(*params)
 
-def targetscan_prep(sequence, header, out_dir):
+def targetscan_prep(sequence, header, out_dir, genome="hg19"):
     """TargetScan_prep"""
-    # load mirR_Family_Info
-    mirna_family_info_path = '/opt/TargetScan/Datasets/miR_Family_Info.json'
+    # load mirR_Family_Info. The shipped file is TargetScan's vertebrate set and
+    # covers only 10 species -- it has no fly or zebrafish entries at all -- so
+    # a genome-specific file is preferred where one was installed.
+    mirna_family_info_path = targetscan_mirfam_path(genome)
     mirna_family_info = load_json(mirna_family_info_path)
     # Prepare TargetScan miRNA file. Name it with a shell-safe basename (the raw
     # header may carry '|'/'&' from a variant): this file is fed to a perl that
@@ -513,11 +613,22 @@ def targetscan_prep(sequence, header, out_dir):
         if mirna_u == -1:
             seed = seed.replace('T', 'U')
         seed = seed.upper()        
-        # Default
-        species_id = '9606'
-        # If the seed exists into miR Family Info
-        if seed in mirna_family_info:
-            species_id = ';'.join(mirna_family_info[seed])
+        # targetscan_70.pl skips every UTR row whose species id is absent from
+        # this file, so the target species MUST be listed or the run returns an
+        # empty result with no error at all.
+        #
+        # The shipped miR_Family_Info is TargetScan's vertebrate set. A fly or
+        # zebrafish seed can still match an entry in it and come back annotated
+        # as 9606/9544/..., none of which appear in a fly or fish alignment --
+        # that is exactly how this produced 0 rows for dme and dre. So take the
+        # family's species when there is one, but always union in the genome's
+        # own taxon. For human and mouse the taxon is already in the list, so
+        # this leaves their behaviour unchanged.
+        own_taxid = _GENOME_TAXID.get(genome, '9606')
+        species = list(mirna_family_info.get(seed, []))
+        if own_taxid not in species:
+            species.append(own_taxid)
+        species_id = ';'.join(species)
         # Format the output line
         identifier_clean = header.split(",")[0].replace('hsa-', '')
         line = "{}\t{}\t{}\n".format(identifier_clean, seed, species_id)
@@ -806,7 +917,7 @@ def _write_progress(output_folder, tools, tool_statuses):
         json.dump(data, f)
 
 
-def process_tools(sequences, tools, utr_file, output_folder, temp_folder, rnahybrid_set="3utr_human"):
+def process_tools(sequences, tools, utr_file, output_folder, temp_folder, rnahybrid_set="3utr_human", genome="hg19"):
     tool_statuses = _init_tool_statuses(tools)
     _write_progress(output_folder, tools, tool_statuses)
     seq_num = 0
@@ -900,20 +1011,22 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder, rnahyb
                 print("Targetscan is processing {}".format(name_fasta))
                 _tool_started(tool_statuses, "Targetscan")
                 _write_progress(output_folder, tools, tool_statuses)
-                targetscan_prep(seq['sequence'], seq['header'], targetscan_out_dir)
+                targetscan_prep(seq['sequence'], seq['header'], targetscan_out_dir, genome)
                 # Shell-safe basename for the files the perl shells out on (the
                 # final merged output above keeps the raw header). See _safe_ts_basename.
                 ts_safe = _safe_ts_basename(seq['header'])
                 # TargetScan Input File path
                 targetscan_input = "{}/{}_targetscan.txt".format(targetscan_out_dir, ts_safe)
-                # utr path
-                utr_path = "/opt/TargetScan/Datasets/3utr"
-                bln_bins_path = "/opt/TargetScan/Datasets/bln_bins"
+                # utr path -- TargetScan's own dataset for this genome, not the
+                # /opt/reference_files FASTA the other tools read.
+                utr_path = targetscan_utr_dir(genome)
+                bln_bins_path = targetscan_bins_dir(genome)
                 # Process Targetscan
-                for i in range(64):
+                for i in range(TARGETSCAN_PARTS):
                     utr_file = os.path.join(utr_path, 'targetscan_utr_part_{}.txt'.format(i))
                     output_file_1 = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, ts_safe, i)
-                    bln_bins_file = os.path.join(bln_bins_path, 'targetscan_median_bls_bins_part_{}.txt'.format(i))
+                    bln_bins_file = (os.path.join(bln_bins_path, 'targetscan_median_bls_bins_part_{}.txt'.format(i))
+                                     if bln_bins_path else None)
                     output_file_2 = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, ts_safe, i)
                     # Run targetscan
                     run_targetscan(targetscan_input, utr_file, output_file_1, bln_bins_file, output_file_2)
@@ -927,7 +1040,7 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder, rnahyb
                             merged.write(header)
 
                     # Apeend content from all files
-                    for i in range(64):
+                    for i in range(TARGETSCAN_PARTS):
                         part_file = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, ts_safe, i)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
@@ -953,7 +1066,7 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder, rnahyb
                             merged.write(header)
 
                     # Apeend content from all files
-                    for i in range(64):
+                    for i in range(TARGETSCAN_PARTS):
                         part_file = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, ts_safe, i)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
@@ -975,7 +1088,7 @@ def process_tools(sequences, tools, utr_file, output_folder, temp_folder, rnahyb
                 print("Tool {} is processing {}".format(tool, name_fasta))
         seq_num += 1
 
-def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_folder, rnahybrid_set="3utr_human"):
+def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_folder, rnahybrid_set="3utr_human", genome="hg19"):
     # Get all UTR subfiles
     utr_subfiles = [os.path.join(temp_folder+"/utr", f) for f in os.listdir(temp_folder+"/utr") if f.startswith("temp_3utr_part")]
 
@@ -1198,18 +1311,19 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                 _tool_started(tool_statuses, "Targetscan")
                 _write_progress(output_folder, tools, tool_statuses)
 
-                targetscan_prep(seq['sequence'], seq['header'], targetscan_out_dir)
+                targetscan_prep(seq['sequence'], seq['header'], targetscan_out_dir, genome)
                 # Shell-safe basename for the files the perl shells out on (the
                 # final merged output above keeps the raw header). See _safe_ts_basename.
                 ts_safe = _safe_ts_basename(seq['header'])
                 targetscan_input = "{}/{}_targetscan.txt".format(targetscan_out_dir, ts_safe)
-                ts_utr_dir = "/opt/TargetScan/Datasets/3utr"
-                ts_bln_dir = "/opt/TargetScan/Datasets/bln_bins"
+                ts_utr_dir = targetscan_utr_dir(genome)
+                ts_bln_dir = targetscan_bins_dir(genome)
 
                 ts_args = []
-                for i in range(64):
+                for i in range(TARGETSCAN_PARTS):
                     utr_part = os.path.join(ts_utr_dir, 'targetscan_utr_part_{}.txt'.format(i))
-                    bln_part = os.path.join(ts_bln_dir, 'targetscan_median_bls_bins_part_{}.txt'.format(i))
+                    bln_part = (os.path.join(ts_bln_dir, 'targetscan_median_bls_bins_part_{}.txt'.format(i))
+                                if ts_bln_dir else None)
                     out1 = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, ts_safe, i)
                     out2 = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, ts_safe, i)
                     ts_args.append((targetscan_input, utr_part, out1, bln_part, out2))
@@ -1222,7 +1336,7 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                     if os.path.exists(first_file):
                         with open(first_file, 'r') as first:
                             merged.write(first.readline())
-                    for i in range(64):
+                    for i in range(TARGETSCAN_PARTS):
                         part_file = "{}/{}_part_{}_out1.txt".format(targetscan_out_dir, ts_safe, i)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
@@ -1242,7 +1356,7 @@ def process_tools_in_parallel(sequences, tools, num_cores, output_folder, temp_f
                     if os.path.exists(first_file):
                         with open(first_file, 'r') as first:
                             merged.write(first.readline())
-                    for i in range(64):
+                    for i in range(TARGETSCAN_PARTS):
                         part_file = "{}/{}_part_{}_out2.txt".format(targetscan_out_dir, ts_safe, i)
                         if os.path.exists(part_file):
                             with open(part_file, 'r') as pf:
@@ -1418,12 +1532,24 @@ def main():
     # Select the RNAhybrid distribution set for this species (see rnahybrid_dataset_for_genome)
     rnahybrid_set = rnahybrid_dataset_for_genome(genome)
 
+    # TargetScan only runs where TargetScan itself publishes a dataset we can map
+    # back to RefSeq. Drop it rather than run it: with no dataset the tool would
+    # fail on a missing path, and with the wrong species id it would return an
+    # empty result and no error, which reads as "no targets found".
+    if "Targetscan" in tools and not targetscan_supported(genome):
+        print("Targetscan is not available for genome {} -- skipping it. "
+              "Supported: {}".format(genome, ", ".join(sorted(_TARGETSCAN_GENOME_DIR))))
+        tools = [t for t in tools if t != "Targetscan"]
+        if not tools:
+            print("No tools left to run.")
+            return
+
     # Run Prediction for single or mutiple cores
     if num_cores == 1:
-        process_tools(sequences, tools, utr_file, output_folder, temp_folder, rnahybrid_set)
+        process_tools(sequences, tools, utr_file, output_folder, temp_folder, rnahybrid_set, genome)
     else:
         process_3utr_fasta(utr_file, num_cores, temp_folder)
-        process_tools_in_parallel(sequences, tools, num_cores, output_folder ,temp_folder, rnahybrid_set)
+        process_tools_in_parallel(sequences, tools, num_cores, output_folder ,temp_folder, rnahybrid_set, genome)
 
     # Clean up the temp folder
     cleanup_temp_folder(temp_folder)
