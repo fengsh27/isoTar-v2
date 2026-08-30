@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 import sys
@@ -54,6 +55,30 @@ def _load_gene_info(gene_ids):
     return info
 
 
+def job_genome_for_output(output_dir, default="hg38"):
+    """Genome recorded in job.json for the job owning this output directory.
+
+    The parsers need it for two reasons: TargetScan emits one row per species in
+    its alignment and only the requested species' rows are targets, and the
+    ENST->RefSeq map is per assembly. Guessing human would silently return an
+    empty TargetScan result for a mouse job.
+
+    output_dir is <job>/output for a single-pool run and <job>/output/<pool> for
+    a network run, so walk up a few levels looking for job.json -- the same
+    shape as the targets.txt lookup in result_db._build_db."""
+    d = os.path.abspath(output_dir)
+    for _ in range(3):
+        d = os.path.dirname(d)
+        candidate = os.path.join(d, "job.json")
+        if os.path.exists(candidate):
+            try:
+                with open(candidate, "r") as fh:
+                    return json.load(fh).get("genome", default) or default
+            except (ValueError, IOError):
+                return default
+    return default
+
+
 def _build_db(output_dir, db_path):
     """Parse all prediction results and populate a fresh SQLite database.
 
@@ -84,7 +109,8 @@ def _build_db(output_dir, db_path):
     if not os.path.exists(targets_file):
         targets_file = os.path.join(os.path.dirname(os.path.abspath(output_dir)), "targets.txt")
     targets = load_targets_file(targets_file)
-    enst_to_refseq = build_enst_to_refseq_map(REFERENCE_MAPPING_DB)
+    genome = job_genome_for_output(output_dir)
+    enst_to_refseq = build_enst_to_refseq_map(REFERENCE_MAPPING_DB, genome)
 
     # Collect gene -> tools mapping across all sequences
     gene_tools = {}   # gene_id -> set of tool names
@@ -101,6 +127,7 @@ def _build_db(output_dir, db_path):
         results = process_sequence(
             sequence, output_dir,
             enst_to_refseq=enst_to_refseq, targets=targets,
+            genome=genome,
         )
         for tool, gene_ids in results.get("prediction", {}).items():
             for gene_id in gene_ids:

@@ -45,7 +45,7 @@ from app_v1.parse_result import (
     parsePITAResults,
     _extract_lncrna_transcript_id,
 )
-from app_v1.result_db import _load_gene_info
+from app_v1.result_db import _load_gene_info, job_genome_for_output
 
 NETWORK_DB_FILENAME = "network.db"
 
@@ -108,7 +108,7 @@ def _mirna_node_label(node_id):
     return "{} ({} {})".format(base, vtype, detail).strip()
 
 
-def _collect_gene_edges(pool_dir, enst_to_refseq):
+def _collect_gene_edges(pool_dir, enst_to_refseq, genome="hg38"):
     """Parse the gene (3' UTR) pool into mirna_id -> {refseq -> set(tools)}.
 
     Reuses parse_result.process_sequence (the gene flow's parser), which yields
@@ -123,6 +123,7 @@ def _collect_gene_edges(pool_dir, enst_to_refseq):
         targets = edges.setdefault(mirna_id, {})
         results = process_sequence(
             sequence, pool_dir, enst_to_refseq=enst_to_refseq, targets=None,
+            genome=genome,
         )
         for tool, gene_ids in results.get("prediction", {}).items():
             for gene_id in gene_ids:
@@ -195,8 +196,10 @@ def _build_network_db(output_dir, db_path):
     gene_dir = os.path.join(output_dir, "gene")
     lncrna_dir = os.path.join(output_dir, "lncrna")
 
-    enst_to_refseq = build_enst_to_refseq_map()
-    gene_edges = _collect_gene_edges(gene_dir, enst_to_refseq)
+    # gene_dir is <job>/output/gene, so job.json is two levels up.
+    genome = job_genome_for_output(gene_dir)
+    enst_to_refseq = build_enst_to_refseq_map(genome=genome)
+    gene_edges = _collect_gene_edges(gene_dir, enst_to_refseq, genome)
     lncrna_edges = _collect_lncrna_edges(lncrna_dir)
 
     gene_ids = set()
