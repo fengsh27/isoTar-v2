@@ -6,6 +6,10 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.24 - 2026-08-31
+
+- (no changes recorded since v0.3.23)
+
 ## 0.3.23 - 2026-08-31
 
 - docs: record TargetScan's per-genome datasets and its silent-failure mode
