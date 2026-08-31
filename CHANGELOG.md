@@ -6,6 +6,23 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.23 - 2026-08-31
+
+- docs: record TargetScan's per-genome datasets and its silent-failure mode
+- feat(api): reject TargetScan on unsupported genomes, parse results per genome
+- feat(targetscan): run per genome instead of always human
+- build(targetscan): add species dataset builder for mouse, fly and zebrafish
+- feat(targetscan): map mouse, fly and zebrafish IDs to RefSeq; gate the rest
+- docs(agent-guide): bring CLAUDE.md/AGENTS.md up to the current stack
+- docs(readme): refresh for miRmap 2, the three workflows, and job layout
+- fix(targetscan): map ENST to RefSeq directly instead of joining on gene symbol
+- chore(docker): drop the superseded three-image split Dockerfiles
+- fix(rnahybrid): stop dropping every isomiR hit on the field-count guard
+- fix(merge): tolerate a zero-byte part file when merging tool output
+- feat(mirmap): re-apply the dG binding <= -20 target gate
+- chore(release): v0.3.22
+- fix(pita): give each PITA run a private cwd to stop cross-worker corruption
+
 ## 0.3.22 - 2026-08-10
 
 - fix(pita): give each PITA run a private cwd to stop cross-worker corruption
