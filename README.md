@@ -71,19 +71,29 @@ jobs, and the graph itself is served by `GET /jobs/<id>/network`.
 
 ## Supported Genomes / Species
 
-| Code | Species |
-|------|---------|
-| `hg19` | Human (GRCh37) |
-| `hg38` | Human (GRCh38) |
-| `mmu` | House mouse (GRCm38) |
-| `rno` | Norway rat (RGSC6/rn6) |
-| `dre` | Zebrafish (GRCz11) |
-| `dme` | Fruit fly (Release 6) |
-| `cel` | Roundworm (WBcel235) |
-| `cfa` | Dog (CanFam3.1) |
-| `mdo` | Gray short-tailed opossum (MonDom5) |
-| `mml` | Rhesus macaque (Mmul_8.0.1) |
-| `ptr` | Chimpanzee (Pan_tro3.0) |
+| Code | Species | TargetScan |
+|------|---------|:----------:|
+| `hg19` | Human (GRCh37) | yes |
+| `hg38` | Human (GRCh38) | yes |
+| `mmu` | House mouse (GRCm38) | yes |
+| `rno` | Norway rat (RGSC6/rn6) | — |
+| `dre` | Zebrafish (GRCz11) | yes |
+| `dme` | Fruit fly (Release 6) | yes |
+| `cel` | Roundworm (WBcel235) | — |
+| `cfa` | Dog (CanFam3.1) | — |
+| `mdo` | Gray short-tailed opossum (MonDom5) | — |
+| `mml` | Rhesus macaque (Mmul_8.0.1) | — |
+| `ptr` | Chimpanzee (Pan_tro3.0) | — |
+
+Five of the six tools run on every genome above. **TargetScan is the exception**:
+it ignores the supplied FASTA and scores against its own precomputed 3′ UTR
+alignments, so it only runs where TargetScan publishes a dataset whose
+identifiers can be mapped back to RefSeq. Requesting it for any other genome
+returns HTTP 400. Roundworm is excluded because TargetScan keys every worm file
+on an internal numeric with no RefSeq or Ensembl equivalent; the remaining four
+species have no TargetScan release at all. Its per-species datasets are not
+committed — build them with `scripts/build_targetscan_species_datasets.sh`
+(~463 MB download, ~4.3 GB in the image).
 
 3′ UTR references ship in the repo under `v2/opt/reference_files/` and land at
 `/opt/reference_files/<code>_<assembly>_3UTRs.fasta` in the image. The lncRNA
@@ -152,7 +162,7 @@ whole job if any target is unresolved).
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `targets` | string[] | yes | Up to `ISOTAR_MAX_VALIDATE_TARGETS` identifiers |
-| `genome` | string | no | Species code (default `hg38`) |
+| `genome` | string | no | Species code (default `hg38`). Requesting `Targetscan` for a genome it has no dataset for returns HTTP 400 — see [Supported Genomes](#supported-genomes--species) |
 | `target_type` | string | no | `gene` (default) or `lncrna` |
 
 `gene` checks HGNC symbols and RefSeq accessions against `gene_mapping`;
@@ -186,7 +196,7 @@ Common fields:
 |-------|------|----------|-------------|
 | `tools` | string[] | yes | Tools to run: `miRanda`, `miRmap`, `RNAhybrid`, `PITA`, `Targetscan`, `DMISO` |
 | `workflow` | string | no | `mir-target` (default), `mir-lncrna`, or `mir-network` |
-| `genome` | string | no | Species code (default `hg38`) |
+| `genome` | string | no | Species code (default `hg38`). Requesting `Targetscan` for a genome it has no dataset for returns HTTP 400 — see [Supported Genomes](#supported-genomes--species) |
 | `cores` | int | no | CPU cores (default `ISOTAR_DEFAULT_CORES`, capped at `ISOTAR_MAX_CORES_PER_JOB`) |
 
 **`mir-target` / `mir-lncrna`** — one miRNA per job:

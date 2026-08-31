@@ -46,10 +46,49 @@ def _default_reference_db():
     return "/app_v1/reference_mapping.db"
 
 
-# Ensembl assembly matching each genome code a job can request. TargetScan
-# reports Ensembl transcript IDs; the reference FASTAs are keyed by RefSeq, so
-# every hit has to be translated before it can be matched against a target.
-_GENOME_BUILD = {"hg19": "GRCh37", "hg38": "GRCh38"}
+# Assembly holding the ENST->RefSeq rows for each genome a job can request.
+# TargetScan reports its own transcript identifiers and the reference FASTAs are
+# keyed by RefSeq, so every hit is translated before it can match a target. The
+# identifier differs per species -- ENST (human), ENSMUST (mouse), FBtr (fly),
+# ENSDARG (zebrafish) -- but all resolve through the same enst_refseq table.
+#
+# Only species where TargetScan publishes an identifier we can resolve appear
+# here. Worm is absent on purpose: its datasets key on an internal numeric
+# ("171590.0") with no RefSeq or Ensembl equivalent in any published file. The
+# remaining genome codes (rno, cfa, mml, ptr, mdo) have no TargetScan release.
+_GENOME_BUILD = {
+    "hg19": "GRCh37",
+    "hg38": "GRCh38",
+    "mmu":  "GRCm38",
+    "dme":  "Release6",
+    "dre":  "GRCz11",
+}
+
+# Genomes TargetScan can be run for. Anything else must not reach the tool --
+# it would silently produce nothing, since targetscan_70.pl skips every UTR row
+# whose species id is absent from the miRNA file.
+# NCBI taxon of the species each supported genome names. TargetScan emits one
+# row per species in its alignment, so the parser keeps only the requested one.
+_GENOME_TAXID = {
+    "hg19": "9606",
+    "hg38": "9606",
+    "mmu":  "10090",
+    "dme":  "7227",
+    "dre":  "7955",
+}
+
+
+def genome_taxid(genome):
+    """NCBI taxon for a genome code, defaulting to human."""
+    return _GENOME_TAXID.get(genome, "9606")
+
+
+TARGETSCAN_GENOMES = frozenset(_GENOME_BUILD)
+
+
+def targetscan_supported(genome):
+    """True when TargetScan ships a dataset for this genome that we can map."""
+    return genome in TARGETSCAN_GENOMES
 
 
 def _has_enst_refseq_table(conn):
@@ -77,7 +116,9 @@ def build_enst_to_refseq_map(ref_db_path=None, genome="hg19"):
     mp = {}
     if not os.path.exists(ref_db_path):
         return mp
-    build = _GENOME_BUILD.get(genome, "GRCh37")
+    build = _GENOME_BUILD.get(genome)
+    if build is None:
+        return mp
     conn = sqlite3.connect(ref_db_path)
     try:
         if not _has_enst_refseq_table(conn):
@@ -169,13 +210,18 @@ def read_sequences_from_json(json_file):
     except Exception as e:
         raise Exception("Error reading JSON file: {}".format(str(e)))
 
-def parseTargetScanResults(output_f_path, result_dict, enst_to_refseq=None, targets=None):
+def parseTargetScanResults(output_f_path, result_dict, enst_to_refseq=None, targets=None,
+                           species_id="9606"):
     """Parse TargetScan output, optionally converting ENST IDs to RefSeq.
 
     enst_to_refseq: dict[ENST -> set[RefSeq]]. If provided, each ENST hit is
         expanded to its RefSeq IDs; ENSTs not in the map are dropped.
     targets: set[RefSeq]. If provided, only RefSeq IDs in this set are kept.
-        Has no effect when enst_to_refseq is None."""
+        Has no effect when enst_to_refseq is None.
+    species_id: NCBI taxon of the genome the job ran against. TargetScan emits
+        one row per species in its alignment -- 84 for human, 52 for mouse --
+        so rows for every other species must be dropped. A site present only in
+        a related species is not a target in the one the user asked about."""
     raw_hits = []
     if os.path.exists(output_f_path):
         with open(output_f_path, 'r') as f:
@@ -183,7 +229,7 @@ def parseTargetScanResults(output_f_path, result_dict, enst_to_refseq=None, targ
             next(handler) # Skip header row
             for line in handler:
                 if len(line) == 14:
-                    if line[2] =="9606" and line[8] != '6mer':
+                    if line[2] == species_id and line[8] != '6mer':
                         # Target - remove version number if present
                         tar = re.sub(r'\.[0-9]+$', '', line[0])
                         if tar and tar not in raw_hits:
@@ -448,7 +494,8 @@ def parseDMISOResults(output_f_path, result_dict, mirna_sequence=None):
     return result_dict
 
 
-def process_sequence(sequence, result_dir, enst_to_refseq=None, targets=None):
+def process_sequence(sequence, result_dir, enst_to_refseq=None, targets=None,
+                     genome="hg19"):
     # Process a single sequence and generate prediction results.
     try:
         output_f_path_miRanda = os.path.join(result_dir, "miRanda", "{}_miRanda_results.txt".format(sequence['header']))
@@ -471,6 +518,7 @@ def process_sequence(sequence, result_dir, enst_to_refseq=None, targets=None):
             prediction_results = parseTargetScanResults(
                 output_f_path_TargetScan, prediction_results,
                 enst_to_refseq=enst_to_refseq, targets=targets,
+                species_id=genome_taxid(genome),
             )
         if os.path.exists(output_f_path_DMISO):
             prediction_results = parseDMISOResults(
@@ -572,6 +620,7 @@ def main():
                 prediction_results = process_sequence(
                     sequence, result_dir,
                     enst_to_refseq=enst_to_refseq, targets=targets,
+                    genome=args.genome,
                 )
 
                 # Replace gene IDs with gene labels if requested

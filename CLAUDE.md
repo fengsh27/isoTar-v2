@@ -41,7 +41,29 @@
   un-prefixed `mature_pre_mirna_ext.json`; other species are
   `<code>_mature_pre_mirna_ext.json`, resolved at runtime from the miRBase
   prefix in the miRNA id.
-- TargetScan datasets are mounted or copied to `/opt/TargetScan/Datasets`.
+- TargetScan datasets live under `/opt/TargetScan/Datasets`, copied in by
+  `ADD tools /opt/` from `tools/TargetScan/Datasets/` (gitignored, so not in the
+  repo). TargetScan reads THESE, never `/opt/reference_files` — its 3' UTR
+  boundaries differ, so swapping references changes what it predicts rather than
+  extending it (on hsa-miR-21-5p only 33% of shared transcripts have the same
+  UTR length; the two references agree on 70% of genes).
+  - `Datasets/3utr/` is human and serves both `hg19` and `hg38`.
+  - `Datasets/<genome>/3utr/` is per species, built by
+    `scripts/build_targetscan_species_datasets.sh` (~463 MB download, ~4.3 GB on
+    disk). Each is 64 parts split on gene boundaries — the shipped human
+    splitter's fixed 37,212 lines only works because human is exactly 84 rows
+    per gene (mouse is 52, fly 27, zebrafish 1).
+  - `Datasets/bln_bins/` is human-only. `targetscan_70_BL_bins.pl` cannot be run
+    in the image (needs `Statistics::Lite`, not installed), so other genomes get
+    a flat bin table derived from script 1's output — see `_write_flat_bins`.
+- TargetScan runs for `hg19`, `hg38`, `mmu`, `dme`, `dre` only, and the API
+  returns 400 for the rest. It needs an identifier it can map back to RefSeq:
+  worm keys every file on an internal numeric (`171590.0`) with no RefSeq or
+  Ensembl equivalent, and `rno`/`cfa`/`mml`/`ptr`/`mdo` have no TargetScan
+  release at all. The map is the `enst_refseq` table in
+  `app_v1/reference_mapping.db`, keyed by assembly (`GRCh37`, `GRCh38`,
+  `GRCm38`, `Release6`, `GRCz11`) — ENST, ENSMUST, FBtr and ENSDARG accessions
+  from Ensembl BioMart, curated `refseq_mrna` only.
 - Jobs live under `ISOTAR_JOB_DIR` (`/opt/out/jobs`), one directory per job.
 
 ## Job Execution
@@ -71,7 +93,17 @@
   raises rather than returning silently wrong results
   (`scripts/rebuild_RNAddG4.sh`). Each PITA run also needs a private cwd.
 - TargetScan ignores the supplied FASTA and reads its own precomputed datasets,
-  so it cannot run against the lncRNA pool.
+  so it cannot run against the lncRNA pool, and it only supports the genomes it
+  ships data for (see Paths & Data).
+- TargetScan fails SILENTLY on a species mismatch. `targetscan_70.pl` skips every
+  UTR row whose species id is absent from the miRNA file, so a wrong id gives an
+  empty result and exit 0 — not an error. Two places must agree with the job's
+  genome: the species list written by `targetscan_prep` (the shipped
+  `miR_Family_Info` is TargetScan's VERTEBRATE set, so a fly seed can match it
+  and come back as 9606 — the genome's own taxon is always unioned in), and the
+  `species_id` row filter in `parseTargetScanResults`. Filtering mouse output at
+  9606 returns 0 targets rather than erroring, because a mouse alignment
+  contains human rows.
 - Filenames carry the miRNA variant tag (`<mirna>,<variant>_<tool>_results.txt`);
   sanitize before handing them to tools that choke on the punctuation.
 

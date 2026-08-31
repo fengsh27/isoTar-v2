@@ -24,6 +24,10 @@ from app_v1.network_results import (
     DEFAULT_TOP_GENES,
     DEFAULT_TOP_LNCRNA,
 )
+from app_v1.parse_result import (
+    TARGETSCAN_GENOMES,
+    targetscan_supported as _targetscan_supported,
+)
 from app_v1.target_resolver import (
     genome_to_species as _genome_to_species,
     resolve_targets as _resolve_targets,
@@ -49,6 +53,29 @@ _WORKFLOW_TARGET_TYPE = {
 # scores whatever FASTA is passed to -utr.) Mirrors LNCRNA_INCOMPATIBLE_TOOLS in
 # v2/mirna_predicting.py.
 LNCRNA_INCOMPATIBLE_TOOLS = {"Targetscan"}
+
+
+def _reject_targetscan_genome(tools, genome):
+    """400 body when TargetScan was asked for on a genome it cannot serve.
+
+    TargetScan reads its own precomputed alignments, not the target FASTA, so it
+    only runs where TargetScan publishes a dataset whose identifiers we can map
+    back to RefSeq (TARGETSCAN_GENOMES). Reject at request time rather than let
+    the run drop the tool: with no dataset the run would report fewer tools than
+    were asked for, and the caller would have no way to tell that from a tool
+    that ran and found nothing.
+
+    Worm is excluded because every TargetScan worm file keys on an internal
+    numeric with no RefSeq or Ensembl equivalent; rat, dog, macaque, chimpanzee
+    and opossum have no TargetScan release at all."""
+    if "Targetscan" not in tools or _targetscan_supported(genome):
+        return None
+    return {
+        "error": "Targetscan is not available for genome {}".format(genome),
+        "hint": "TargetScan runs only on genomes it publishes datasets for: {}".format(
+            ", ".join(sorted(TARGETSCAN_GENOMES))),
+        "supported_genomes": sorted(TARGETSCAN_GENOMES),
+    }
 
 # The Network workflow runs BOTH target pools (gene + lncRNA) over a list of
 # miRNAs in a single job, then joins gene-target <-> miRNA <-> lncRNA-target into
@@ -756,6 +783,11 @@ def _submit_network_job(data, tools):
 
     genome = data.get("genome", "hg38")
 
+    ts_err = _reject_targetscan_genome(tools, genome)
+    if ts_err:
+        logger.warning("network job rejected: targetscan unavailable genome=%s", genome)
+        return jsonify(ts_err), 400
+
     if not isinstance(pairs_in, list):
         return jsonify({"error": "pairs must be a list of {gene, lncrna, score} objects"}), 400
 
@@ -930,6 +962,12 @@ def submit_job():
                 "error": "tools {} are not supported for the miR-LncRNA workflow".format(bad),
                 "hint": "TargetScan/PITA only work on 3' UTR (gene) targets",
             }), 400
+
+    ts_err = _reject_targetscan_genome(tools, data.get("genome", "hg38"))
+    if ts_err:
+        logger.warning("job rejected: targetscan unavailable genome=%s",
+                       data.get("genome", "hg38"))
+        return jsonify(ts_err), 400
 
     if not isinstance(modifications, list):
         logger.warning("job rejected: modifications not a list mirna_id=%s", mirna_id)
