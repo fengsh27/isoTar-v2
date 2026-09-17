@@ -65,9 +65,8 @@ def _reject_targetscan_genome(tools, genome):
     were asked for, and the caller would have no way to tell that from a tool
     that ran and found nothing.
 
-    Worm is excluded because every TargetScan worm file keys on an internal
-    numeric with no RefSeq or Ensembl equivalent; rat, dog, macaque, chimpanzee
-    and opossum have no TargetScan release at all."""
+    Rat, dog, macaque, chimpanzee and opossum have no TargetScan release at
+    all."""
     if "Targetscan" not in tools or _targetscan_supported(genome):
         return None
     return {

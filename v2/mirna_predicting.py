@@ -386,15 +386,15 @@ def rnahybrid_dataset_for_genome(genome):
 # scripts/build_targetscan_species_datasets.sh into Datasets/<genome>/3utr/.
 #
 # Only genomes whose datasets carry an identifier resolvable to RefSeq appear
-# here (see _GENOME_BUILD in parse_result.py). Worm is excluded because every
-# worm package keys on an internal numeric with no RefSeq or Ensembl
-# equivalent; rno, cfa, mml, ptr and mdo have no TargetScan release at all.
+# here (see _GENOME_BUILD in parse_result.py). rno, cfa, mml, ptr and mdo have no
+# TargetScan release at all.
 _TARGETSCAN_GENOME_DIR = {
     "hg19": "3utr",
     "hg38": "3utr",
     "mmu":  "mmu/3utr",
     "dme":  "dme/3utr",
     "dre":  "dre/3utr",
+    "cel":  "cel/3utr",
 }
 
 # NCBI taxonomy id of the species each genome code names. targetscan_70.pl skips
@@ -406,6 +406,7 @@ _GENOME_TAXID = {
     "mmu":  "10090",
     "dme":  "7227",
     "dre":  "7955",
+    "cel":  "6239",
 }
 
 TARGETSCAN_PARTS = 64
@@ -437,8 +438,9 @@ def targetscan_mirfam_path(genome):
     """Path to the miR_Family_Info JSON for a genome.
 
     Falls back to the shipped vertebrate file, which is correct for human and
-    mouse but has no entries for fly or zebrafish -- for those, targetscan_prep
-    falls back to _GENOME_TAXID, which searches the target species only."""
+    mouse but has no entries for fly, zebrafish or worm -- for those,
+    targetscan_prep falls back to _GENOME_TAXID, which searches the target
+    species only."""
     per_genome = os.path.join(TARGETSCAN, "Datasets", genome, "miR_Family_Info.json")
     if os.path.exists(per_genome):
         return per_genome
