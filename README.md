@@ -79,7 +79,7 @@ jobs, and the graph itself is served by `GET /jobs/<id>/network`.
 | `rno` | Norway rat (RGSC6/rn6) | — |
 | `dre` | Zebrafish (GRCz11) | yes |
 | `dme` | Fruit fly (Release 6) | yes |
-| `cel` | Roundworm (WBcel235) | — |
+| `cel` | Roundworm (WBcel235) | yes |
 | `cfa` | Dog (CanFam3.1) | — |
 | `mdo` | Gray short-tailed opossum (MonDom5) | — |
 | `mml` | Rhesus macaque (Mmul_8.0.1) | — |
@@ -89,11 +89,12 @@ Five of the six tools run on every genome above. **TargetScan is the exception**
 it ignores the supplied FASTA and scores against its own precomputed 3′ UTR
 alignments, so it only runs where TargetScan publishes a dataset whose
 identifiers can be mapped back to RefSeq. Requesting it for any other genome
-returns HTTP 400. Roundworm is excluded because TargetScan keys every worm file
-on an internal numeric with no RefSeq or Ensembl equivalent; the remaining four
-species have no TargetScan release at all. Its per-species datasets are not
-committed — build them with `scripts/build_targetscan_species_datasets.sh`
-(~463 MB download, ~4.3 GB in the image).
+returns HTTP 400; rat, dog, opossum, macaque and chimpanzee have no TargetScan
+release at all. Roundworm's TargetScan identifiers name a gene rather than a
+transcript, so each worm hit is reported against every RefSeq transcript of its
+gene (1.24 on average), as zebrafish's already are. Its per-species datasets are
+not committed — build them with `scripts/build_targetscan_species_datasets.sh`
+(~469 MB download, ~4.3 GB in the image).
 
 3′ UTR references ship in the repo under `v2/opt/reference_files/` and land at
 `/opt/reference_files/<code>_<assembly>_3UTRs.fasta` in the image. The lncRNA

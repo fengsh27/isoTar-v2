@@ -49,21 +49,27 @@
   UTR length; the two references agree on 70% of genes).
   - `Datasets/3utr/` is human and serves both `hg19` and `hg38`.
   - `Datasets/<genome>/3utr/` is per species, built by
-    `scripts/build_targetscan_species_datasets.sh` (~463 MB download, ~4.3 GB on
+    `scripts/build_targetscan_species_datasets.sh` (~469 MB download, ~4.3 GB on
     disk). Each is 64 parts split on gene boundaries — the shipped human
     splitter's fixed 37,212 lines only works because human is exactly 84 rows
-    per gene (mouse is 52, fly 27, zebrafish 1).
+    per gene (mouse is 52, fly 27, worm 6, zebrafish 1). Worm's file has an
+    extra `Wormbase Gene ID` column, so the builder takes columns 1,5,6 there
+    instead of 1,4,5; picking wrong still yields three fields and matches
+    nothing, which the builder's column guard now catches.
   - `Datasets/bln_bins/` is human-only. `targetscan_70_BL_bins.pl` cannot be run
     in the image (needs `Statistics::Lite`, not installed), so other genomes get
     a flat bin table derived from script 1's output — see `_write_flat_bins`.
-- TargetScan runs for `hg19`, `hg38`, `mmu`, `dme`, `dre` only, and the API
-  returns 400 for the rest. It needs an identifier it can map back to RefSeq:
-  worm keys every file on an internal numeric (`171590.0`) with no RefSeq or
-  Ensembl equivalent, and `rno`/`cfa`/`mml`/`ptr`/`mdo` have no TargetScan
-  release at all. The map is the `enst_refseq` table in
-  `app_v1/reference_mapping.db`, keyed by assembly (`GRCh37`, `GRCh38`,
-  `GRCm38`, `Release6`, `GRCz11`) — ENST, ENSMUST, FBtr and ENSDARG accessions
-  from Ensembl BioMart, curated `refseq_mrna` only.
+- TargetScan runs for `hg19`, `hg38`, `mmu`, `dme`, `dre`, `cel` only, and the
+  API returns 400 for the rest — `rno`/`cfa`/`mml`/`ptr`/`mdo` have no
+  TargetScan release at all. It needs an identifier it can map back to RefSeq.
+  The map is the `enst_refseq` table in `app_v1/reference_mapping.db`, keyed by
+  assembly (`GRCh37`, `GRCh38`, `GRCm38`, `Release6`, `GRCz11`, `WBcel235`) —
+  ENST, ENSMUST, FBtr, ENSDARG and worm Entrez gene ids from Ensembl BioMart,
+  curated `refseq_mrna` only. Worm's TargetScan id (`171687.1`) is the Entrez
+  gene id plus TargetScan's per-gene counter; the counter is stripped like a
+  version, so worm maps at gene level (1.24 RefSeq per hit), as zebrafish's
+  ENSDARG gene ids do. TargetScanWorm 6.2 still serves its 5.2 data (worm did
+  not change after 5.2), hence the `worm_52` download path.
 - Jobs live under `ISOTAR_JOB_DIR` (`/opt/out/jobs`), one directory per job.
 
 ## Job Execution

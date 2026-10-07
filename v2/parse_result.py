@@ -50,18 +50,21 @@ def _default_reference_db():
 # TargetScan reports its own transcript identifiers and the reference FASTAs are
 # keyed by RefSeq, so every hit is translated before it can match a target. The
 # identifier differs per species -- ENST (human), ENSMUST (mouse), FBtr (fly),
-# ENSDARG (zebrafish) -- but all resolve through the same enst_refseq table.
+# ENSDARG (zebrafish), NCBI Entrez gene (worm) -- but all resolve through the
+# same enst_refseq table.
 #
-# Only species where TargetScan publishes an identifier we can resolve appear
-# here. Worm is absent on purpose: its datasets key on an internal numeric
-# ("171590.0") with no RefSeq or Ensembl equivalent in any published file. The
-# remaining genome codes (rno, cfa, mml, ptr, mdo) have no TargetScan release.
+# Worm's UTR id ("171590.0") is its Entrez gene id plus TargetScan's own per-gene
+# counter, which names no public transcript. The suffix is stripped like a
+# version, so worm resolves at gene level -- every RefSeq transcript of the gene,
+# 1.24 on average -- as zebrafish's ENSDARG gene ids already do. The remaining
+# genome codes (rno, cfa, mml, ptr, mdo) have no TargetScan release.
 _GENOME_BUILD = {
     "hg19": "GRCh37",
     "hg38": "GRCh38",
     "mmu":  "GRCm38",
     "dme":  "Release6",
     "dre":  "GRCz11",
+    "cel":  "WBcel235",
 }
 
 # Genomes TargetScan can be run for. Anything else must not reach the tool --
@@ -75,6 +78,7 @@ _GENOME_TAXID = {
     "mmu":  "10090",
     "dme":  "7227",
     "dre":  "7955",
+    "cel":  "6239",
 }
 
 
