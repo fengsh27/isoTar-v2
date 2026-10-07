@@ -6,6 +6,12 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.25 - 2026-10-06
+
+- docs: record TargetScan support for worm
+- feat(targetscan): run and map worm (cel)
+- build(targetscan): add worm to the species dataset builder
+
 ## 0.3.24 - 2026-08-31
 
 - (no changes recorded since v0.3.23)
