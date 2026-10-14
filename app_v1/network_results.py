@@ -29,6 +29,7 @@ re-querying with different thresholds/pairs does not re-parse the tool output.
 """
 
 import json
+import math
 import os
 import re
 import sqlite3
@@ -54,6 +55,36 @@ NETWORK_DB_FILENAME = "network.db"
 DEFAULT_TOP_GENES = 50
 DEFAULT_TOP_LNCRNA = 50
 MAX_DISCOVERY_PAIRS = 500
+
+# ceRNA pair scoring. Bumped whenever the formula changes, and echoed on every
+# scored pair so a stored result can always be traced back to how it was made.
+SCORE_VERSION = 1
+
+CORR_MIRNA_GENE = "mirna_gene"
+CORR_MIRNA_LNCRNA = "mirna_lncrna"
+CORR_GENE_LNCRNA = "gene_lncrna"
+CORR_KEYS = (CORR_MIRNA_GENE, CORR_MIRNA_LNCRNA, CORR_GENE_LNCRNA)
+
+# A missing correlation falls back to the multiplicative identity, so an
+# unsupplied column leaves the score to the remaining evidence instead of
+# zeroing it. Callers record which keys were defaulted (corr_defaulted) so an
+# assumed 1.0 is never mistaken for a measured one.
+DEFAULT_CORR = 1.0
+
+# Score denominators when a caller does not pass the job's own tool counts:
+# the full tool set per pool (lncRNA drops TargetScan).
+DEFAULT_TOOL_TOTAL_GENE = 6
+DEFAULT_TOOL_TOTAL_LNCRNA = 5
+
+
+def normalize_corr(corr):
+    """Fill every missing/None correlation with DEFAULT_CORR."""
+    corr = corr or {}
+    out = {}
+    for key in CORR_KEYS:
+        value = corr.get(key)
+        out[key] = DEFAULT_CORR if value is None else float(value)
+    return out
 
 _VERSION_SUFFIX_RE = re.compile(r"\.\d+$")
 
@@ -296,9 +327,31 @@ def _load_edges(db_path):
 # Pure graph shaping (no filesystem) -- unit-testable in isolation
 # ---------------------------------------------------------------------------
 
+def _corr_product(corr):
+    """Product of the three pair correlations. Each is 0..1, so the product is
+    too -- it scales the consensus term rather than inflating it."""
+    return (corr[CORR_MIRNA_GENE]
+            * corr[CORR_MIRNA_LNCRNA]
+            * corr[CORR_GENE_LNCRNA])
+
+
+def _consensus(gene_tools, lncrna_tools, total_gene, total_lncrna):
+    """Geometric mean of the two pools' tool-agreement fractions.
+
+    A pair is only as well supported as its weaker side, so the two fractions
+    are combined multiplicatively rather than averaged. Totals are the tools
+    actually run on each pool (gene: all selected; lncRNA: minus TargetScan),
+    so the term stays 0..1 and comparable across jobs with different tool sets.
+    """
+    if not total_gene or not total_lncrna:
+        return 0.0
+    return math.sqrt((float(gene_tools) / total_gene)
+                     * (float(lncrna_tools) / total_lncrna))
+
+
 def compute_network(gene_edges, lncrna_edges, pairs=None, labels=None,
                     top_genes=DEFAULT_TOP_GENES, top_lncrna=DEFAULT_TOP_LNCRNA,
-                    max_pairs=MAX_DISCOVERY_PAIRS):
+                    max_pairs=MAX_DISCOVERY_PAIRS, tool_totals=None):
     """Build the tripartite network JSON from per-target edge maps.
 
     Args:
@@ -306,46 +359,66 @@ def compute_network(gene_edges, lncrna_edges, pairs=None, labels=None,
         lncrna_edges: lncrna_id -> {mirna -> set(tools)}
         pairs:        optional list of {"gene": <refseq or symbol input>,
                       "gene_refseqs": [refseq, ...], "lncrna": <transcript>,
-                      "score": <number>}. The score is passed through onto each
-                      kept pair unused (reserved for later); it is required on
-                      submitted pairs but discovery mode synthesizes None.
+                      "corr": {mirna_gene, mirna_lncrna, gene_lncrna},
+                      "corr_defaulted": [<key>, ...]}.
                       When present -> ceRNA filter mode (only these pairs).
-                      When empty/None -> discovery mode over top-degree targets.
+                      When empty/None -> discovery mode over top-degree targets,
+                      where every correlation defaults to 1.0 and the score
+                      reduces to the tool-consensus term alone.
         labels:       (target, target_type) -> (label, name) for display.
+        tool_totals:  {"gene": n, "lncrna": n} -- tools actually run on each
+                      pool, the score's denominators. Defaults to the full sets.
         top_genes/top_lncrna/max_pairs: discovery-mode bounds.
 
     Returns a dict {mode, nodes, edges, pairs, summary}. Every gene-miRNA and
     miRNA-lncRNA edge carries its full tool list so the client can threshold by
     consensus k without a server round-trip.
+
+    ceRNA scoring (score_version 1):
+
+        score = corr(miRNA,gene) * corr(miRNA,lncRNA) * corr(gene,lncRNA)
+                * sqrt((gene_tools / total_gene) * (lncrna_tools / total_lncrna))
+
+    Computed per *bridging miRNA node*, because tool counts live on edges and a
+    miRNA's variants are separate nodes with their own support. The pair's
+    headline `score` is the WT node's -- a pair-level score is a claim about the
+    real miRNA, so an in-silico variant must not set it. `score` is None when WT
+    does not bridge the pair; `best_bridge` names the highest-scoring node
+    whether or not it is WT. Correlations are measured on the base miRNA and
+    inherited unchanged by its variants, so within a pair they are constant and
+    WT-vs-variant differences come entirely from `consensus`.
     """
     labels = labels or {}
+    totals = tool_totals or {}
+    total_gene = totals.get("gene") or DEFAULT_TOOL_TOTAL_GENE
+    total_lncrna = totals.get("lncrna") or DEFAULT_TOOL_TOTAL_LNCRNA
 
     if pairs:
         mode = "pairs"
-        candidate_pairs = []
+        candidates = []
         for p in pairs:
             lncrna = strip_lncrna_version(p.get("lncrna"))
             refseqs = p.get("gene_refseqs") or ([p["gene"]] if p.get("gene") else [])
+            corr = normalize_corr(p.get("corr"))
+            defaulted = list(p.get("corr_defaulted") or [])
             for gene in refseqs:
-                candidate_pairs.append((gene, lncrna, p.get("gene"), p.get("score")))
-        truncated = False
+                candidates.append((gene, lncrna, p.get("gene"), corr, defaulted))
     else:
         mode = "discovery"
         # Rank by number of distinct miRNAs targeting the node (bridge potential).
         top_g = sorted(gene_edges, key=lambda g: len(gene_edges[g]), reverse=True)[:top_genes]
         top_l = sorted(lncrna_edges, key=lambda l: len(lncrna_edges[l]), reverse=True)[:top_lncrna]
-        candidate_pairs = [(g, l, None, None) for g in top_g for l in top_l]
-        truncated = len(candidate_pairs) > max_pairs
-        candidate_pairs = candidate_pairs[:max_pairs]
+        corr = normalize_corr(None)
+        defaulted = list(CORR_KEYS)
+        candidates = [(g, l, None, corr, defaulted) for g in top_g for l in top_l]
 
-    gene_nodes = {}    # gene_id -> node
-    lncrna_nodes = {}  # lncrna_id -> node
-    mirna_nodes = {}   # mirna_id -> node
-    gene_mirna = {}    # (gene_id, mirna) -> set(tools)
-    mirna_lncrna = {}  # (mirna, lncrna_id) -> set(tools)
-    kept_pairs = []
-
-    for gene, lncrna, gene_input, score in candidate_pairs:
+    # Pass 1: score every candidate that is actually bridged. Discovery mode
+    # scores the whole candidate set before truncating, so "top pairs" means
+    # top by score rather than whichever ones the cartesian product happened to
+    # emit first (gene-major order would otherwise keep only the first handful
+    # of genes and discard the rest unscored).
+    scored = []
+    for gene, lncrna, gene_input, corr, corr_defaulted in candidates:
         g_mirnas = gene_edges.get(gene)
         l_mirnas = lncrna_edges.get(lncrna)
         if not g_mirnas or not l_mirnas:
@@ -354,30 +427,77 @@ def compute_network(gene_edges, lncrna_edges, pairs=None, labels=None,
         if not bridges:
             continue
 
+        corr_product = _corr_product(corr)
+        bridge_rows = []
+        for m in sorted(bridges):
+            gene_tools = len(g_mirnas[m])
+            lncrna_tools = len(l_mirnas[m])
+            consensus = _consensus(gene_tools, lncrna_tools, total_gene, total_lncrna)
+            bridge_rows.append({
+                "mirna": m,
+                "is_variant": _mirna_base_id(m) != m,
+                "gene_tools": gene_tools,
+                "lncrna_tools": lncrna_tools,
+                "consensus": round(consensus, 6),
+                "score": round(corr_product * consensus, 6),
+            })
+
+        # Headline score: the WT node's. Variants are hypothetical sequences, so
+        # one outscoring WT is a finding to expand into, not a number that may
+        # silently rank the pair table.
+        wt_rows = [r for r in bridge_rows if not r["is_variant"]]
+        score = max(r["score"] for r in wt_rows) if wt_rows else None
+        best = max(bridge_rows, key=lambda r: r["score"])
+
         g_label = labels.get((gene, "gene"), (None, None))
+        scored.append({
+            "gene": gene,
+            "gene_input": gene_input,
+            "gene_label": g_label[0] or gene,
+            "lncrna": lncrna,
+            "corr": corr,
+            "corr_defaulted": corr_defaulted,
+            "corr_product": round(corr_product, 6),
+            "score": score,
+            "score_version": SCORE_VERSION,
+            "best_bridge": {"mirna": best["mirna"], "score": best["score"],
+                            "is_variant": best["is_variant"]},
+            "bridges": bridge_rows,
+            "bridge_mirnas": sorted(bridges),
+        })
+
+    # Highest score first; pairs WT does not bridge (score None) sort last but
+    # are kept -- "the variant bridges what WT cannot" is a real result.
+    scored.sort(key=lambda p: (p["score"] is not None, p["score"] or 0.0), reverse=True)
+    truncated = mode == "discovery" and len(scored) > max_pairs
+    kept_pairs = scored[:max_pairs] if mode == "discovery" else scored
+
+    # Pass 2: nodes and edges, built only from the pairs that survived.
+    gene_nodes = {}    # gene_id -> node
+    lncrna_nodes = {}  # lncrna_id -> node
+    mirna_nodes = {}   # mirna_id -> node
+    gene_mirna = {}    # (gene_id, mirna) -> set(tools)
+    mirna_lncrna = {}  # (mirna, lncrna_id) -> set(tools)
+
+    for p in kept_pairs:
+        gene, lncrna = p["gene"], p["lncrna"]
+        g_mirnas = gene_edges[gene]
+        l_mirnas = lncrna_edges[lncrna]
         gene_nodes.setdefault(gene, {
             "id": gene, "type": "gene",
-            "label": g_label[0] or gene, "name": g_label[1],
+            "label": p["gene_label"],
+            "name": labels.get((gene, "gene"), (None, None))[1],
         })
         lncrna_nodes.setdefault(lncrna, {
             "id": lncrna, "type": "lncrna", "label": lncrna, "name": None,
         })
-        for m in bridges:
+        for m in p["bridge_mirnas"]:
             mirna_nodes.setdefault(m, {
                 "id": m, "type": "mirna",
                 "label": _mirna_node_label(m), "base": _mirna_base_id(m),
             })
             gene_mirna.setdefault((gene, m), set()).update(g_mirnas[m])
             mirna_lncrna.setdefault((m, lncrna), set()).update(l_mirnas[m])
-
-        kept_pairs.append({
-            "gene": gene,
-            "gene_input": gene_input,
-            "gene_label": g_label[0] or gene,
-            "lncrna": lncrna,
-            "score": score,
-            "bridge_mirnas": sorted(bridges),
-        })
 
     edges = []
     for (gene, m), tools in gene_mirna.items():
@@ -400,19 +520,21 @@ def compute_network(gene_edges, lncrna_edges, pairs=None, labels=None,
         "edge_count": len(edges),
         "pair_count": len(kept_pairs),
         "truncated": truncated,
+        "score_version": SCORE_VERSION,
+        "tool_totals": {"gene": total_gene, "lncrna": total_lncrna},
     }
     return {"mode": mode, "nodes": nodes, "edges": edges,
             "pairs": kept_pairs, "summary": summary}
 
 
 def build_network(output_dir, pairs=None, top_genes=DEFAULT_TOP_GENES,
-                  top_lncrna=DEFAULT_TOP_LNCRNA):
+                  top_lncrna=DEFAULT_TOP_LNCRNA, tool_totals=None):
     """Build (and cache) network.db, then shape the tripartite graph JSON."""
     db_path = ensure_network_db(output_dir)
     gene_edges, lncrna_edges, labels = _load_edges(db_path)
     return compute_network(
         gene_edges, lncrna_edges, pairs=pairs, labels=labels,
-        top_genes=top_genes, top_lncrna=top_lncrna,
+        top_genes=top_genes, top_lncrna=top_lncrna, tool_totals=tool_totals,
     )
 
 

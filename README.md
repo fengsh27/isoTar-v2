@@ -61,7 +61,7 @@ tools are scored against. It defaults to `mir-target`.
 |------------|-------------|-------|
 | `mir-target` | gene 3′ UTRs | The default. One miRNA per job. |
 | `mir-lncrna` | lncRNA transcripts | One miRNA per job. TargetScan is rejected with HTTP 400 — it ignores the supplied FASTA and reads its own precomputed 3′ UTR datasets. |
-| `mir-network` | **both** pools | A list of miRNAs (max `ISOTAR_MAX_NETWORK_MIRNAS`) plus optional ceRNA `(gene, lncRNA, score)` pairs, joined into a tripartite gene ↔ miRNA ↔ lncRNA graph. |
+| `mir-network` | **both** pools | A list of miRNAs (max `ISOTAR_MAX_NETWORK_MIRNAS`) plus optional ceRNA `(gene, lncRNA)` pairs with correlation magnitudes, joined into a tripartite gene ↔ miRNA ↔ lncRNA graph and scored. |
 
 A `mir-network` job runs each pool into its own output subdirectory
 (`output/gene/`, `output/lncrna/`), each with its own `progress.json`; the API
@@ -216,7 +216,7 @@ Common fields:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `mirna_ids` | string[] | yes | Up to `ISOTAR_MAX_NETWORK_MIRNAS` miRNA IDs (deduped, order preserved) |
-| `pairs` | object[] | no | ceRNA pairs `{gene, lncrna, score}`; `score` must be a number. Gene symbols are resolved to RefSeq up front |
+| `pairs` | object[] | no | ceRNA pairs `{gene, lncrna, corr}`. `corr` is optional and holds `mirna_gene`, `mirna_lncrna`, `gene_lncrna` — each optional, each a magnitude `0 <= x <= 1`. Omitted correlations default to `1.0` at scoring time and are listed in `corr_defaulted` on the response. Gene symbols are resolved to RefSeq up front |
 | `restrict_to_pairs` | bool | no | Scan only the pairs' own targets instead of the whole reference (default `ISOTAR_NETWORK_RESTRICT_TO_PAIRS`). Requires `pairs`. Orders-of-magnitude faster, but the job no longer leaves behind a genome-wide table |
 | `pre_ids` | object | no | `{"<mirna_id>": "<pre_id>"}` — only needed for multi-precursor miRNAs |
 | `shifts` | object | no | `{"<mirna_id>": "left\|right"}` |
@@ -317,13 +317,58 @@ top-degree nodes.
   "nodes": [{ "id": "NM_001234", "type": "gene", "label": "TP53", "name": "..." }],
   "edges": [{ "source": "NM_001234", "target": "hsa-miR-21-5p",
               "side": "gene", "tools": ["PITA"], "tool_count": 1 }],
-  "pairs": [{ "gene": "NM_001234", "lncrna": "ENST00000...", "score": 0.8,
+  "pairs": [{ "gene": "NM_001234", "gene_input": "TP53", "gene_label": "TP53",
+              "lncrna": "ENST00000...",
+              "corr": { "mirna_gene": 0.9, "mirna_lncrna": 0.8, "gene_lncrna": 0.7 },
+              "corr_defaulted": [], "corr_product": 0.504,
+              "score": 0.130132, "score_version": 1,
+              "best_bridge": { "mirna": "hsa-miR-21-5p,-7|1,shifted",
+                               "score": 0.504, "is_variant": true },
+              "bridges": [{ "mirna": "hsa-miR-21-5p", "is_variant": false,
+                            "gene_tools": 2, "lncrna_tools": 1,
+                            "consensus": 0.258199, "score": 0.130132 }],
               "bridge_mirnas": ["hsa-miR-21-5p"] }],
   "summary": { "mode": "pairs", "gene_count": 1, "mirna_count": 1,
                "lncrna_count": 1, "edge_count": 2, "pair_count": 1,
-               "truncated": false }
+               "truncated": false, "score_version": 1,
+               "tool_totals": { "gene": 6, "lncrna": 5 } }
 }
 ```
+
+#### ceRNA pair score (`score_version: 1`)
+
+```
+score = corr(miRNA,gene) x corr(miRNA,lncRNA) x corr(gene,lncRNA)
+        x sqrt( (gene_tools / tool_totals.gene) x (lncrna_tools / tool_totals.lncrna) )
+```
+
+* **Correlations** are the caller's, as magnitudes in `0..1`. An omitted one
+  contributes `1.0` and is named in `corr_defaulted`, so a pair with no
+  correlation data scores on prediction consensus alone rather than scoring
+  zero. Their product is reported separately as `corr_product`.
+* **`tool_totals`** are the tools the job actually ran per pool — every selected
+  tool on the gene side, minus TargetScan on the lncRNA side. Taken from the
+  job's manifest, not hardcoded, so a species with no TargetScan release is
+  scored out of 5 on the gene side instead of being capped below 1.
+* **Scores are per bridging miRNA node**, in `bridges[]`, because tool counts
+  live on edges and a miRNA's variants are separate nodes with their own
+  support. Correlations are measured on the base miRNA and inherited unchanged
+  by its variants, so within one pair `corr_product` is constant and WT-vs-variant
+  differences come entirely from `consensus`.
+* **The pair's `score` is the WT node's**, because a pair-level score is a claim
+  about the real miRNA — an in-silico variant must not set it. It is `null` when
+  WT does not bridge the pair at all; the pair is still returned, since "the
+  variant bridges what WT cannot" is a result. `best_bridge` names the
+  highest-scoring node either way.
+* **`pairs` is sorted by `score`**, descending, with `null` scores last.
+
+In `discovery` mode there are no user correlations, so all three default to
+`1.0` and the score reduces to the consensus term. Discovery scores every
+candidate before truncating to `MAX_DISCOVERY_PAIRS`, so the returned pairs are
+the top-scoring ones rather than whichever the gene-major cartesian product
+emitted first. Note that discovery ranks candidate targets by how many distinct
+miRNA nodes hit them, which carries little signal for a single-miRNA job — the
+isotar frontend therefore requires pairs and never reaches this mode.
 
 ---
 
