@@ -6,6 +6,10 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.26 - 2026-10-14
+
+- feat(network): compute a ceRNA pair score from supplied correlations
+
 ## 0.3.25 - 2026-10-06
 
 - docs: record TargetScan support for worm
