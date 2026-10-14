@@ -1,6 +1,7 @@
 import csv
 import glob
 import json
+import math
 import os
 import re
 import shutil
@@ -53,6 +54,61 @@ _WORKFLOW_TARGET_TYPE = {
 # scores whatever FASTA is passed to -utr.) Mirrors LNCRNA_INCOMPATIBLE_TOOLS in
 # v2/mirna_predicting.py.
 LNCRNA_INCOMPATIBLE_TOOLS = {"Targetscan"}
+
+
+# ceRNA pair correlations supplied by the caller: miRNA<->gene, miRNA<->lncRNA
+# and gene<->lncRNA, each 0..1. All three are optional -- an omitted one is
+# recorded in corr_defaulted and falls back to 1.0 at scoring time, so a pair
+# with no correlation data scores on prediction consensus alone.
+CORR_KEYS = ("mirna_gene", "mirna_lncrna", "gene_lncrna")
+
+
+def _parse_pair_corr(raw):
+    """Validate one pair's `corr` object -> (corr, defaulted_keys, error).
+
+    Correlations are magnitudes: callers send abs(r), because the score
+    multiplies the three together and a sign convention (miRNA anti-correlates
+    with both partners, which co-vary) would otherwise flip the product's sign
+    on an even number of negatives. Out-of-range values are rejected rather
+    than clamped -- a correlation above 1 is a data error, and clamping would
+    let a broken row outrank a sound one.
+    """
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        return None, None, "pair corr must be an object with keys {}".format(list(CORR_KEYS))
+    corr = {}
+    defaulted = []
+    for key in CORR_KEYS:
+        value = raw.get(key)
+        if value is None:
+            defaulted.append(key)
+            continue
+        # bool is an int subclass -- reject it so True can't pass as 1.0.
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None, None, "pair corr.{} must be a number".format(key)
+        value = float(value)
+        if not math.isfinite(value):
+            return None, None, "pair corr.{} must be a finite number".format(key)
+        if value < 0 or value > 1:
+            return None, None, "pair corr.{} must be between 0 and 1".format(key)
+        corr[key] = value
+    return corr, defaulted, None
+
+
+def _network_tool_totals(tools):
+    """Tools actually run on each pool -- the ceRNA score's denominators.
+
+    The gene pool runs every selected tool; the lncRNA pool drops TargetScan.
+    Derived from the job's own tool list rather than hardcoded 6/5 so a job on
+    a species with no TargetScan release (which must drop it to be accepted at
+    all) is scored out of 5 on the gene side, not penalised against a 6 it
+    could never have reached.
+    """
+    return {
+        "gene": len(tools),
+        "lncrna": len([t for t in tools if t not in LNCRNA_INCOMPATIBLE_TOOLS]),
+    }
 
 
 def _reject_targetscan_genome(tools, genome):
@@ -680,8 +736,12 @@ def _write_pool_target_files(job_id, resolved_pairs):
 
 def _submit_network_job(data, tools):
     """Validate, resolve, and enqueue a mir-network job (list of miRNAs + both
-    target pools + optional ceRNA (gene, lncRNA, score) pairs). Each pair
-    requires a numeric score, carried through unused for now (reserved for later)."""
+    target pools + optional ceRNA (gene, lncRNA) pairs).
+
+    Each pair may carry a `corr` object with up to three correlation magnitudes
+    (mirna_gene, mirna_lncrna, gene_lncrna, each 0..1). They are stored with the
+    job and combined with per-pool tool agreement into the ceRNA score at
+    /network query time; see compute_network's SCORE_VERSION 1 formula."""
     mirna_ids = data.get("mirna_ids") or []
     pairs_in = data.get("pairs") or []
 
@@ -788,7 +848,7 @@ def _submit_network_job(data, tools):
         return jsonify(ts_err), 400
 
     if not isinstance(pairs_in, list):
-        return jsonify({"error": "pairs must be a list of {gene, lncrna, score} objects"}), 400
+        return jsonify({"error": "pairs must be a list of {gene, lncrna, corr} objects"}), 400
 
     # Resolve each pair's gene symbol/accession to RefSeq before creating job
     # state, so a 400 leaves no orphan dir. A symbol may expand to several RefSeq.
@@ -796,19 +856,16 @@ def _submit_network_job(data, tools):
     unresolved_genes = []
     for p in pairs_in:
         if not isinstance(p, dict):
-            return jsonify({"error": "each pair must be an object with gene, lncrna and score"}), 400
+            return jsonify({"error": "each pair must be an object with gene, lncrna and optional corr"}), 400
         gene = (p.get("gene") or "").strip()
         lncrna = (p.get("lncrna") or "").strip()
         if not gene or not lncrna:
             return jsonify({"error": "each pair requires a non-empty gene and lncrna"}), 400
-        # Required per-pair score, carried through untouched for downstream use
-        # (not consumed yet). Must be a number; bool is an int subclass, so reject
-        # it explicitly so True/False can't pass as a score.
-        score = p.get("score")
-        if score is None:
-            return jsonify({"error": "each pair requires a score"}), 400
-        if isinstance(score, bool) or not isinstance(score, (int, float)):
-            return jsonify({"error": "pair score must be a number"}), 400
+        corr, corr_defaulted, corr_error = _parse_pair_corr(p.get("corr"))
+        if corr_error:
+            return jsonify({"error": corr_error, "gene": gene, "lncrna": lncrna,
+                            "hint": "each correlation is optional; when given it "
+                                    "must be a magnitude between 0 and 1"}), 400
         refseqs, unresolved = _resolve_targets([gene], genome)
         if unresolved:
             unresolved_genes.extend(unresolved)
@@ -817,7 +874,8 @@ def _submit_network_job(data, tools):
             "gene": gene,
             "gene_refseqs": sorted(refseqs),
             "lncrna": lncrna,
-            "score": score,
+            "corr": corr,
+            "corr_defaulted": corr_defaulted,
         })
     if unresolved_genes:
         return jsonify({
@@ -866,6 +924,9 @@ def _submit_network_job(data, tools):
         "genome": genome,
         "cores": cores,
         "pair_count": len(resolved_pairs),
+        # Score denominators, frozen at submit time: the tool list is immutable
+        # for the job's life, so the score stays reproducible from the manifest.
+        "tool_totals": _network_tool_totals(tools),
         "pre_ids": pre_ids,
         "shifts": shifts,
         "modifications": modifications,
@@ -1220,9 +1281,15 @@ def job_network(job_id):
         return jsonify({"error": "topGenes and topLncrna must be >= 1"}), 400
 
     pairs = load_pairs(_job_path(job_id))
+    # Jobs created before tool_totals was recorded fall back to their tool list,
+    # and failing that to compute_network's full-tool-set defaults.
+    tool_totals = meta.get("tool_totals")
+    if not tool_totals and meta.get("tools"):
+        tool_totals = _network_tool_totals(meta["tools"])
     try:
         data = build_network(output_dir, pairs=pairs,
-                             top_genes=top_genes, top_lncrna=top_lncrna)
+                             top_genes=top_genes, top_lncrna=top_lncrna,
+                             tool_totals=tool_totals)
     except Exception as e:
         logger.error("network build failed job_id=%s error=%s", job_id, e)
         return jsonify({"error": "network build failed: {}".format(str(e))}), 500
