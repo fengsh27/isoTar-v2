@@ -173,18 +173,21 @@ class SearchAndRollupTests(unittest.TestCase):
         self.assertEqual(r1["arms_supported"], 3)
         self.assertEqual(r1["same_paper_hit"], 1)
         self.assertEqual(r1["same_paper_url"], "https://pubmed.ncbi.nlm.nih.gov/1000/")
+        self.assertEqual(r1["same_paper_note"], "n=1; 2020 J: T1000")
         self.assertEqual(r1["mir_gene_note"], "n=40; 2020 J: T1000")
         self.assertEqual(r1["mir_gene_pair"], "miR-200b-3p to ZEB1")
         # Triplet 2: lncRNA has no symbol -> two arms unsearchable, same-paper blank.
         self.assertEqual(r2["mir_lnc_tier"], "unsearchable")
         self.assertEqual(r2["gene_lnc_tier"], "unsearchable")
         self.assertEqual(r2["same_paper_hit"], "")
+        self.assertEqual(r2["same_paper_note"], "")
         self.assertEqual(r2["triplet_tier"], "partial")
         self.assertEqual(r2["arms_supported"], 1)
         # Triplet 3: nothing for AXIN2 arms, PVT1 arm untouched by counts -> none.
         self.assertEqual(r3["mir_gene_tier"], "none")
         self.assertEqual(r3["triplet_tier"], "none")
         self.assertEqual(r3["same_paper_hit"], 0)
+        self.assertEqual(r3["same_paper_note"], "")
         for r in rows:
             for c in COLUMNS:
                 self.assertIn(c, r)

@@ -13,6 +13,7 @@ from app_v1.verification.pubmed import is_unsearchable, pubmed_url, representati
 
 PUBLISHED_COLUMNS = [
     "id", "miRNA", "gene", "lncRNA", "triplet_tier", "arms_supported", "same_paper_hit", "same_paper_url",
+    "same_paper_note",
     "mir_gene_pair", "mir_gene_tier", "mir_gene_url", "mir_gene_note",
     "mir_lnc_pair", "mir_lnc_tier", "mir_lnc_url", "mir_lnc_note",
     "gene_lnc_pair", "gene_lnc_tier", "gene_lnc_url", "gene_lnc_note",
@@ -79,10 +80,13 @@ def rollup_rows(triplets, arm_results, same_results, titles):
         row["arms_supported"] = n
         hit, count, ids = same_results.get(t["id"], (None, 0, []))
         if hit is None:
-            row["same_paper_hit"], row["same_paper_url"] = "", ""
-        else:
+            row["same_paper_hit"], row["same_paper_url"], row["same_paper_note"] = "", "", ""
+        elif hit and ids:
             row["same_paper_hit"] = hit
-            row["same_paper_url"] = pubmed_url(ids[0]) if hit and ids else ""
+            row["same_paper_url"] = pubmed_url(ids[0])
+            row["same_paper_note"] = representative_note(count, ids[0], titles)
+        else:
+            row["same_paper_hit"], row["same_paper_url"], row["same_paper_note"] = hit, "", ""
         rows.append(row)
     rows.sort(key=lambda r: int(r["id"]))
     return rows

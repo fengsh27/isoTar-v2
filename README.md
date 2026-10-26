@@ -445,7 +445,7 @@ arms_done, arms_total, triplets, queue_total, reviewed, error, params, ...}` wit
   `same_paper_hits`, `unsearchable_lncrna`, `triplet_tier` counts, `truncated`.
 - `rows` -- one per triplet, the published verification columns first:
   `id, miRNA, gene, lncRNA, triplet_tier, arms_supported, same_paper_hit,
-  same_paper_url`, then `<arm>_pair, <arm>_tier, <arm>_url, <arm>_note` for
+  same_paper_url, same_paper_note`, then `<arm>_pair, <arm>_tier, <arm>_url, <arm>_note` for
   `mir_gene`, `mir_lnc`, `gene_lnc`; then the site extras `gene_id, lncrna_id,
   mirna_node, pair_score, bridge_score, bridge_is_variant`.
 - `queue` -- the hits handed to the model (same-paper hits, three-arm triplets,
