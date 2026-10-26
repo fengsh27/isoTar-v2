@@ -90,6 +90,31 @@
 - Results are parsed lazily: the first `/result` call builds and caches
   `result.db` in the output directory.
 
+## Literature Verification (app_v1/verification/)
+- Checks a succeeded `mir-network` job's triplets (pair x bridge miRNA) against
+  PubMed: three evidence tiers per arm (tissue cancer terms / any cancer / bare
+  symbols), a same-paper query, a roll-up, then an optional model read of the
+  hits. Validated design from the isotar-justification repository; the query
+  terms in `pubmed.py` are the cache key, so changing one invalidates that arm.
+- Runs on its own Celery queue (`ISOTAR_VERIFICATION_QUEUE`, worker
+  `app_v1_verification_worker` with `--concurrency=1`): that one process is the
+  NCBI rate limit. Progress/results in `<job>/verification/`; shared caches in
+  `ISOTAR_VERIFICATION_DIR` (`pubmed_cache.db`, `verdicts.db`).
+- `llm_review.py` is the only part that runs under `python3.11` (Anthropic SDK,
+  `requirements-py311.txt`); it talks to the gateway in `ANTHROPIC_BASE_URL`
+  with `ANTHROPIC_AUTH_TOKEN`. Everything else is stdlib 3.6 and must stay so.
+- lncRNAs are ENST ids in the network; `symbols.py` maps them to HGNC symbols via
+  `lncrna_reference.db` + `app_v1/lncrna_symbols.tsv` (built from the Ensembl
+  GRCh38 ncRNA dump by `reference_mapping/build_lncrna_symbols.py`). Only ~20%
+  of hg38 lncRNA genes carry a symbol; the rest are `unsearchable` on two arms,
+  never "unsupported".
+- `NCBI_API_KEY` must never reach logs or error messages (`PubMedError` carries
+  only the endpoint and the public term).
+- `.env.template` documents every variable (secrets blank); a filled `.env` is
+  git-ignored and passed with `docker run --env-file .env`. Keep the template in
+  step with the README env table when adding a variable.
+- Tests: `python3 -m unittest v2.tests.test_verification` (pure parts, no network).
+
 ## Common Issues
 - DMISO wrapper must preserve args; call the script directly if needed.
 - `subprocess.run` isn't available in Python 2; ensure a shim exists where used

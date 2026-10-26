@@ -8,3 +8,8 @@ v2/opt/human/
 v2/opt/reference_files/
 v2/opt/tools/
 v2/opt/.DS_Store
+
+# Local environment with secrets (copy of .env.template). Never commit.
+.env
+.env.*
+!.env.template

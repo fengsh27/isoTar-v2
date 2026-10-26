@@ -75,6 +75,11 @@ COPY VERSION /app_v1/VERSION
 RUN python3.6 -m pip install --no-cache-dir -r /app_v1/requirements.txt \
     && mkdir -p /app/logs/celery /app/logs/gunicorn
 
+# Literature verification: the model review step (app_v1/verification/llm_review.py)
+# runs under python3.11 because the Anthropic SDK needs Python >= 3.10. Everything
+# else in app_v1/verification is standard-library Python 3.6.
+RUN python3.11 -m pip install --no-cache-dir -r /app_v1/verification/requirements-py311.txt
+
 # Setup Vienna-rna
 RUN cd /opt \
 	&& dpkg -i viennarna_2.4.11-1_amd64.deb

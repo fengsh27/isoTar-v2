@@ -38,6 +38,8 @@ from app_v1.lncrna_reference import (
     validate_lncrna_targets as _validate_lncrna_targets,
     normalize_lncrna_id as _normalize_lncrna_id,
 )
+from app_v1.verification import pipeline as verification
+from app_v1.verification.pubmed import TISSUE as VERIFICATION_TISSUES, resolve_tissue
 
 logger = get_logger()
 
@@ -162,6 +164,46 @@ def _env_bool(name, default=False):
 # choice rather than a free win -- so it is opt-in per job, with this env var
 # setting the deployment default.
 NETWORK_RESTRICT_TO_PAIRS_DEFAULT = _env_bool("ISOTAR_NETWORK_RESTRICT_TO_PAIRS", False)
+
+# --- Literature verification of a network job's triplets -------------------
+# Each (gene, lncRNA) pair x bridge miRNA is searched against PubMed in three
+# evidence tiers per arm plus a same-paper query (app_v1/verification/). Only
+# human is supported: the tissue/cancer terms and the lncRNA symbol table are
+# human. The optional model review of the hits runs under python3.11 through an
+# Anthropic-compatible gateway (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN) and
+# is offered only when that gateway is configured.
+VERIFICATION_GENOMES = tuple(
+    g.strip() for g in os.environ.get("ISOTAR_VERIFICATION_GENOMES", "hg19,hg38").split(",") if g.strip())
+# Dedicated Celery queue: one worker with concurrency 1 is what keeps the whole
+# deployment under NCBI's 10 requests/second, however many users click.
+VERIFICATION_QUEUE = os.environ.get("ISOTAR_VERIFICATION_QUEUE", "verification")
+# Shared caches live beside the jobs directory, not inside a job, so every job
+# benefits from every earlier search and every paper already read.
+VERIFICATION_SHARED_DIR = os.environ.get(
+    "ISOTAR_VERIFICATION_DIR", os.path.join(os.path.dirname(BASE_DIR.rstrip("/")), "verification"))
+
+
+def _verification_llm_available():
+    return bool(os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY"))
+
+
+def _verification_config():
+    return {
+        "api_key": os.environ.get("NCBI_API_KEY", ""),
+        "email": os.environ.get("NCBI_EMAIL", ""),
+        "cache_path": os.environ.get("ISOTAR_PUBMED_CACHE",
+                                     os.path.join(VERIFICATION_SHARED_DIR, "pubmed_cache.db")),
+        "cache_max_age_days": int(os.environ.get("ISOTAR_PUBMED_CACHE_DAYS", "0")),
+        "retmax": int(os.environ.get("ISOTAR_PUBMED_RETMAX", "20")),
+        "max_triplets": int(os.environ.get("ISOTAR_VERIFICATION_MAX_TRIPLETS", "500")),
+        "python": os.environ.get("ISOTAR_VERIFICATION_PYTHON", "python3.11"),
+        "model": os.environ.get("ISOTAR_VERIFICATION_MODEL", "claude-opus-5-5"),
+        "max_papers": int(os.environ.get("ISOTAR_VERIFICATION_MAX_PAPERS", "40")),
+        "verdict_cache": os.environ.get("ISOTAR_VERDICT_CACHE",
+                                        os.path.join(VERIFICATION_SHARED_DIR, "verdicts.db")),
+        "llm_timeout": int(os.environ.get("ISOTAR_VERIFICATION_TIMEOUT", "3600")),
+    }
+
 
 app = Flask(__name__)
 
@@ -1323,6 +1365,18 @@ def _enrichment_artifacts(job_dir):
     return artifacts
 
 
+def _verification_artifacts(job_dir):
+    """(abs_path, name) of a completed verification's tables, for the result zip.
+    Only the tables: progress and the review log stay out."""
+    vdir = verification.verification_dir(job_dir)
+    out = []
+    for name in ("verification.tsv", "verification.json", "triplets.tsv", "verdicts.tsv"):
+        path = os.path.join(vdir, name)
+        if os.path.exists(path):
+            out.append((path, name))
+    return out
+
+
 @app.route("/api/v1/jobs/<job_id>/result/download", methods=["GET"])
 def job_result_download(job_id):
     if not os.path.exists(_job_meta_path(job_id)):
@@ -1337,17 +1391,19 @@ def job_result_download(job_id):
 
     job_dir = _job_path(job_id)
     enrichment = _enrichment_artifacts(job_dir)
+    verification_files = _verification_artifacts(job_dir)
 
     archive_path = os.path.join(job_dir, "result.zip")
-    # The archive is cached, but enrichment can be run (or re-run with a
-    # different gene list / cutoff) long after the first download. Rebuild
-    # whenever an enrichment artifact is newer than the cached zip, otherwise a
-    # user who downloaded before running enrichment keeps getting a zip without
-    # it -- and one who re-ran it keeps getting the superseded results.
+    # The archive is cached, but enrichment and verification can be run (or
+    # re-run) long after the first download. Rebuild whenever one of their
+    # artifacts is newer than the cached zip, otherwise a user who downloaded
+    # before running them keeps getting a zip without them -- and one who
+    # re-ran keeps getting the superseded results.
     stale = False
-    if os.path.exists(archive_path) and enrichment:
+    later = enrichment + verification_files
+    if os.path.exists(archive_path) and later:
         archive_mtime = os.path.getmtime(archive_path)
-        stale = any(os.path.getmtime(p) > archive_mtime for p, _ in enrichment)
+        stale = any(os.path.getmtime(p) > archive_mtime for p, _ in later)
 
     if stale or not os.path.exists(archive_path):
         # Build the archive ourselves (instead of shutil.make_archive) so we
@@ -1368,8 +1424,11 @@ def job_result_download(job_id):
                     zf.write(sibling_path, sibling)
             for abs_path, name in enrichment:
                 zf.write(abs_path, os.path.join("enrichment", name))
+            for abs_path, name in verification_files:
+                zf.write(abs_path, os.path.join("verification", name))
 
-    logger.info("result downloaded job_id=%s enrichment_files=%d", job_id, len(enrichment))
+    logger.info("result downloaded job_id=%s enrichment_files=%d verification_files=%d",
+                job_id, len(enrichment), len(verification_files))
     return send_file(archive_path, as_attachment=True, download_name="{}_result.zip".format(job_id))
 
 
@@ -1534,6 +1593,124 @@ def delete_job(job_id):
     shutil.rmtree(_job_path(job_id), ignore_errors=True)
     logger.info("job deleted job_id=%s", job_id)
     return jsonify({"status": "deleted"}), 200
+
+
+# ---------------------------------------------------------------------------
+# Literature verification
+# ---------------------------------------------------------------------------
+
+@celery_app.task(bind=True)
+def run_verification_task(self, job_id, params):
+    """Search PubMed for every triplet of a succeeded mir-network job, then
+    (optionally) have the model read the hits. Progress and results live in
+    <job>/verification/; see app_v1/verification/pipeline.py."""
+    job_dir = _job_path(job_id)
+    try:
+        meta = _load_meta(job_id)
+        output_dir = meta.get("result_path")
+        pairs = load_pairs(job_dir)
+        tool_totals = meta.get("tool_totals")
+        if not tool_totals and meta.get("tools"):
+            tool_totals = _network_tool_totals(meta["tools"])
+        network = build_network(output_dir, pairs=pairs, tool_totals=tool_totals)
+        logger.info("verification started job_id=%s pairs=%d params=%s",
+                    job_id, len(network.get("pairs", [])), params)
+        result = verification.run_verification(
+            job_dir, network, meta.get("genome", "hg38"), params, _verification_config(),
+            task_id=self.request.id, log=logger.info)
+        logger.info("verification succeeded job_id=%s triplets=%s review=%s",
+                    job_id, result["summary"].get("triplets"), result["review"].get("status"))
+    except Exception as e:  # noqa: BLE001 -- the task must record, not propagate
+        logger.error("verification failed job_id=%s error=%s", job_id, e)
+        progress = verification.read_progress(job_dir) or {}
+        if progress.get("status") != "failed":
+            progress.update({"status": "failed", "step": "failed", "error": str(e),
+                             "finished_at": int(time.time())})
+            verification.write_progress(job_dir, progress)
+
+
+@app.route("/api/v1/verification/config", methods=["GET"])
+def verification_config():
+    """What the deployment can do, so the UI shows only what will work."""
+    return jsonify({
+        "enabled": bool(os.environ.get("NCBI_API_KEY")),
+        "llm_review_available": _verification_llm_available(),
+        "model": _verification_config()["model"] if _verification_llm_available() else None,
+        "tissues": sorted(VERIFICATION_TISSUES),
+        "genomes": list(VERIFICATION_GENOMES),
+        "max_triplets": _verification_config()["max_triplets"],
+        "max_papers": _verification_config()["max_papers"],
+    })
+
+
+@app.route("/api/v1/jobs/<job_id>/verification", methods=["POST"])
+def start_verification(job_id):
+    if not os.path.exists(_job_meta_path(job_id)):
+        return jsonify({"error": "job not found"}), 404
+    meta = _load_meta(job_id)
+    if meta.get("workflow") != NETWORK_WORKFLOW:
+        return jsonify({"error": "verification is only available for the mir-network workflow"}), 400
+    if meta.get("status") != "succeeded":
+        return jsonify({"error": "job not completed", "status": meta.get("status")}), 409
+    genome = meta.get("genome", "hg38")
+    if genome not in VERIFICATION_GENOMES:
+        return jsonify({"error": "verification supports genomes {} only".format(", ".join(VERIFICATION_GENOMES)),
+                        "genome": genome}), 400
+    if not os.environ.get("NCBI_API_KEY"):
+        return jsonify({"error": "verification is not configured on this server",
+                        "hint": "set NCBI_API_KEY and NCBI_EMAIL"}), 503
+
+    data = request.get_json(force=True, silent=True) or {}
+    tissue = data.get("tissue", "lung")
+    try:
+        _terms, tissue_label = resolve_tissue(tissue)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    llm_review = data.get("llm_review", False)
+    if not isinstance(llm_review, bool):
+        return jsonify({"error": "llm_review must be true or false"}), 400
+    if llm_review and not _verification_llm_available():
+        return jsonify({"error": "model review is not configured on this server",
+                        "hint": "set ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN, or submit with llm_review false"}), 400
+
+    job_dir = _job_path(job_id)
+    progress = verification.read_progress(job_dir)
+    if progress and progress.get("status") in ("queued", "running"):
+        return jsonify({"error": "verification already in progress", "status": progress.get("status")}), 409
+
+    params = {"tissue": tissue if tissue_label == "custom" else tissue_label, "llm_review": llm_review}
+    verification.write_progress(job_dir, {"status": "queued", "step": "queued", "params": params,
+                                          "queued_at": int(time.time()), "error": None})
+    task = run_verification_task.apply_async(args=[job_id, params], queue=VERIFICATION_QUEUE)
+    logger.info("verification queued job_id=%s task_id=%s params=%s", job_id, task.id, params)
+    return jsonify({"job_id": job_id, "status": "queued", "task_id": task.id, "params": params}), 202
+
+
+@app.route("/api/v1/jobs/<job_id>/verification", methods=["GET"])
+def get_verification(job_id):
+    if not os.path.exists(_job_meta_path(job_id)):
+        return jsonify({"error": "job not found"}), 404
+    job_dir = _job_path(job_id)
+    progress = verification.read_progress(job_dir)
+    if progress is None:
+        return jsonify({"error": "verification has not been run for this job"}), 404
+    payload = dict(progress)
+    payload["job_id"] = job_id
+    payload["result"] = verification.read_result(job_dir) if progress.get("status") == "succeeded" else None
+    resp = jsonify(payload)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.route("/api/v1/jobs/<job_id>/verification/download", methods=["GET"])
+def download_verification(job_id):
+    if not os.path.exists(_job_meta_path(job_id)):
+        return jsonify({"error": "job not found"}), 404
+    path = verification.result_tsv_path(_job_path(job_id))
+    if not os.path.exists(path):
+        return jsonify({"error": "verification results not found"}), 404
+    return send_file(path, mimetype="text/tab-separated-values", as_attachment=True,
+                     download_name="{}_verification.tsv".format(job_id))
 
 
 if __name__ == "__main__":
