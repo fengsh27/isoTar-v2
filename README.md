@@ -137,14 +137,22 @@ docker build -t frankfeng78/isotar-v2:"$(cat VERSION)" \
 ## Running
 
 ```bash
+cp .env.template .env        # fill in NCBI and gateway credentials (optional)
 docker run -d \
   --name isotar \
   -p 8080:8080 \
+  --env-file .env \
   -v /path/to/jobs:/opt/out/jobs \
   frankfeng78/isotar-v2:"$(cat VERSION)"
 ```
 
 The API is available at `http://localhost:8080/api/v1/`.
+
+`.env.template` lists every environment variable the server reads, with the
+defaults and a note on what each one changes. The two optional feature blocks
+are the NCBI E-utilities credentials and the Anthropic-compatible gateway
+(LiteLLM) used by the literature verification; see
+[Environment variables](#environment-variables). `.env` is git-ignored.
 
 ## REST API
 
@@ -398,6 +406,75 @@ odds_ratio, combined_score, genes}]}, has_dotplot}`.
 
 ---
 
+### Literature verification (mir-network jobs)
+
+```
+GET  /api/v1/verification/config
+POST /api/v1/jobs/<job_id>/verification
+GET  /api/v1/jobs/<job_id>/verification
+GET  /api/v1/jobs/<job_id>/verification/download   # text/tab-separated-values
+```
+
+Checks every predicted triplet of a succeeded `mir-network` job (one triplet per
+ceRNA pair x bridge miRNA, ranked by pair then bridge score) against PubMed, and
+optionally has a language model read the hits that could matter. Runs as a
+Celery task on the dedicated `verification` queue (one process, so the whole
+deployment stays under NCBI's 10 requests/second); progress and results live in
+`<job>/verification/`. Human genomes only (`ISOTAR_VERIFICATION_GENOMES`).
+
+`GET /verification/config` reports what the deployment can do:
+`{enabled, llm_review_available, model, tissues, genomes, max_triplets, max_papers}`.
+`enabled` is false until `NCBI_API_KEY` is set (POST then returns 503);
+`llm_review_available` is false until an Anthropic-compatible gateway is
+configured (POST with `llm_review: true` then returns 400).
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tissue` | string | no | Tier 1 disease context: a preset (`lung` default, `breast`, `colorectal`, `gastric`, `liver`, `prostate`, `pancreatic`, `glioma`), `none` (tier 1 not run), or a raw PubMed boolean with `[tiab]`/`[mh]` fields |
+| `llm_review` | bool | no | Also read the queued hits with the model (default `false`) |
+
+POST returns 202 `{job_id, status: "queued", task_id, params}`; 409 while a
+verification is already queued or running.
+
+`GET .../verification` returns 404 until a verification has been started, then
+the progress record `{job_id, status: queued|running|succeeded|failed, step,
+arms_done, arms_total, triplets, queue_total, reviewed, error, params, ...}` with
+`result` filled in once `status` is `succeeded`:
+
+- `summary` -- `triplets`, `with_any_arm`, `with_two_arms`, `with_three_arms`,
+  `same_paper_hits`, `unsearchable_lncrna`, `triplet_tier` counts, `truncated`.
+- `rows` -- one per triplet, the published verification columns first:
+  `id, miRNA, gene, lncRNA, triplet_tier, arms_supported, same_paper_hit,
+  same_paper_url`, then `<arm>_pair, <arm>_tier, <arm>_url, <arm>_note` for
+  `mir_gene`, `mir_lnc`, `gene_lnc`; then the site extras `gene_id, lncrna_id,
+  mirna_node, pair_score, bridge_score, bridge_is_variant`.
+- `queue` -- the hits handed to the model (same-paper hits, three-arm triplets,
+  two-arm triplets with a tissue-tier arm or an experimental-looking title).
+- `review` -- `{status: disabled|skipped|succeeded|failed, model, queue_size,
+  reviewed, cached, errors, error, verdicts: [{id, scope, pmid, verdict,
+  arm_match, tissue, evidence_type, sentences, note}]}`.
+
+How to read a row: an arm tier is keyword co-occurrence of two symbols in one
+title/abstract -- `1` with the tissue's cancer terms, `2` with any cancer term,
+`3` symbols only, `none` no record, `unsearchable` when the lncRNA has no HGNC
+symbol (its Ensembl id never appears in abstracts). A lower tier number records
+disease context, not stronger evidence, and the three arms usually come from
+three unrelated papers. `triplet_tier` is `tier{worst arm}` when all three arms
+hit, `partial` with one or two, `none` otherwise. `same_paper_hit` is the only
+field that points at a single study naming the whole axis, and only a verdict
+of `reported_interaction` with its quoted sentence says the paper reports it.
+The miRNA is searched at family level (arm suffix dropped), so an
+`opposite_arm` verdict is common and worth showing.
+
+lncRNA symbols come from `app_v1/lncrna_symbols.tsv`, built from the Ensembl
+GRCh38 ncRNA dump by `reference_mapping/build_lncrna_symbols.py` (hg19 reuses
+the symbols through the assembly-stable ENSG ids). The verdict step runs
+`app_v1/verification/llm_review.py` under `python3.11` with the Anthropic SDK
+pointed at the gateway in `ANTHROPIC_BASE_URL`; verdicts are cached by
+(PMID, scope, symbols, model) in `ISOTAR_VERDICT_CACHE`.
+
+---
+
 ### Download results
 
 ```
@@ -407,9 +484,11 @@ GET /api/v1/jobs/<job_id>/result/download
 Returns a ZIP archive of all raw prediction output files, the run inputs
 (`job.json`, `mirna.fa`, `targets.txt`), and — if enrichment analysis has been
 run for the job — its outputs under `enrichment/` (`gene_list.csv`, one
-`*.enrichr.reports.txt` per database, and `enrichment_dotplot.png`). Running or
-re-running enrichment after a download invalidates the cached archive, so the
-next download always reflects the latest enrichment results.
+`*.enrichr.reports.txt` per database, and `enrichment_dotplot.png`), and — if a
+literature verification has completed — its tables under `verification/`
+(`verification.tsv`, `verification.json`, `triplets.tsv`, `verdicts.tsv`).
+Running or re-running either after a download invalidates the cached archive,
+so the next download always reflects the latest results.
 
 ---
 
@@ -453,6 +532,20 @@ Removes all files and metadata for the job.
 | `ISOTAR_MAX_NETWORK_MIRNAS` | `20` | Max miRNAs in a single `mir-network` job |
 | `ISOTAR_MAX_VALIDATE_TARGETS` | `5000` | Max targets per `POST /targets/validate` call |
 | `ISOTAR_NETWORK_RESTRICT_TO_PAIRS` | `false` | Deployment default for a network job's `restrict_to_pairs` |
+| `NCBI_API_KEY` / `NCBI_EMAIL` | (unset) | E-utilities credentials for literature verification. Verification is disabled until the key is set. Never logged. |
+| `ISOTAR_VERIFICATION_GENOMES` | `hg19,hg38` | Genomes a verification may run on (the search terms and lncRNA symbol table are human) |
+| `ISOTAR_VERIFICATION_QUEUE` | `verification` | Celery queue of the single-process verification worker (must match `app_supervisord.conf`) |
+| `ISOTAR_VERIFICATION_DIR` | `<parent of ISOTAR_JOB_DIR>/verification` | Shared caches: `pubmed_cache.db` (E-utilities responses by query) and `verdicts.db` |
+| `ISOTAR_PUBMED_CACHE` / `ISOTAR_VERDICT_CACHE` | (see above) | Override either cache file's path |
+| `ISOTAR_PUBMED_CACHE_DAYS` | `0` | Refetch cached PubMed answers older than this many days (`0` = keep forever) |
+| `ISOTAR_PUBMED_RETMAX` | `20` | PMIDs kept per query |
+| `ISOTAR_VERIFICATION_MAX_TRIPLETS` | `500` | Top-ranked triplets searched per job (`summary.truncated` says when the cap applied) |
+| `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` | (unset) | Anthropic-compatible gateway (e.g. LiteLLM) and its key, read by the SDK in `llm_review.py`. Model review is offered only when the token is set. |
+| `ISOTAR_VERIFICATION_MODEL` | `claude-opus-5-5` | Model name as the gateway exposes it |
+| `ISOTAR_VERIFICATION_MAX_PAPERS` | `40` | Papers read by the model per job (cached verdicts are free and not counted) |
+| `ISOTAR_VERIFICATION_TIMEOUT` | `3600` | Seconds allowed for the model review step |
+| `ISOTAR_VERIFICATION_PYTHON` | `python3.11` | Interpreter for `llm_review.py` (needs the `anthropic` and `pydantic` packages) |
+| `ISOTAR_LNCRNA_SYMBOLS_TSV` | `<app_v1>/lncrna_symbols.tsv` | lncRNA gene id -> HGNC symbol table |
 
 ## Project Structure
 
@@ -471,6 +564,15 @@ isoTar-v2/
 │   ├── lncrna_reference.py     # lncRNA ID validation and normalisation
 │   ├── parse_result.py         # Tool output parsers
 │   ├── logger.py               # Date-rotating file logger
+│   ├── verification/           # Literature verification (PubMed tiers, roll-up, model review)
+│   │   ├── pubmed.py           # Query terms, rate-limited client, SQLite cache
+│   │   ├── rollup.py           # Per-arm tiers -> per-triplet rows
+│   │   ├── review.py           # Which hits the model reads
+│   │   ├── symbols.py          # lncRNA transcript/gene id -> HGNC symbol
+│   │   ├── papers.py           # Abstract / full-text fetch, sentence extraction
+│   │   ├── pipeline.py         # Celery-side driver, writes <job>/verification/
+│   │   └── llm_review.py       # python3.11: verdict per paper via the Anthropic SDK
+│   ├── lncrna_symbols.tsv      # lncRNA gene id -> symbol (reference_mapping/build_lncrna_symbols.py)
 │   ├── reference_mapping.db    # Gene ID → label/name mapping
 │   └── lncrna_reference.db     # lncRNA transcript/gene ID reference
 ├── v2/                         # Prediction engine scripts (run as subprocesses)
@@ -488,6 +590,7 @@ isoTar-v2/
 ├── scripts/                    # release.sh, reference builders, helpers
 ├── Dockerfile                  # Production image (builds on base)
 ├── isotar-base.Dockerfile      # Base image (Ubuntu 16.04 + Python 3.6 / 3.11)
+├── .env.template               # Every env var the server reads (copy to .env, pass with --env-file)
 ├── app_supervisord.conf        # Supervisor process config
 ├── nginx.conf / app.conf       # Nginx configuration
 └── CLAUDE.md / AGENTS.md       # Developer notes (kept identical)

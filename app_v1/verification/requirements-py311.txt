@@ -1,0 +1,3 @@
+# Installed into python3.11 only (see Dockerfile). Used by llm_review.py.
+anthropic>=1.0,<2
+pydantic>=2,<3
