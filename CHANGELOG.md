@@ -6,6 +6,11 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.27 - 2026-10-26
+
+- chore(config): add .env.template for NCBI and gateway credentials
+- feat(verification): literature verification of mir-network triplets via PubMed and a model review
+
 ## 0.3.26 - 2026-10-14
 
 - feat(network): compute a ceRNA pair score from supplied correlations
