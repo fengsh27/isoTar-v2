@@ -104,9 +104,46 @@ def load_json(file_path):
     except json.JSONDecodeError:
         raise ValueError("The file '{}' is not a valid JSON file.".format(file_path))
 
+def anchored_mature_start(pre_seq, mature_seq, stored_start):
+    """1-based start of mature_seq within pre_seq.
+
+    The shipped catalogs do not agree on how ext_mature_loc_start is counted:
+    the un-prefixed human file stores it 0-based (its mature region is
+    ext_pre_seq[start:end]), while the nine <sp>_mature_pre_mirna_ext.json
+    files store it 1-based inclusive. ext_mature_loc_end reads the same under
+    both conventions, so only the start differs -- and the field name gives no
+    hint which one a file used.
+
+    So trust the sequence rather than the convention. mature_seq is the
+    authoritative miRBase sequence and occurs in ext_pre_seq for every record
+    in all ten files, so: keep the stored value when it reproduces mature_seq,
+    read it as 0-based when the next position does, and only then fall back to
+    a search. Testing the stored value first matters -- 19 records contain
+    mature_seq more than once (hsa-miR-941 five times), and a blind search
+    would be free to pick the wrong copy.
+    """
+    if not mature_seq:
+        return stored_start
+
+    width = len(mature_seq)
+    if stored_start >= 1 and pre_seq[stored_start - 1:stored_start - 1 + width] == mature_seq:
+        return stored_start
+    if pre_seq[stored_start:stored_start + width] == mature_seq:
+        return stored_start + 1
+
+    found = pre_seq.find(mature_seq)
+    if found >= 0:
+        return found + 1
+    return stored_start
+
+
 def find_mirna_sequence(data, mirna_id, pre_id=None):
     """Retrieve mature and precursor sequences with validation.
-    Returns: (mature_seq, pre_seq, start, end, available_pre_ids)
+
+    Returns: (mature_seq, pre_seq, start, end, available_pre_ids), where
+    start/end are 1-based inclusive coordinates of the mature sequence within
+    pre_seq (the extended precursor) -- normalized by anchored_mature_start,
+    because the shipped catalogs disagree on how the stored start is counted.
     """
     if mirna_id not in data:
         return None, None, None, None, []
@@ -138,7 +175,12 @@ def find_mirna_sequence(data, mirna_id, pre_id=None):
     
     mature_seq = selected_entry['mature_seq'].upper()
     pre_seq = selected_entry['ext_pre_seq'].upper()
-    start = selected_entry['ext_mature_loc_start']
+    # Normalized to 1-based inclusive here so every caller -- and apply_shift
+    # in particular -- works in one convention regardless of which the file
+    # used. The end needs no adjustment: it names the same position either way.
+    start = anchored_mature_start(
+        pre_seq, mature_seq, selected_entry['ext_mature_loc_start'],
+    )
     end = selected_entry['ext_mature_loc_end']
     
     # Validate sequences
@@ -205,10 +247,14 @@ def apply_shift(pre_seq, mature_seq, start, end, shift):
         new_start = start + left_shift
         new_end = end + right_shift
         
-        if new_start < 0 or new_end > len(pre_seq) or new_start >= new_end:
+        # start/end are 1-based inclusive (see anchored_mature_start), so a
+        # single-base window is new_start == new_end and position 0 does not
+        # exist; the 17-30 nt check in validate_sequence_length rejects the
+        # degenerate windows this lets through, with a clearer message.
+        if new_start < 1 or new_end > len(pre_seq) or new_start > new_end:
             raise ValueError("Shift would result in invalid sequence coordinates")
-            
-        shifted_seq = pre_seq[new_start:new_end]
+
+        shifted_seq = pre_seq[new_start - 1:new_end]
         return shifted_seq, "{}|{}".format(left_shift, right_shift)
     except ValueError as e:
         raise ValueError("Invalid shift '{}': {}".format(shift, str(e)))

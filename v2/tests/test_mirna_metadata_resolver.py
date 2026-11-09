@@ -235,9 +235,19 @@ class ShippedSpeciesFilesTest(unittest.TestCase):
                                 .format(mirna_id, mature))
                 self.assertTrue(VALID_NUC_RE.match(pre),
                                 "invalid nucleotides in precursor for {}".format(mirna_id))
-                self.assertGreaterEqual(start, 0)
+                self.assertGreaterEqual(start, 1)
                 self.assertGreater(end, start)
                 self.assertLessEqual(end, len(pre))
+                # The bound checks above pass under either coordinate
+                # convention, which is how the human file's 0-based
+                # ext_mature_loc_start went unnoticed. Tie the numbers to the
+                # letters: find_mirna_sequence returns a 1-based inclusive
+                # window, so this slice must be the mature sequence itself.
+                self.assertEqual(
+                    pre[start - 1:end], mature,
+                    "coordinates {}-{} do not point at the mature sequence "
+                    "for {}".format(start, end, mirna_id),
+                )
 
 
 @unittest.skipUnless(
