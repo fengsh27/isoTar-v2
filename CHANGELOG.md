@@ -6,6 +6,14 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.28 - 2026-11-08
+
+- fix(mirna): slice the shifted mature sequence 1-based
+- chore(release): v0.3.27
+- feat(verification): add same_paper_note column to result rows
+- chore(config): add .env.template for NCBI and gateway credentials
+- feat(verification): literature verification of mir-network triplets via PubMed and a model review
+
 ## 0.3.27 - 2026-10-26
 
 - chore(config): add .env.template for NCBI and gateway credentials
