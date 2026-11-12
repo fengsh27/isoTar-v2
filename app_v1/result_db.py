@@ -279,6 +279,29 @@ def ensure_db(output_dir):
     return db_path
 
 
+def gene_labels(db_path):
+    """Every distinct gene symbol among the predicted targets, sorted.
+
+    The input to enrichment: targets without a symbol (gene_info has no label
+    for them) are skipped, and transcripts of one gene collapse to its symbol.
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        c = conn.cursor()
+        c.execute(
+            """
+            SELECT DISTINCT TRIM(gi.gene_label)
+            FROM   gene_tools gt
+            JOIN   gene_info gi ON gt.gene_id = gi.gene_id
+            WHERE  gi.gene_label IS NOT NULL AND TRIM(gi.gene_label) != ''
+            ORDER BY 1
+            """
+        )
+        return [row[0] for row in c.fetchall()]
+    finally:
+        conn.close()
+
+
 def query_genes(db_path, sort_by="tool_count", order="desc", offset=0, number=20,
                 keyword=None):
     """Query the gene-tool database and return paginated results + Venn stats.

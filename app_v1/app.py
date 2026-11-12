@@ -17,7 +17,7 @@ from app_v1.celery_app import celery_app
 from app_v1.limits import MAX_CORES_PER_JOB, validate_cores
 from app_v1.logger import get_logger
 from app_v1.version import get_version
-from app_v1.result_db import ensure_db, query_genes
+from app_v1.result_db import ensure_db, gene_labels, query_genes
 from app_v1.lncrna_results import ensure_lncrna_db
 from app_v1.network_results import (
     build_network,
@@ -1447,17 +1447,35 @@ def job_enrichment(job_id):
         return jsonify({"error": "job not found"}), 404
 
     data = request.get_json(force=True, silent=True) or {}
-    genes = data.get("genes", [])
+    # genes is optional. Without it the task enriches the job's own predicted
+    # genes, so the request stays a few bytes: a gene list in the body (44 KB
+    # for ~4,700 genes) is rejected by the institutional proxy in front of the
+    # public site with 413 before it ever reaches isoTar.
+    genes = data.get("genes")
     organism = data.get("organism", "Human")
     cutoff = data.get("cutoff", 0.05)
 
-    if not genes or not isinstance(genes, list):
-        return jsonify({"error": "genes must be a non-empty list of gene symbols"}), 400
+    if genes is not None and (
+            not isinstance(genes, list) or not genes
+            or not all(isinstance(g, str) for g in genes)):
+        return jsonify({"error": "genes, when given, must be a non-empty list of gene symbols",
+                        "hint": "omit genes to use the job's own predicted genes"}), 400
 
     try:
         cutoff = float(cutoff)
     except (TypeError, ValueError):
         return jsonify({"error": "cutoff must be a number"}), 400
+
+    if genes is None:
+        meta = _load_meta(job_id)
+        if meta.get("workflow", "mir-target") != "mir-target":
+            return jsonify({
+                "error": "enrichment of the job's own genes is only available for mir-target jobs",
+                "hint": "mir-lncrna predicts lncRNAs, which have no gene symbols; pass genes "
+                        "explicitly to enrich another gene list",
+            }), 400
+        if meta.get("status") != "succeeded":
+            return jsonify({"error": "job not completed", "status": meta.get("status")}), 409
 
     job_dir = _job_path(job_id)
     current = enrichment_state.read_status(job_dir)
@@ -1466,33 +1484,63 @@ def job_enrichment(job_id):
                         "status": current.get("status")}), 409
 
     gene_list_csv = os.path.join(job_dir, "gene_list.csv")
-    with open(gene_list_csv, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["gene_label"])
-        for gene in genes:
-            writer.writerow([gene])
+    if genes is not None:
+        _write_gene_list(gene_list_csv, genes)
 
     # A re-run must never show, or zip, the previous run's reports.
     enrichment_state.clear_artifacts(job_dir)
-    params = {"organism": organism, "cutoff": cutoff, "gene_count": len(genes)}
+    # gene_count is filled in by the task when it collects the job's genes.
+    params = {"organism": organism, "cutoff": cutoff,
+              "gene_source": "request" if genes is not None else "job",
+              "gene_count": len(genes) if genes is not None else None}
     enrichment_state.write_status(job_dir, {
         "status": "queued", "params": params, "queued_at": int(time.time()),
         "started_at": None, "finished_at": None, "error": None, "stderr": None,
     })
     task = run_enrichment_task.apply_async(args=[job_id, params], queue=ENRICHMENT_QUEUE)
-    logger.info("enrichment queued job_id=%s task_id=%s genes=%d organism=%s cutoff=%s",
-                job_id, task.id, len(genes), organism, cutoff)
+    logger.info("enrichment queued job_id=%s task_id=%s gene_source=%s genes=%s organism=%s cutoff=%s",
+                job_id, task.id, params["gene_source"], params["gene_count"], organism, cutoff)
     return jsonify({"job_id": job_id, "status": "queued", "task_id": task.id,
                     "params": params}), 202
+
+
+def _write_gene_list(path, genes):
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["gene_label"])
+        for gene in genes:
+            writer.writerow([gene])
 
 
 @celery_app.task(bind=True)
 def run_enrichment_task(self, job_id, params):
     """Run v2/enrichment_analysis.py over the job's gene_list.csv and record
-    the outcome in enrichment_status.json; GET .../enrichment reports it."""
+    the outcome in enrichment_status.json; GET .../enrichment reports it.
+
+    With params["gene_source"] == "job" the gene list is first collected from
+    the job's own predictions (result.db, built here if needed -- which is why
+    this happens in the task, not the request)."""
     job_dir = _job_path(job_id)
     enrichment_state.update_status(job_dir, status="running", started_at=int(time.time()))
     logger.info("enrichment started job_id=%s params=%s", job_id, params)
+    if params.get("gene_source") == "job":
+        try:
+            output_dir = _load_meta(job_id).get("result_path")
+            if not output_dir or not os.path.exists(output_dir):
+                raise RuntimeError("the job's prediction results were not found")
+            genes = gene_labels(ensure_db(output_dir))
+            if not genes:
+                raise RuntimeError("the job has no predicted targets with a gene symbol")
+            _write_gene_list(os.path.join(job_dir, "gene_list.csv"), genes)
+        except Exception as e:  # noqa: BLE001 -- the task must record, not propagate
+            logger.error("enrichment gene collection failed job_id=%s error=%s", job_id, e)
+            enrichment_state.update_status(
+                job_dir, status="failed", finished_at=int(time.time()),
+                error="could not collect the job's predicted genes: {}".format(e))
+            return
+        params = dict(params, gene_count=len(genes))
+        enrichment_state.update_status(job_dir, params=params)
+        logger.info("enrichment collected %d genes from job_id=%s", len(genes), job_id)
     # -u: unbuffered, so the worker log shows progress as it happens. Only
     # stderr is captured, to report a failure; its tail is capped so a runaway
     # traceback cannot bloat the status file.
