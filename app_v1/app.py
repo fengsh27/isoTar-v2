@@ -38,6 +38,7 @@ from app_v1.lncrna_reference import (
     validate_lncrna_targets as _validate_lncrna_targets,
     normalize_lncrna_id as _normalize_lncrna_id,
 )
+from app_v1 import enrichment_status as enrichment_state
 from app_v1.verification import pipeline as verification
 from app_v1.verification.pubmed import TISSUE as VERIFICATION_TISSUES, resolve_tissue
 
@@ -164,6 +165,14 @@ def _env_bool(name, default=False):
 # choice rather than a free win -- so it is opt-in per job, with this env var
 # setting the deployment default.
 NETWORK_RESTRICT_TO_PAIRS_DEFAULT = _env_bool("ISOTAR_NETWORK_RESTRICT_TO_PAIRS", False)
+
+# --- Enrichment --------------------------------------------------------------
+# Enrichr takes about a minute for a few thousand genes. Run synchronously, that
+# held the API's single gunicorn worker and stalled every other request, so it
+# runs as a Celery task on its own queue (its own worker in
+# app_supervisord.conf), never behind long prediction jobs.
+ENRICHMENT_QUEUE = os.environ.get("ISOTAR_ENRICHMENT_QUEUE", "enrichment")
+ENRICHMENT_TIMEOUT = int(os.environ.get("ISOTAR_ENRICHMENT_TIMEOUT", "900"))
 
 # --- Literature verification of a network job's triplets -------------------
 # Each (gene, lncRNA) pair x bridge miRNA is searched against PubMed in three
@@ -1451,48 +1460,75 @@ def job_enrichment(job_id):
         return jsonify({"error": "cutoff must be a number"}), 400
 
     job_dir = _job_path(job_id)
-    gene_list_csv = os.path.join(job_dir, "gene_list.csv")
+    current = enrichment_state.read_status(job_dir)
+    if enrichment_state.is_active(current):
+        return jsonify({"error": "enrichment already in progress for this job",
+                        "status": current.get("status")}), 409
 
+    gene_list_csv = os.path.join(job_dir, "gene_list.csv")
     with open(gene_list_csv, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["gene_label"])
         for gene in genes:
             writer.writerow([gene])
 
-    logger.info("enrichment started job_id=%s genes=%d organism=%s cutoff=%s",
-                job_id, len(genes), organism, cutoff)
+    # A re-run must never show, or zip, the previous run's reports.
+    enrichment_state.clear_artifacts(job_dir)
+    params = {"organism": organism, "cutoff": cutoff, "gene_count": len(genes)}
+    enrichment_state.write_status(job_dir, {
+        "status": "queued", "params": params, "queued_at": int(time.time()),
+        "started_at": None, "finished_at": None, "error": None, "stderr": None,
+    })
+    task = run_enrichment_task.apply_async(args=[job_id, params], queue=ENRICHMENT_QUEUE)
+    logger.info("enrichment queued job_id=%s task_id=%s genes=%d organism=%s cutoff=%s",
+                job_id, task.id, len(genes), organism, cutoff)
+    return jsonify({"job_id": job_id, "status": "queued", "task_id": task.id,
+                    "params": params}), 202
 
-    # -u: unbuffered stdout/stderr so output is flushed as it happens.
-    # stdout inherits gunicorn's stdout (visible in supervisord logs in real
-    # time). Only stderr is captured so we can surface failure details — and
-    # we cap it at 64KB so a runaway traceback can't fill memory.
+
+@celery_app.task(bind=True)
+def run_enrichment_task(self, job_id, params):
+    """Run v2/enrichment_analysis.py over the job's gene_list.csv and record
+    the outcome in enrichment_status.json; GET .../enrichment reports it."""
+    job_dir = _job_path(job_id)
+    enrichment_state.update_status(job_dir, status="running", started_at=int(time.time()))
+    logger.info("enrichment started job_id=%s params=%s", job_id, params)
+    # -u: unbuffered, so the worker log shows progress as it happens. Only
+    # stderr is captured, to report a failure; its tail is capped so a runaway
+    # traceback cannot bloat the status file.
     cmd = [
         "python3.6", "-u", "/opt/v2/enrichment_analysis.py",
-        "-f", gene_list_csv,
-        "-o", organism,
-        "-c", str(cutoff),
+        "-f", os.path.join(job_dir, "gene_list.csv"),
+        "-o", params["organism"],
+        "-c", str(params["cutoff"]),
         "-d", job_dir,
     ]
     try:
-        subprocess.run(
-            cmd,
-            check=True,
-            stderr=subprocess.PIPE,
-            universal_newlines=True,
-        )
+        subprocess.run(cmd, check=True, stderr=subprocess.PIPE,
+                       universal_newlines=True, timeout=ENRICHMENT_TIMEOUT)
     except subprocess.CalledProcessError as e:
-        stderr_tail = (e.stderr or "")[-65536:].strip()
-        logger.error(
-            "enrichment failed job_id=%s rc=%s\nstderr=%s",
-            job_id, e.returncode, stderr_tail,
-        )
-        return jsonify({
-            "error": "enrichment analysis failed",
-            "stderr": stderr_tail,
-        }), 500
+        stderr_tail = (e.stderr or "")[-8192:].strip()
+        logger.error("enrichment failed job_id=%s rc=%s\nstderr=%s",
+                     job_id, e.returncode, stderr_tail)
+        enrichment_state.update_status(
+            job_dir, status="failed", finished_at=int(time.time()),
+            error="enrichment analysis failed (exit code {})".format(e.returncode),
+            stderr=stderr_tail)
+        return
+    except subprocess.TimeoutExpired:
+        logger.error("enrichment timed out job_id=%s after %ss", job_id, ENRICHMENT_TIMEOUT)
+        enrichment_state.update_status(
+            job_dir, status="failed", finished_at=int(time.time()),
+            error="enrichment did not finish within {} seconds".format(ENRICHMENT_TIMEOUT))
+        return
+    except Exception as e:  # noqa: BLE001 -- the task must record, not propagate
+        logger.error("enrichment failed job_id=%s error=%s", job_id, e)
+        enrichment_state.update_status(
+            job_dir, status="failed", finished_at=int(time.time()), error=str(e))
+        return
 
-    logger.info("enrichment succeeded job_id=%s outdir=%s", job_id, job_dir)
-    return jsonify({"job_id": job_id, "outdir": job_dir})
+    enrichment_state.update_status(job_dir, status="succeeded", finished_at=int(time.time()))
+    logger.info("enrichment succeeded job_id=%s", job_id)
 
 
 def _parse_enrichr_report(path):
@@ -1528,9 +1564,28 @@ def get_job_enrichment(job_id):
         return jsonify({"error": "job not found"}), 404
 
     job_dir = _job_path(job_id)
-    gene_list_csv = os.path.join(job_dir, "gene_list.csv")
-    if not os.path.exists(gene_list_csv):
+    state = enrichment_state.read_status(job_dir)
+    if state is None:
         return jsonify({"error": "enrichment has not been run for this job"}), 404
+
+    # databases/has_dotplot are always present (empty until the run succeeds)
+    # so a client written for the old synchronous API still parses the reply.
+    payload = {
+        "job_id": job_id,
+        "status": state.get("status"),
+        "params": state.get("params"),
+        "queued_at": state.get("queued_at"),
+        "started_at": state.get("started_at"),
+        "finished_at": state.get("finished_at"),
+        "error": state.get("error"),
+        "stderr": state.get("stderr"),
+        "databases": {},
+        "has_dotplot": False,
+    }
+    if state.get("status") != "succeeded":
+        resp = jsonify(payload)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     report_paths = sorted(glob.glob(os.path.join(job_dir, "*.enrichr.reports.txt")))
 
@@ -1547,14 +1602,13 @@ def get_job_enrichment(job_id):
                          job_id, fname, e)
             databases[gene_set] = []
 
-    has_dotplot = os.path.exists(os.path.join(job_dir, "enrichment_dotplot.png"))
+    payload["databases"] = databases
+    payload["has_dotplot"] = os.path.exists(os.path.join(job_dir, "enrichment_dotplot.png"))
     logger.info("enrichment results queried job_id=%s databases=%d",
                 job_id, len(databases))
-    return jsonify({
-        "job_id": job_id,
-        "databases": databases,
-        "has_dotplot": has_dotplot,
-    })
+    resp = jsonify(payload)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.route("/api/v1/jobs/<job_id>/enrichment/dotplot", methods=["GET"])

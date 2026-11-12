@@ -386,8 +386,12 @@ isotar frontend therefore requires pairs and never reaches this mode.
 POST /api/v1/jobs/<job_id>/enrichment
 ```
 
-Runs `v2/enrichment_analysis.py` (gseapy/Enrichr) synchronously over a gene list
-and writes its outputs into the job directory.
+Queues `v2/enrichment_analysis.py` (gseapy/Enrichr) over a gene list as a
+Celery task on its own queue (`ISOTAR_ENRICHMENT_QUEUE`, default `enrichment`,
+served by the `app_v1_enrichment_worker` program) and returns at once with
+`202 {job_id, status: "queued", task_id, params}`. Outputs are written into the
+job directory; the previous run's reports, dotplot and cached `result.zip` are
+removed first. A second POST while a run is queued or running returns `409`.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -401,8 +405,16 @@ GET  /api/v1/jobs/<job_id>/enrichment/dotplot   # image/png
 ```
 
 `GET .../enrichment` returns 404 until enrichment has been run, then
-`{job_id, databases: {<gene_set>: [{term, overlap, p_value, adjusted_p_value,
-odds_ratio, combined_score, genes}]}, has_dotplot}`.
+`{job_id, status, params, queued_at, started_at, finished_at, error, stderr,
+databases, has_dotplot}`. Poll it while `status` is `queued` or `running`.
+`databases` (`{<gene_set>: [{term, overlap, p_value, adjusted_p_value,
+odds_ratio, combined_score, genes}]}`) and `has_dotplot` are filled once
+`status` is `succeeded`, and empty otherwise; on `failed`, `error` says why and
+`stderr` carries the tail of the script's output. The state lives in
+`<job>/enrichment_status.json` (`app_v1/enrichment_status.py`). Jobs enriched
+before that file existed report `succeeded`; a run that has not updated for
+`ISOTAR_ENRICHMENT_STALE_SECONDS` (default 3600) reports `failed` so it can be
+re-run. The task itself is capped by `ISOTAR_ENRICHMENT_TIMEOUT` (default 900 s).
 
 ---
 
