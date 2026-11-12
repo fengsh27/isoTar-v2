@@ -395,9 +395,15 @@ removed first. A second POST while a run is queued or running returns `409`.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `genes` | string[] | yes | Gene symbols to test |
+| `genes` | string[] | no | Gene symbols to test. Omit to use the job's own predicted genes (every distinct symbol among its targets, collected by the task from `result.db`) — only for succeeded `mir-target` jobs (`400` otherwise; `409` if not finished) |
 | `organism` | string | no | Default `Human` |
 | `cutoff` | number | no | Adjusted p-value cutoff (default `0.05`) |
+
+Prefer omitting `genes`: the institutional proxy in front of the public site
+rejects request bodies of a few tens of KB with `413`, and a full gene list
+(44 KB for ~4,700 genes) is well past that. `params` records
+`gene_source` (`job` | `request`) and `gene_count`, which is `null` until the
+task has collected a job's genes.
 
 ```
 GET  /api/v1/jobs/<job_id>/enrichment           # parsed per-database reports
