@@ -6,6 +6,10 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.31 - 2026-11-12
+
+- feat(enrichment): enrich the job's own genes when none are sent
+
 ## 0.3.30 - 2026-11-12
 
 - feat(enrichment): run enrichment as a background task on its own queue
