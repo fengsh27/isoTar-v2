@@ -132,6 +132,34 @@ class ResultDownloadZipTests(unittest.TestCase):
         self._download()
         self.assertGreater(os.path.getmtime(zip_path), before)
 
+    def test_rebuilt_result_db_invalidates_the_cache(self):
+        # result.db and predictions.csv are built lazily and rebuilt when
+        # their schema changes, so they can appear or change after the first
+        # download; a zip without them (or with the old ones) must not be served.
+        job_dir = self._make_job()
+        names = self._download()
+        self.assertNotIn("result.db", names)
+        out_dir = os.path.join(job_dir, "output")
+        zip_mtime = os.path.getmtime(os.path.join(job_dir, "result.zip"))
+        for name in ("result.db", "predictions.csv"):
+            with open(os.path.join(out_dir, name), "w") as f:
+                f.write("x")
+            os.utime(os.path.join(out_dir, name), (zip_mtime + 10, zip_mtime + 10))
+        names = self._download()
+        self.assertIn("result.db", names)
+        self.assertIn("predictions.csv", names)
+
+    def test_network_pool_result_db_invalidates_the_cache(self):
+        job_dir = self._make_job()
+        self._download()
+        pool_dir = os.path.join(job_dir, "output", "gene")
+        os.makedirs(pool_dir)
+        zip_mtime = os.path.getmtime(os.path.join(job_dir, "result.zip"))
+        with open(os.path.join(pool_dir, "result.db"), "w") as f:
+            f.write("x")
+        os.utime(os.path.join(pool_dir, "result.db"), (zip_mtime + 10, zip_mtime + 10))
+        self.assertIn("gene/result.db", self._download())
+
     def test_cache_reused_when_there_is_no_enrichment(self):
         job_dir = self._make_job()
         self._download()

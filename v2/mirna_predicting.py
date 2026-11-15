@@ -120,15 +120,17 @@ def parse_fasta(fasta_file):
             line = line.strip()
             if line.startswith(">"):  # Header line
                 if header:  # Save the previous sequence
-                    # Determine the type based on the header
+                    # Determine the type based on the header. The combined
+                    # tag must be tested before its two parts, which it
+                    # contains as substrings.
                     if "WT" in header:
                         seq_type = "WT"
+                    elif "modified_shifted" in header:
+                        seq_type = "modified_shifted"
                     elif "modified" in header:
                         seq_type = "modified"
                     elif "shifted" in header:
                         seq_type = "shifted"
-                    elif "modified_shifted" in header:
-                        seq_type = "modified_shifted"
                     else:
                         seq_type = "unknown"  # Default type if no match
                     

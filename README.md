@@ -39,7 +39,12 @@ is recorded in `job.json` under `tool_errors`. A job is only marked `failed`
 when *every* group failed.
 
 Nothing is parsed until the first `/result` call, which builds and caches
-`output/result.db` from the raw tool output.
+`output/result.db` (plus a flat `predictions.csv`) from the raw tool output.
+The WT and each shifted/modified variant of a miRNA are separate records in
+`mirna.fa`, every tool runs once per record, and `result.db` keeps their hits
+apart: `/result` shows the WT records by default and can show any record or
+compare a variant against its WT. A cached database written by an older
+schema is rebuilt on the next call (`result_db.SCHEMA_VERSION`).
 
 ## Prediction Tools
 
@@ -272,10 +277,21 @@ first call and cached as `result.db` in the output directory.
 | `number` | `20` | Page size (max 1000) |
 | `keyword` | — | Case-insensitive substring matched against gene label, gene name, **or** tool name |
 | `pool` | — | `gene` or `lncrna`. **Required** for `mir-network` jobs, rejected for any other workflow |
+| `sequence` | WT records | Id of a miRNA record to show (repeatable; several give their union, a tool counted once per gene). Ids come from the response's `sequences` list |
+| `view` | `genes` | `compare` classifies every target of one WT/variant pair instead (see below) |
 
-Response:
+Response (`view=genes`):
 ```json
 {
+  "view": "genes",
+  "sequences": [
+    { "sequence": "hsa-miR-21-5p", "base_id": "hsa-miR-21-5p", "header": "hsa-miR-21-5p,WT",
+      "label": "hsa-miR-21-5p", "variant": "WT", "is_variant": false, "seq": "UAGCUUAUCAGACUGAUGUUGA" },
+    { "sequence": "hsa-miR-21-5p,1|0,shifted", "base_id": "hsa-miR-21-5p",
+      "header": "hsa-miR-21-5p,1|0,shifted", "label": "hsa-miR-21-5p (shifted 1|0)",
+      "variant": "shifted 1|0", "is_variant": true, "seq": "AGCUUAUCAGACUGAUGUUGA" }
+  ],
+  "selected": ["hsa-miR-21-5p"],
   "total_genes": 1500,
   "total": 42,
   "genes": [
@@ -298,6 +314,36 @@ Response:
 
 For a `mir-lncrna` job (or the `lncrna` pool of a network job) rows are keyed by
 transcript ID with no gene-symbol mapping.
+
+With `view=compare&wt=<id>&variant=<id>` (two records of the same miRNA) every
+target hit by either record is classified -- `shared` (same tools), `gained`
+(variant only), `lost` (WT only) or `changed` (both, different tools) -- and
+the response carries `totals` per status, `tools` (per tool, how many targets
+it was gained or lost on) and the page of rows:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `wt`, `variant` | — | Record ids from `sequences`, same `base_id` (400 otherwise) |
+| `status` | — | Only rows with this status |
+| `sortBy` | `status` | `status` (changed, lost, gained, shared, then most tools moved), `gene_label` or `delta` |
+| `keyword`, `ascendOrDescend`, `offset`, `number`, `pool` | | As above |
+
+```json
+{
+  "view": "compare", "wt": "hsa-miR-21-5p", "variant": "hsa-miR-21-5p,1|0,shifted",
+  "total_genes": 1830, "total": 1830,
+  "totals": { "changed": 120, "lost": 310, "gained": 640, "shared": 760 },
+  "tools": { "miRanda": { "gained": 400, "lost": 150 }, "PITA": { "gained": 90, "lost": 210 } },
+  "genes": [
+    { "gene_id": "NM_021038", "gene_label": "MBNL1", "gene_name": "...", "status": "changed",
+      "wt_tools": ["PITA", "RNAhybrid", "miRanda"], "variant_tools": ["RNAhybrid"],
+      "gained": [], "lost": ["PITA", "miRanda"], "delta": 2 }
+  ],
+  "sequences": []
+}
+```
+
+"Lost" means no longer predicted by those tools, not evidence of no binding.
 
 ---
 
@@ -396,14 +442,15 @@ removed first. A second POST while a run is queued or running returns `409`.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `genes` | string[] | no | Gene symbols to test. Omit to use the job's own predicted genes (every distinct symbol among its targets, collected by the task from `result.db`) — only for succeeded `mir-target` jobs (`400` otherwise; `409` if not finished) |
+| `sequence` | string | no | Which of the job's records to collect genes from (an id from `/result`'s `sequences`); default the WT records. Only without `genes` |
 | `organism` | string | no | Default `Human` |
 | `cutoff` | number | no | Adjusted p-value cutoff (default `0.05`) |
 
 Prefer omitting `genes`: the institutional proxy in front of the public site
 rejects request bodies of a few tens of KB with `413`, and a full gene list
 (44 KB for ~4,700 genes) is well past that. `params` records
-`gene_source` (`job` | `request`) and `gene_count`, which is `null` until the
-task has collected a job's genes.
+`gene_source` (`job` | `request`), `sequence` and `gene_count`, which is `null`
+until the task has collected a job's genes.
 
 ```
 GET  /api/v1/jobs/<job_id>/enrichment           # parsed per-database reports
@@ -499,14 +546,18 @@ pointed at the gateway in `ANTHROPIC_BASE_URL`; verdicts are cached by
 GET /api/v1/jobs/<job_id>/result/download
 ```
 
-Returns a ZIP archive of all raw prediction output files, the run inputs
+Returns a ZIP archive of all raw prediction output files, the parsed
+`result.db` / `lncrna_result.db` and the flat `predictions.csv` /
+`lncrna_predictions.csv` (one line per record, target and tool) once `/result`
+has built them, the run inputs
 (`job.json`, `mirna.fa`, `targets.txt`), and — if enrichment analysis has been
 run for the job — its outputs under `enrichment/` (`gene_list.csv`, one
 `*.enrichr.reports.txt` per database, and `enrichment_dotplot.png`), and — if a
 literature verification has completed — its tables under `verification/`
 (`verification.tsv`, `verification.json`, `triplets.tsv`, `verdicts.tsv`).
-Running or re-running either after a download invalidates the cached archive,
-so the next download always reflects the latest results.
+Running or re-running either after a download, or a rebuild of the parsed
+result files, invalidates the cached archive, so the next download always
+reflects the latest results.
 
 ---
 
