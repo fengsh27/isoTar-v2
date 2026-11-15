@@ -36,17 +36,12 @@ import sqlite3
 import tempfile
 
 from app_v1.parse_result import (
-    read_sequences_from_json,
-    process_sequence,
     build_enst_to_refseq_map,
-    parseMirandaResults,
-    parseRnahybridResults,
-    parseMirmapResults,
-    parseDMISOResults,
-    parsePITAResults,
     _extract_lncrna_transcript_id,
 )
-from app_v1.result_db import _load_gene_info, job_genome_for_output
+from app_v1.result_db import _load_gene_info, job_genome_for_output, collect_gene_edges
+from app_v1.lncrna_results import collect_lncrna_edges
+from app_v1.sequence_ids import mirna_node_id, mirna_base_id, mirna_node_label
 
 NETWORK_DB_FILENAME = "network.db"
 
@@ -107,113 +102,37 @@ def strip_lncrna_version(transcript_id):
 # File parsing -> per-pool (mirna -> target -> tools) maps
 # ---------------------------------------------------------------------------
 
-def _mirna_node_id(header):
-    """Node id for a miRNA record, from the runner header "<id>,<variant...>".
-
-    A WT record keeps the plain base id (so a miRNA with no shift/modification
-    is a single node, exactly as before). A modified/shifted variant keeps its
-    full header, so it becomes a node distinct from its WT baseline -- letting
-    the graph show how the modification redirects targeting.
-        "hsa-miR-21-5p,WT"            -> "hsa-miR-21-5p"
-        "hsa-miR-21-5p,-7|1,shifted"  -> "hsa-miR-21-5p,-7|1,shifted"
-    """
-    parts = header.split(",")
-    if len(parts) <= 1 or parts[-1] == "WT":
-        return parts[0]
-    return header
-
-
-def _mirna_base_id(node_id):
-    """Base miRNA id a (possibly variant) node belongs to, for grouping."""
-    return node_id.split(",")[0]
-
-
-def _mirna_node_label(node_id):
-    """Human-readable label, e.g. 'hsa-miR-21-5p (shifted -7|1)'. WT/plain nodes
-    keep the bare id."""
-    parts = node_id.split(",")
-    if len(parts) <= 1:
-        return parts[0]
-    base, vtype = parts[0], parts[-1].replace("_", "+")
-    detail = ",".join(parts[1:-1])
-    return "{} ({} {})".format(base, vtype, detail).strip()
+# Node identity lives in sequence_ids so result.db and lncrna_result.db key
+# their rows the same way. The historical names stay importable: app.py
+# comments and the tests refer to them.
+_mirna_node_id = mirna_node_id
+_mirna_base_id = mirna_base_id
+_mirna_node_label = mirna_node_label
 
 
 def _collect_gene_edges(pool_dir, enst_to_refseq, genome="hg38"):
     """Parse the gene (3' UTR) pool into mirna_id -> {refseq -> set(tools)}.
 
-    Reuses parse_result.process_sequence (the gene flow's parser), which yields
-    RefSeq IDs per tool with TargetScan ENSTs mapped to RefSeq. No target filter
-    is applied -- the ceRNA pairs do the filtering downstream."""
-    edges = {}
+    Reuses the gene flow's per-record parser (result_db.collect_gene_edges),
+    which yields RefSeq IDs per tool with TargetScan ENSTs mapped to RefSeq. No
+    target filter is applied -- the ceRNA pairs do the filtering downstream."""
     json_file = os.path.join(pool_dir, "mirna_prediction_parameters.json")
     if not os.path.exists(json_file):
-        return edges
-    for sequence in read_sequences_from_json(json_file):
-        mirna_id = _mirna_node_id(sequence["header"])
-        targets = edges.setdefault(mirna_id, {})
-        results = process_sequence(
-            sequence, pool_dir, enst_to_refseq=enst_to_refseq, targets=None,
-            genome=genome,
-        )
-        for tool, gene_ids in results.get("prediction", {}).items():
-            for gene_id in gene_ids:
-                if gene_id:
-                    targets.setdefault(gene_id, set()).add(tool)
+        return {}
+    _rows, edges = collect_gene_edges(pool_dir, enst_to_refseq, targets=None, genome=genome)
     return edges
 
 
 def _collect_lncrna_edges(pool_dir):
     """Parse the lncRNA pool into mirna_id -> {transcript_id -> set(tools)}.
 
-    Uses the five lncRNA-compatible tools with the lenient lncRNA transcript
-    extractor (no gene mapping), mirroring lncrna_results but keeping the miRNA."""
-    edges = {}
+    Reuses the lncRNA flow's per-record parser (lncrna_results
+    .collect_lncrna_edges): the five lncRNA-compatible tools with the lenient
+    lncRNA transcript extractor (no gene mapping)."""
     json_file = os.path.join(pool_dir, "mirna_prediction_parameters.json")
     if not os.path.exists(json_file):
-        return edges
-    ext = _extract_lncrna_transcript_id
-    for sequence in read_sequences_from_json(json_file):
-        header = sequence["header"]
-        mirna_id = _mirna_node_id(header)
-        targets = edges.setdefault(mirna_id, {})
-
-        def _add(tid, tool):
-            if tid:
-                targets.setdefault(tid, set()).add(tool)
-
-        p = os.path.join(pool_dir, "miRanda", "{}_miRanda_results.txt".format(header))
-        if os.path.exists(p):
-            r = parseMirandaResults(p, {}, id_extractor=ext)
-            for tid in r["prediction"].get("miRanda", []):
-                _add(tid, "miRanda")
-
-        p = os.path.join(pool_dir, "RNAhybrid", "{}_RNAhybrid_results.txt".format(header))
-        if os.path.exists(p):
-            r = parseRnahybridResults(p, {}, id_extractor=ext)
-            for tid in r["prediction"].get("RNAhybrid", []):
-                _add(tid, "RNAhybrid")
-
-        p = os.path.join(pool_dir, "miRmap", "{}_miRmap_results.txt".format(header))
-        if os.path.exists(p):
-            r = parseMirmapResults(p, {}, id_extractor=ext)
-            for tid in r["prediction"].get("miRmap", []):
-                _add(tid, "miRmap")
-
-        p = os.path.join(pool_dir, "DMISO", "{}_DMISO_results.txt".format(header))
-        if os.path.exists(p):
-            r = parseDMISOResults(
-                p, {}, mirna_sequence=sequence.get("sequence"), id_extractor=ext,
-            )
-            for tid in r["prediction"].get("DMISO", []):
-                _add(tid, "DMISO")
-
-        p = os.path.join(pool_dir, "PITA", "{}_PITA_results.tab".format(header))
-        if os.path.exists(p):
-            r = parsePITAResults(p, {}, id_extractor=ext)
-            for tid in r["prediction"].get("PITA", []):
-                _add(tid, "PITA")
-
+        return {}
+    _rows, edges = collect_lncrna_edges(pool_dir)
     return edges
 
 

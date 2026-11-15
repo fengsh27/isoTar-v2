@@ -88,7 +88,14 @@
   TargetScan rejected), `mir-network` (both pools into `output/gene/` and
   `output/lncrna/`, then joined into a tripartite graph).
 - Results are parsed lazily: the first `/result` call builds and caches
-  `result.db` in the output directory.
+  `result.db` (gene pool) / `lncrna_result.db` (lncRNA pool) in the output
+  directory, plus a flat `predictions.csv` / `lncrna_predictions.csv`.
+  Both keep one row per (miRNA record, target, tool): the WT and each
+  shifted/modified variant are separate records (`app_v1/sequence_ids.py`),
+  never merged, so `query_genes()` defaults to the WT view and
+  `compare_genes()` classifies targets as shared/gained/lost/changed. The
+  schema is stamped in `PRAGMA user_version` (`result_db.SCHEMA_VERSION`);
+  an older cached file is rebuilt from the raw tool output on next access.
 
 ## Literature Verification (app_v1/verification/)
 - Checks a succeeded `mir-network` job's triplets (pair x bridge miRNA) against
