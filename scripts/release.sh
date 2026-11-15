@@ -8,6 +8,22 @@
 # since the last tag), commits as "chore(release): vX.Y.Z" and creates an
 # annotated git tag. Prints the docker build/push and git push commands to run
 # next. Dependency-free (bash + git only).
+#
+# Run it; do not `source` it. Sourced, its `set -e` and `exit` would apply to
+# your interactive shell and close the terminal on the first error.
+_sourced=0
+if [ -n "${ZSH_VERSION:-}" ]; then
+    case "${ZSH_EVAL_CONTEXT:-}" in *:file*) _sourced=1 ;; esac
+elif [ -n "${BASH_VERSION:-}" ]; then
+    [ "${BASH_SOURCE[0]}" != "$0" ] && _sourced=1
+fi
+if [ "$_sourced" = 1 ]; then
+    echo "error: run this script, do not source it:  scripts/release.sh <major|minor|patch|X.Y.Z>" >&2
+    unset _sourced
+    return 1
+fi
+unset _sourced
+
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
@@ -65,27 +81,35 @@ fi
 notes="$(git log $range --no-merges --pretty=format:'- %s' 2>/dev/null || true)"
 [ -n "$notes" ] || notes="- (no changes recorded since ${last_tag:-repo start})"
 
-# --- update VERSION ---
-printf '%s\n' "$new" > "$VERSION_FILE"
-
-# --- prepend CHANGELOG entry below the top heading block ---
+# --- build the new CHANGELOG in a temp file first ---
+# Nothing in the working tree is touched until this succeeds, so a failure here
+# leaves no half-done release behind.
+#
+# The entry is inserted immediately before the first existing "## " release
+# heading, or appended to the end if there is none yet. The notes are passed to
+# printf as an argument, never embedded in an awk program or `awk -v` string:
+# macOS (BSD) awk rejects a -v value that contains a newline, which is every
+# release with more than one commit.
 date="$(date +%Y-%m-%d)"
 tmp="$(mktemp)"
-entry="## ${new} - ${date}\n\n${notes}\n"
-# Insert the new entry immediately before the first existing "## " release heading,
-# or append to the end if there is none yet.
-if grep -qn '^## ' "$CHANGELOG"; then
-    awk -v entry="$entry" '
-        !done && /^## / { printf entry "\n"; done=1 }
-        { print }
-    ' "$CHANGELOG" > "$tmp"
+trap 'rm -f "$tmp"' EXIT
+if grep -q '^## ' "$CHANGELOG"; then
+    {
+        awk '/^## / { exit } { print }' "$CHANGELOG"
+        printf '## %s - %s\n\n%s\n\n' "$new" "$date" "$notes"
+        awk 'found { print; next } /^## / { found = 1; print }' "$CHANGELOG"
+    } > "$tmp"
 else
-    cp "$CHANGELOG" "$tmp"
-    printf '\n%b\n' "$entry" >> "$tmp"
+    {
+        cat "$CHANGELOG"
+        printf '\n## %s - %s\n\n%s\n' "$new" "$date" "$notes"
+    } > "$tmp"
 fi
-mv "$tmp" "$CHANGELOG"
 
-# --- commit + tag ---
+# --- update VERSION + CHANGELOG, commit, tag ---
+printf '%s\n' "$new" > "$VERSION_FILE"
+cp "$tmp" "$CHANGELOG"
+
 git add "$VERSION_FILE" "$CHANGELOG"
 git commit -m "chore(release): ${tag}"
 git tag -a "$tag" -m "$tag"
