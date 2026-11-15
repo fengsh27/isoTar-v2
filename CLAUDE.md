@@ -87,9 +87,14 @@
 - Three workflows: `mir-target` (gene pool), `mir-lncrna` (lncRNA pool,
   TargetScan rejected), `mir-network` (both pools into `output/gene/` and
   `output/lncrna/`, then joined into a tripartite graph).
-- Results are parsed lazily: the first `/result` call builds and caches
-  `result.db` (gene pool) / `lncrna_result.db` (lncRNA pool) in the output
-  directory, plus a flat `predictions.csv` / `lncrna_predictions.csv`.
+- Results are indexed by the worker: `run_job`'s last step (`indexing`,
+  `app_v1/result_indexes.py`) builds and caches `result.db` (gene pool) /
+  `lncrna_result.db` (lncRNA pool) / `network.db` in the output directory,
+  plus a flat `predictions.csv` / `lncrna_predictions.csv`, before the job is
+  marked succeeded. The `/result` route still builds lazily as a fallback
+  (older jobs, a failed index); a request-path build holds the single API
+  worker and can outlive the frontend proxy's 30 s cap, so after a schema
+  bump rebuild existing jobs with `python3.6 -m app_v1.result_indexes`.
   Both keep one row per (miRNA record, target, tool): the WT and each
   shifted/modified variant are separate records (`app_v1/sequence_ids.py`),
   never merged, so `query_genes()` defaults to the WT view and

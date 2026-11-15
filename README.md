@@ -153,6 +153,28 @@ docker run -d \
 
 The API is available at `http://localhost:8080/api/v1/`.
 
+### Warming up result indexes
+
+Finished jobs cache their result databases (`result.db`, `lncrna_result.db`,
+`network.db`) in their output directory. New jobs build them in the worker
+before they are marked succeeded. Jobs that finished before that step existed,
+or that were cached by an older schema, are rebuilt on their first `/result`
+call instead, which for a large job can take longer than the frontend proxy
+allows and holds the API worker meanwhile. After deploying a release that bumps
+the result schema, rebuild them ahead of time from inside the container:
+
+```bash
+docker exec -w / isotar python3.6 -m app_v1.result_indexes --dry-run   # list stale indexes
+docker exec -w / isotar python3.6 -m app_v1.result_indexes             # rebuild them, newest job first
+docker exec -w / isotar python3.6 -m app_v1.result_indexes --since 30  # only jobs finished in the last 30 days
+docker exec -w / isotar python3.6 -m app_v1.result_indexes --job <id>  # one job (repeatable)
+```
+
+It prints one line per index with the build time and ends with the slowest
+build, runs as its own process (the API keeps serving), and writes each database
+atomically, so it is safe while the server is up. Exit code 1 means at least one
+index failed; the line names the job and the error.
+
 `.env.template` lists every environment variable the server reads, with the
 defaults and a note on what each one changes. The two optional feature blocks
 are the NCBI E-utilities credentials and the Anthropic-compatible gateway
@@ -266,8 +288,12 @@ into one view. A job that succeeded with some tools failing carries
 GET /api/v1/jobs/<job_id>/result
 ```
 
-Returns 409 unless the job succeeded. The result database is built lazily on the
-first call and cached as `result.db` in the output directory.
+Returns 409 unless the job succeeded. The result database (`result.db`, or
+`lncrna_result.db` for the lncRNA pool) is built by the worker as the job's last
+step, `indexing`, and cached in the output directory, so this call only reads
+it. A job that predates that step, or whose index could not be built, is still
+built lazily on the first call; see [Warming up result
+indexes](#warming-up-result-indexes) for refreshing existing jobs in bulk.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
