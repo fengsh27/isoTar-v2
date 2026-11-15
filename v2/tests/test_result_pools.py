@@ -44,10 +44,13 @@ class _ResultRouteTestCase(unittest.TestCase):
         app_module.BASE_DIR = self.tmp
 
         self.calls = []
+        self.kwargs = []
         self._orig = {
             "ensure_db": app_module.ensure_db,
             "ensure_lncrna_db": app_module.ensure_lncrna_db,
             "query_genes": app_module.query_genes,
+            "compare_genes": app_module.compare_genes,
+            "list_sequences": app_module.list_sequences,
         }
 
         def fake_ensure_db(output_dir):
@@ -60,11 +63,23 @@ class _ResultRouteTestCase(unittest.TestCase):
 
         def fake_query_genes(db_path, **kwargs):
             self.calls.append(("query_genes", db_path))
+            self.kwargs.append(kwargs)
             return dict(_FAKE_PAGE)
+
+        def fake_compare_genes(db_path, wt, variant, **kwargs):
+            self.calls.append(("compare_genes", db_path))
+            self.kwargs.append(dict(kwargs, wt=wt, variant=variant))
+            return {"wt": wt, "variant": variant, "total_genes": 2, "total": 2,
+                    "totals": {}, "tools": {}, "genes": []}
+
+        def fake_list_sequences(db_path):
+            return [{"sequence": "hsa-miR-21-5p", "is_variant": False}]
 
         app_module.ensure_db = fake_ensure_db
         app_module.ensure_lncrna_db = fake_ensure_lncrna_db
         app_module.query_genes = fake_query_genes
+        app_module.compare_genes = fake_compare_genes
+        app_module.list_sequences = fake_list_sequences
 
         app_module.app.config["TESTING"] = True
         self.client = app_module.app.test_client()
@@ -173,6 +188,69 @@ class SinglePoolWorkflowsUnchangedTest(_ResultRouteTestCase):
         resp = self._get("tgt", "?pool=gene")
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(self.calls, [])
+
+
+class SequenceSelectionTest(_ResultRouteTestCase):
+    """WT/variant records are kept apart in result.db; the route exposes the
+    selection (`sequence`, repeatable) and the WT-vs-variant compare view."""
+
+    WT = "hsa-miR-21-5p"
+    VAR = "hsa-miR-21-5p,1|0,shifted"
+
+    def test_default_asks_for_the_wt_view_and_lists_the_records(self):
+        self._make_job("tgt", "mir-target")
+        resp = self._get("tgt")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(self.kwargs[0]["sequences"])
+        body = json.loads(resp.data.decode("utf-8"))
+        self.assertEqual(body["view"], "genes")
+        self.assertEqual(body["sequences"][0]["sequence"], self.WT)
+
+    def test_sequence_is_repeatable(self):
+        self._make_job("tgt", "mir-target")
+        resp = self._get("tgt", "?sequence={}&sequence={}".format(self.WT, self.VAR))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self.kwargs[0]["sequences"], [self.WT, self.VAR])
+
+    def test_compare_view(self):
+        self._make_job("lnc", "mir-lncrna")
+        resp = self._get("lnc", "?view=compare&wt={}&variant={}&status=lost&sortBy=delta"
+                                "&ascendOrDescend=asc&keyword=MALAT1&offset=5&number=10"
+                         .format(self.WT, self.VAR))
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertEqual(self.calls[0][0], "ensure_lncrna_db")
+        self.assertEqual(self.calls[1][0], "compare_genes")
+        kw = self.kwargs[0]
+        self.assertEqual((kw["wt"], kw["variant"]), (self.WT, self.VAR))
+        self.assertEqual(kw["status"], "lost")
+        self.assertEqual(kw["sort_by"], "delta")
+        self.assertEqual(kw["keyword"], "MALAT1")
+        self.assertEqual((kw["offset"], kw["number"]), (5, 10))
+        body = json.loads(resp.data.decode("utf-8"))
+        self.assertEqual(body["view"], "compare")
+        self.assertEqual(body["wt"], self.WT)
+        self.assertIn("sequences", body)
+
+    def test_compare_view_validation(self):
+        self._make_job("tgt", "mir-target")
+        self.assertEqual(self._get("tgt", "?view=compare").status_code, 400)
+        self.assertEqual(self._get("tgt", "?view=compare&wt={}".format(self.WT)).status_code, 400)
+        # Records of two different miRNAs cannot be compared.
+        self.assertEqual(self._get("tgt", "?view=compare&wt={}&variant=hsa-let-7a-5p,1|0,shifted"
+                                   .format(self.WT)).status_code, 400)
+        self.assertEqual(self._get("tgt", "?view=compare&wt={}&variant={}&status=nope"
+                                   .format(self.WT, self.VAR)).status_code, 400)
+        self.assertEqual(self._get("tgt", "?view=compare&wt={}&variant={}&sortBy=tool_count"
+                                   .format(self.WT, self.VAR)).status_code, 400)
+        self.assertEqual(self._get("tgt", "?view=nope").status_code, 400)
+        self.assertEqual(self.calls, [])
+
+    def test_compare_works_per_network_pool(self):
+        output_dir = self._make_job("net", "mir-network", pools=("gene", "lncrna"))
+        resp = self._get("net", "?pool=gene&view=compare&wt={}&variant={}".format(self.WT, self.VAR))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self.calls[0], ("ensure_db", os.path.join(output_dir, "gene")))
+        self.assertEqual(self.calls[1][0], "compare_genes")
 
 
 class ResultPreconditionsTest(_ResultRouteTestCase):

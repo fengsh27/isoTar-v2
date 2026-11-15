@@ -17,7 +17,9 @@ from app_v1.celery_app import celery_app
 from app_v1.limits import MAX_CORES_PER_JOB, validate_cores
 from app_v1.logger import get_logger
 from app_v1.version import get_version
-from app_v1.result_db import ensure_db, gene_labels, query_genes
+from app_v1.result_db import (
+    COMPARE_STATUSES, compare_genes, ensure_db, gene_labels, list_sequences, query_genes,
+)
 from app_v1.lncrna_results import ensure_lncrna_db
 from app_v1.network_results import (
     build_network,
@@ -1221,7 +1223,8 @@ def job_result(job_id):
         return jsonify({"error": "result not found"}), 404
 
     # Query parameters
-    sort_by = request.args.get("sortBy", "tool_count")
+    view    = request.args.get("view", "genes")
+    sort_by = request.args.get("sortBy") or ("status" if view == "compare" else "tool_count")
     order   = request.args.get("ascendOrDescend", "desc")
     keyword = request.args.get("keyword", "").strip() or None
     try:
@@ -1230,12 +1233,34 @@ def job_result(job_id):
     except ValueError:
         return jsonify({"error": "offset and number must be integers"}), 400
 
-    if sort_by not in ("gene_label", "tool_count"):
-        return jsonify({"error": "sortBy must be gene_label or tool_count"}), 400
     if order.lower() not in ("asc", "desc", "ascend", "descend"):
         return jsonify({"error": "ascendOrDescend must be asc or desc"}), 400
     if offset < 0 or number < 1 or number > 1000:
         return jsonify({"error": "offset must be >= 0 and number must be between 1 and 1000"}), 400
+
+    # A job with a shift or base modification runs the WT and each variant as
+    # separate records, and result.db keeps their hits apart. `sequence`
+    # (repeatable) picks the records to show; absent, the WT records -- the
+    # union would present a target list no single sequence produced.
+    # `view=compare` instead classifies every target of a WT/variant pair.
+    sequences = [s for s in request.args.getlist("sequence") if s.strip()] or None
+    status = request.args.get("status", "").strip() or None
+    wt = request.args.get("wt", "").strip()
+    variant = request.args.get("variant", "").strip()
+    if view not in ("genes", "compare"):
+        return jsonify({"error": "view must be genes or compare"}), 400
+    if view == "compare":
+        if not wt or not variant:
+            return jsonify({"error": "view=compare needs wt and variant (sequence ids "
+                                     "from the result's sequences list)"}), 400
+        if wt.split(",")[0] != variant.split(",")[0]:
+            return jsonify({"error": "wt and variant must be records of the same miRNA"}), 400
+        if sort_by not in ("status", "gene_label", "delta"):
+            return jsonify({"error": "sortBy must be status, gene_label or delta for view=compare"}), 400
+        if status is not None and status not in COMPARE_STATUSES:
+            return jsonify({"error": "status must be one of: {}".format(", ".join(COMPARE_STATUSES))}), 400
+    elif sort_by not in ("gene_label", "tool_count"):
+        return jsonify({"error": "sortBy must be gene_label or tool_count"}), 400
 
     # A network job predicts against two target pools, each in its own output
     # subdirectory with its own parameters file -- there is no single result set
@@ -1279,14 +1304,21 @@ def job_result(job_id):
             db_path = ensure_lncrna_db(output_dir)
         else:
             db_path = ensure_db(output_dir)
-        data = query_genes(db_path, sort_by=sort_by, order=order,
-                           offset=offset, number=number, keyword=keyword)
+        if view == "compare":
+            data = compare_genes(db_path, wt, variant, status=status, keyword=keyword,
+                                 sort_by=sort_by, order=order, offset=offset, number=number)
+        else:
+            data = query_genes(db_path, sort_by=sort_by, order=order,
+                               offset=offset, number=number, keyword=keyword,
+                               sequences=sequences)
+        data["sequences"] = list_sequences(db_path)
     except Exception as e:
         logger.error("result processing failed job_id=%s error=%s", job_id, e)
         return jsonify({"error": "result processing failed: {}".format(str(e))}), 500
 
     data.update({
         "job_id":  job_id,
+        "view":    view,
         "sort_by": sort_by,
         "order":   order,
         "offset":  offset,
@@ -1295,8 +1327,8 @@ def job_result(job_id):
     })
     if is_network:
         data["pool"] = pool
-    logger.info("result queried job_id=%s pool=%s sort_by=%s order=%s offset=%d number=%d keyword=%s total=%d total_genes=%d",
-                job_id, pool, sort_by, order, offset, number, keyword, data["total"], data["total_genes"])
+    logger.info("result queried job_id=%s pool=%s view=%s sequences=%s sort_by=%s order=%s offset=%d number=%d keyword=%s total=%d total_genes=%d",
+                job_id, pool, view, sequences, sort_by, order, offset, number, keyword, data["total"], data["total_genes"])
     return jsonify(data)
 
 
@@ -1386,6 +1418,21 @@ def _verification_artifacts(job_dir):
     return out
 
 
+_RESULT_ARTIFACT_NAMES = ("result.db", "lncrna_result.db", "network.db",
+                          "predictions.csv", "lncrna_predictions.csv")
+
+
+def _result_artifacts(result_dir):
+    """(path, name) of every parsed result file under result_dir -- at the top
+    level for a single-pool job, inside output/<pool>/ for a network job."""
+    out = []
+    for root, _dirs, files in os.walk(result_dir):
+        for name in files:
+            if name in _RESULT_ARTIFACT_NAMES:
+                out.append((os.path.join(root, name), name))
+    return out
+
+
 @app.route("/api/v1/jobs/<job_id>/result/download", methods=["GET"])
 def job_result_download(job_id):
     if not os.path.exists(_job_meta_path(job_id)):
@@ -1408,8 +1455,10 @@ def job_result_download(job_id):
     # artifacts is newer than the cached zip, otherwise a user who downloaded
     # before running them keeps getting a zip without them -- and one who
     # re-ran keeps getting the superseded results.
+    # The parsed result files are lazily built and rebuilt when their schema
+    # changes, so they too can be newer than a cached zip.
     stale = False
-    later = enrichment + verification_files
+    later = enrichment + verification_files + _result_artifacts(result_dir)
     if os.path.exists(archive_path) and later:
         archive_mtime = os.path.getmtime(archive_path)
         stale = any(os.path.getmtime(p) > archive_mtime for p, _ in later)
@@ -1454,11 +1503,20 @@ def job_enrichment(job_id):
     genes = data.get("genes")
     organism = data.get("organism", "Human")
     cutoff = data.get("cutoff", 0.05)
+    # Which of the job's records to collect genes from (a sequence id from the
+    # result's sequences list). Absent, the WT records: a variant's
+    # hypothetical targets never leak into the canonical miRNA's enrichment.
+    sequence = data.get("sequence")
 
     if genes is not None and (
             not isinstance(genes, list) or not genes
             or not all(isinstance(g, str) for g in genes)):
         return jsonify({"error": "genes, when given, must be a non-empty list of gene symbols",
+                        "hint": "omit genes to use the job's own predicted genes"}), 400
+    if sequence is not None and (not isinstance(sequence, str) or not sequence.strip()):
+        return jsonify({"error": "sequence, when given, must be a sequence id string"}), 400
+    if sequence is not None and genes is not None:
+        return jsonify({"error": "sequence applies only when the job's own genes are enriched",
                         "hint": "omit genes to use the job's own predicted genes"}), 400
 
     try:
@@ -1492,7 +1550,8 @@ def job_enrichment(job_id):
     # gene_count is filled in by the task when it collects the job's genes.
     params = {"organism": organism, "cutoff": cutoff,
               "gene_source": "request" if genes is not None else "job",
-              "gene_count": len(genes) if genes is not None else None}
+              "gene_count": len(genes) if genes is not None else None,
+              "sequence": sequence.strip() if sequence is not None else None}
     enrichment_state.write_status(job_dir, {
         "status": "queued", "params": params, "queued_at": int(time.time()),
         "started_at": None, "finished_at": None, "error": None, "stderr": None,
@@ -1528,9 +1587,11 @@ def run_enrichment_task(self, job_id, params):
             output_dir = _load_meta(job_id).get("result_path")
             if not output_dir or not os.path.exists(output_dir):
                 raise RuntimeError("the job's prediction results were not found")
-            genes = gene_labels(ensure_db(output_dir))
+            wanted = [params["sequence"]] if params.get("sequence") else None
+            genes = gene_labels(ensure_db(output_dir), sequences=wanted)
             if not genes:
-                raise RuntimeError("the job has no predicted targets with a gene symbol")
+                raise RuntimeError("the job has no predicted targets with a gene symbol"
+                                   + (" for sequence {}".format(wanted[0]) if wanted else ""))
             _write_gene_list(os.path.join(job_dir, "gene_list.csv"), genes)
         except Exception as e:  # noqa: BLE001 -- the task must record, not propagate
             logger.error("enrichment gene collection failed job_id=%s error=%s", job_id, e)
