@@ -6,6 +6,12 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.32 - 2026-11-15
+
+- fix(release): build CHANGELOG without awk -v, refuse to run when sourced
+- feat(api): per-sequence result views, compare endpoint and sequence-aware enrichment
+- feat(results): keep WT and variant predictions per sequence in result.db
+
 ## 0.3.31 - 2026-11-12
 
 - feat(enrichment): enrich the job's own genes when none are sent
