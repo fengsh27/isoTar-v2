@@ -21,6 +21,7 @@ from app_v1.result_db import (
     COMPARE_STATUSES, compare_genes, ensure_db, gene_labels, list_sequences, query_genes,
 )
 from app_v1.lncrna_results import ensure_lncrna_db
+from app_v1.result_indexes import build_result_indexes
 from app_v1.network_results import (
     build_network,
     load_pairs,
@@ -733,6 +734,17 @@ def run_job(self, job_id):
             _write_meta(job_id, meta)
             logger.error("job failed job_id=%s error=%s", job_id, tool_errors)
             return
+
+        # Build the result databases here, in the worker, so the first /result
+        # call is a cached read. Built lazily on the request instead, a large
+        # job held the API's single gunicorn worker for the whole parse and
+        # outlived the frontend proxy's 30 s cap. A failure is logged inside
+        # build_result_indexes and never fails the job: the raw tool output is
+        # intact and the route's lazy build remains the fallback.
+        meta["step"] = "indexing"
+        _write_meta(job_id, meta)
+        logger.info("step=indexing job_id=%s", job_id)
+        build_result_indexes(output_dir, workflow, logger=logger, job_id=job_id)
 
         meta["status"] = "succeeded"
         meta["finished_at"] = int(time.time())
