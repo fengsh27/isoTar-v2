@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 import uuid
 import zipfile
@@ -42,6 +43,7 @@ from app_v1.lncrna_reference import (
     normalize_lncrna_id as _normalize_lncrna_id,
 )
 from app_v1 import enrichment_status as enrichment_state
+from app_v1.variant_check import requested_variants, variant_warnings
 from app_v1.verification import pipeline as verification
 from app_v1.verification.pubmed import TISSUE as VERIFICATION_TISSUES, resolve_tissue
 
@@ -446,6 +448,12 @@ def _append_processing_args(cmd, modifications, shift, pre_id):
     string (or None); pre_id: precursor id for multi-precursor miRNAs (or None)."""
     for mod in modifications or []:
         cmd.extend(["-m", mod])
+    if modifications or shift:
+        # A requested variant that cannot be built (a modification whose base
+        # does not match, a variant outside 17-30 nt) is an error, not a
+        # warning: skipped, the job ran the wild type alone and still reported
+        # success.
+        cmd.append("--strict")
     if shift:
         # Use the --shift=VALUE form (not ["-s", shift]): a negative left-shift
         # like "-7|1" starts with "-" and isn't a valid negative number (the
@@ -507,6 +515,50 @@ def _concat_fasta_dedup(part_paths, out_path):
     return out_path
 
 
+class MirnaProcessingError(RuntimeError):
+    """mirna_processing.py failed; the message is the script's own reason."""
+
+
+def _run_mirna_processing(cmd, timeout=120):
+    """Run mirna_processing.py. Raises MirnaProcessingError carrying the
+    script's "Error: ..." line, so a failure reads e.g. "Modification '4:C|U'
+    cannot be applied to UACAGUACUGUGAUAACUGAA: Expected 'C' at position 4,
+    found 'A'" rather than a bare non-zero exit status. stdin is closed so a
+    multi-precursor prompt fails instead of hanging."""
+    with open(os.devnull, "rb") as devnull:
+        proc = subprocess.run(cmd, stdin=devnull, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, universal_newlines=True,
+                              timeout=timeout)
+    if proc.returncode != 0:
+        lines = [l.strip() for l in (proc.stderr or proc.stdout or "").splitlines() if l.strip()]
+        reason = lines[-1] if lines else "exit status {}".format(proc.returncode)
+        if reason.startswith("Error: "):
+            reason = reason[len("Error: "):]
+        raise MirnaProcessingError(reason)
+    return proc
+
+
+def _check_mirna_operations(mirna_id, modifications, shift, pre_id):
+    """Dry-run mirna_processing.py for a requested variant at submit time.
+
+    Returns None when the variant can be built, else the script's reason.
+    Reuses the script itself rather than a second validator, so the check
+    cannot drift from what the job will run."""
+    if not (modifications or shift):
+        return None
+    with tempfile.TemporaryDirectory() as tmp:
+        cmd = ["python2.7", "/opt/v2/mirna_processing.py", mirna_id,
+               "-o", os.path.join(tmp, "check.fa")]
+        _append_processing_args(cmd, modifications, shift, pre_id)
+        try:
+            _run_mirna_processing(cmd, timeout=60)
+        except MirnaProcessingError as e:
+            return str(e)
+        except subprocess.TimeoutExpired:
+            return "checking the requested variant timed out"
+    return None
+
+
 def _process_single_mirna(job_id, mirna_id, fasta_path, modifications, shift, pre_id,
                           mirna_seq=None):
     """Generate mirna.fa for one miRNA: a user-supplied custom sequence when
@@ -526,7 +578,10 @@ def _process_single_mirna(job_id, mirna_id, fasta_path, modifications, shift, pr
     else:
         _append_processing_args(cmd, modifications, shift, pre_id)
     logger.info("step=processing job_id=%s", job_id)
-    subprocess.check_call(cmd)
+    try:
+        _run_mirna_processing(cmd)
+    except MirnaProcessingError as e:
+        raise MirnaProcessingError("miRNA processing failed: {}".format(e))
 
 
 def _process_mirna_list(job_id, mirna_ids, fasta_path, meta):
@@ -568,10 +623,9 @@ def _process_mirna_list(job_id, mirna_ids, fasta_path, meta):
                 _append_processing_args(cmd, spec.get("modifications"),
                                         spec.get("shift"), pre_id)
             try:
-                with open(os.devnull, "rb") as devnull:
-                    subprocess.check_call(cmd, stdin=devnull)
+                _run_mirna_processing(cmd)
                 part_paths.append(part)
-            except subprocess.CalledProcessError as e:
+            except (MirnaProcessingError, subprocess.TimeoutExpired) as e:
                 key = mirna_id if spec is None else "{}#{}".format(mirna_id, vidx)
                 mirna_errors[key] = str(e)
                 logger.error("mirna processing failed job_id=%s mirna=%s variant=%s error=%s",
@@ -899,6 +953,19 @@ def _submit_network_job(data, tools):
                         "unknown": unknown_ops}), 400
 
     mirna_variants = _normalize_mirna_variants(mirna_ids, shifts, modifications, variants)
+    for mid, specs in mirna_variants.items():
+        for spec in specs:
+            op_err = _check_mirna_operations(mid, spec.get("modifications"),
+                                             spec.get("shift"), pre_ids.get(mid))
+            if op_err:
+                logger.warning("network job rejected: variant cannot be built mirna_id=%s spec=%s error=%s",
+                               mid, spec, op_err)
+                return jsonify({
+                    "error": "a requested variant of {} cannot be built: {}".format(mid, op_err),
+                    "variant": spec,
+                    "hint": "modification positions count from the first base of the mature "
+                            "sequence (after any shift); the original base must match",
+                }), 400
 
     cores, cores_err = validate_cores(data.get("cores"))
     if cores_err:
@@ -1120,6 +1187,18 @@ def submit_job():
             msg, status = seq_err
             logger.warning("job rejected: %s mirna_id=%s", msg, mirna_id)
             return jsonify({"error": msg}), status
+    else:
+        # Refuse a variant that cannot be built now, with the reason, instead
+        # of letting the job run the wild type alone and report success.
+        op_err = _check_mirna_operations(mirna_id, modifications, shift, pre_id)
+        if op_err:
+            logger.warning("job rejected: variant cannot be built mirna_id=%s error=%s",
+                           mirna_id, op_err)
+            return jsonify({
+                "error": "the requested miRNA variant cannot be built: {}".format(op_err),
+                "hint": "modification positions count from the first base of the mature "
+                        "sequence (after any shift); the original base must match",
+            }), 400
 
     if targets is not None:
         if not isinstance(targets, list) or not targets or not all(isinstance(g, str) for g in targets):
@@ -1214,9 +1293,27 @@ def job_status(job_id):
     progress = _load_progress(job_id)
     if progress is not None:
         meta["progress"] = progress
+    if meta.get("status") == "succeeded":
+        warnings = _job_variant_warnings(job_id, meta)
+        if warnings:
+            meta["warnings"] = warnings
     resp = jsonify(meta)
     resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+def _job_variant_warnings(job_id, meta):
+    """Requested variants missing from the job's mirna.fa (see variant_check).
+    Jobs from before submit-time validation could silently run WT only."""
+    if not requested_variants(meta):
+        return []
+    fasta = os.path.join(_job_path(job_id), "mirna.fa")
+    try:
+        with open(fasta, "r") as fh:
+            headers = [line for line in fh if line.startswith(">")]
+    except (IOError, OSError):
+        return []
+    return variant_warnings(meta, headers)
 
 
 @app.route("/api/v1/jobs/<job_id>/result", methods=["GET"])
