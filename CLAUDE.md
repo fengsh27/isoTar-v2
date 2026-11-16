@@ -107,6 +107,13 @@
   `app_v1_verification_worker` with `--concurrency=1`): that one process is the
   NCBI rate limit. Progress/results in `<job>/verification/`; shared caches in
   `ISOTAR_VERIFICATION_DIR` (`pubmed_cache.db`, `verdicts.db`).
+- `python3.11` is built against a private OpenSSL whose openssldir holds no CA
+  certificates; the Dockerfile symlinks the system bundle into it and sets
+  `SSL_CERT_FILE`/`SSL_CERT_DIR`. Without that every HTTPS call from
+  python3.11 fails `CERTIFICATE_VERIFY_FAILED` while python3.6 is fine, and
+  the model review fetches nothing. A hit that cannot be fetched or classified
+  is written as a `not_read` verdict with the reason; a run that read nothing
+  exits 5 and the review is reported `failed`, never `succeeded`.
 - `llm_review.py` is the only part that runs under `python3.11` (Anthropic SDK,
   `requirements-py311.txt`); it talks to the gateway in `ANTHROPIC_BASE_URL`
   with `ANTHROPIC_AUTH_TOKEN`. Everything else is stdlib 3.6 and must stay so.

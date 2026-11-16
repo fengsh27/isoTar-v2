@@ -18,8 +18,11 @@ hit with the rubric below, returning a structured verdict that always carries
 the quoted sentence deciding it. Verdicts are cached by (PMID, scope, symbols,
 model, rubric version) so a paper read for one job is free for the next.
 
-Exit codes: 0 ok, 2 bad arguments, 3 SDK not installed, 4 gateway/auth failure.
+Exit codes: 0 ok, 2 bad arguments, 3 SDK not installed, 4 gateway/auth failure,
+5 nothing could be read (every queued paper failed to fetch or to classify).
 The last stdout line is a JSON summary: {"reviewed": n, "cached": c, "errors": e}.
+A hit that fails is still written to the verdicts file, as `not_read` with the
+reason in `note`, so the reader sees why a queued paper has no verdict.
 """
 import argparse
 import json
@@ -32,7 +35,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import papers  # noqa: E402  (stdlib sibling module)
 
 RUBRIC_VERSION = 1
-VERDICTS = ("reported_interaction", "opposite_arm", "co_mention", "look_alike", "editorial_notice", "not_accessible")
+VERDICTS = ("reported_interaction", "opposite_arm", "co_mention", "look_alike", "editorial_notice", "not_accessible",
+            "not_read")  # not_read is written by this script, never by the model
 ARM_MATCH = ("same", "opposite", "unstated", "na")
 EVIDENCE = ("reporter", "rip", "expression", "computational", "review", "none")
 COLUMNS = ["id", "scope", "pmid", "verdict", "arm_match", "tissue", "evidence_type", "sentences", "note"]
@@ -75,6 +79,32 @@ gene_lnc reported_interaction with a note naming the published miRNA.
 Always quote verbatim, in "sentences", the sentence or sentences that decide the verdict, joined by " | ",
 trimmed to what is needed. A verdict without a quote is worth nothing: a reader confirms your verdict from
 the quote without re-reading the paper. Put anything else the reader needs in "note"."""
+
+
+def failure_row(reason):
+    """Verdict row for a hit the model never judged because the paper could
+    not be fetched or the call failed. Recorded, never cached, so the row
+    shows the reason instead of a silent gap and the next run retries it."""
+    return {"verdict": "not_read", "arm_match": "unstated", "tissue": "", "evidence_type": "none",
+            "sentences": "", "note": reason}
+
+
+def summarize(reviewed, cached, errors, skipped, fatal=None, first_error=None):
+    """(summary dict for the last stdout line, exit code).
+
+    A gateway/auth failure is exit 4. A run in which every queued hit errored
+    and nothing was read, from the model or the cache, is exit 5 with the first
+    error as the reason: the caller must report that as a failed review, not
+    as a success with a high error count."""
+    summary = {"reviewed": reviewed, "cached": cached, "errors": errors, "skipped_over_budget": skipped}
+    if fatal:
+        summary["error"] = fatal
+        return summary, 4
+    if errors and not reviewed and not cached:
+        summary["error"] = "none of the %d queued paper(s) could be read; first error: %s" % (
+            errors, first_error or "unknown")
+        return summary, 5
+    return summary, 0
 
 
 def _try_import_sdk():
@@ -185,6 +215,15 @@ def main():
     papers_seen = {}
     budget = a.max_papers
     fatal = None
+    first_error = None
+
+    def record_failure(item_, scope_, pmid_, reason):
+        nonlocal errors, first_error
+        errors += 1
+        first_error = first_error or reason
+        print(reason, file=sys.stderr)
+        writer.writerow(dict(failure_row(reason), id=item_["id"], scope=scope_, pmid=pmid_))
+        outf.flush()
     for item in queue:
         for scope, pmid in item["pmids"]:
             key = VerdictCache.key(pmid, scope, item["terms"][0], item["gene"], item["lncRNA"], a.model)
@@ -202,8 +241,7 @@ def main():
                     papers_seen[pmid] = papers.fetch_paper(pmid, api_key, email)
                 paper = papers_seen[pmid]
             except Exception as e:  # noqa: BLE001 -- NCBI hiccup on one paper
-                errors += 1
-                print("fetch failed pmid=%s: %s" % (pmid, str(e)[:200]), file=sys.stderr)
+                record_failure(item, scope, pmid, "fetch failed pmid=%s: %s" % (pmid, str(e)[:200]))
                 continue
             if not paper.get("found"):
                 row = {"verdict": "not_accessible", "arm_match": "unstated", "tissue": "", "evidence_type": "none",
@@ -228,8 +266,8 @@ def main():
                 fatal = "model %s not found at the gateway: %s" % (a.model, e)
                 break
             except (anthropic.APIStatusError, anthropic.APIConnectionError) as e:
-                errors += 1
-                print("model call failed pmid=%s scope=%s: %s" % (pmid, scope, str(e)[:300]), file=sys.stderr)
+                record_failure(item, scope, pmid,
+                               "model call failed pmid=%s scope=%s: %s" % (pmid, scope, str(e)[:300]))
                 continue
             if response.stop_reason == "refusal" or response.parsed_output is None:
                 row = {"verdict": "not_accessible", "arm_match": "unstated", "tissue": "", "evidence_type": "none",
@@ -246,12 +284,10 @@ def main():
         if fatal:
             break
     outf.close()
-    summary = {"reviewed": reviewed, "cached": cached, "errors": errors, "skipped_over_budget": skipped}
-    if fatal:
-        summary["error"] = fatal
-        print(json.dumps(summary))
-        sys.exit(4)
+    summary, rc = summarize(reviewed, cached, errors, skipped, fatal=fatal, first_error=first_error)
     print(json.dumps(summary))
+    if rc:
+        sys.exit(rc)
 
 
 if __name__ == "__main__":

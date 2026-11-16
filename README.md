@@ -528,6 +528,10 @@ three unrelated papers. `triplet_tier` is `tier{worst arm}` when all three arms
 hit, `partial` with one or two, `none` otherwise. `same_paper_hit` is the only
 field that points at a single study naming the whole axis, and only a verdict
 of `reported_interaction` with its quoted sentence says the paper reports it.
+A `not_read` verdict is written by the review script itself, never by the
+model: the paper could not be fetched or the model call failed, and `note`
+carries the reason. A review in which nothing at all was read is reported as
+`failed` with that reason, not as `succeeded` with a high `errors` count.
 The miRNA is searched at family level (arm suffix dropped), so an
 `opposite_arm` verdict is common and worth showing.
 
