@@ -241,7 +241,7 @@ Common fields:
 |-------|------|----------|-------------|
 | `mirna_id` | string | yes | miRNA identifier (e.g. `hsa-miR-21-5p`), or a free-form label when `mirna_seq` is given |
 | `mirna_seq` | string | no | Raw custom sequence (17–30 nt, `ACGTU`). Bypasses the miRBase lookup; `modifications` / `shift` do not apply, and `mirna_id` is then restricted to `[A-Za-z0-9._-]` because it flows into output filenames |
-| `modifications` | string[] | no | Nucleotide substitutions, `"<pos>:<from>\|<to>"` — e.g. `"8:A\|G"` (1-based) |
+| `modifications` | string[] | no | Nucleotide substitutions, `"<pos>:<from>\|<to>"` — e.g. `"8:A\|G"` (1-based, counted on the mature sequence, or on the shifted one when `shift` is also given). `<from>` must be the base at that position: a variant that cannot be built (mismatched base, or outside 17–30 nt) is rejected with HTTP 400 giving the reason, for `variants` in network jobs too |
 | `shift` | string | no | Re-cut from the precursor, `"left\|right"` — e.g. `"-2\|-3"` |
 | `pre_id` | string | no | Precursor miRNA ID, for miRNAs with several precursors |
 | `targets` | string[] | no | Restrict prediction to these targets. Gene symbols/accessions resolve to RefSeq; lncRNA IDs are normalised. Any unresolved target rejects the job with HTTP 400 |
@@ -279,6 +279,15 @@ Response includes `status` (`queued` | `running` | `succeeded` | `failed` |
 step is active. For `mir-network` jobs the two pools' progress files are merged
 into one view. A job that succeeded with some tools failing carries
 `tool_errors`.
+
+A succeeded job whose `mirna.fa` lacks a requested variant carries
+`warnings`: `[{code: "variant_not_applied", mirna_id, requested, missing,
+message}]`. Until submit-time validation and `mirna_processing.py --strict`,
+a modification whose base did not match was skipped with only a printed
+warning, so such a job ran the wild type alone (or the shift without its
+modifications) yet reported success. New jobs are rejected at submission
+instead, and a variant that still fails to build fails the job with the
+script's reason (`app_v1/variant_check.py`).
 
 ---
 
