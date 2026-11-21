@@ -153,6 +153,28 @@ docker run -d \
 
 The API is available at `http://localhost:8080/api/v1/`.
 
+### Warming up result indexes
+
+Finished jobs cache their result databases (`result.db`, `lncrna_result.db`,
+`network.db`) in their output directory. New jobs build them in the worker
+before they are marked succeeded. Jobs that finished before that step existed,
+or that were cached by an older schema, are rebuilt on their first `/result`
+call instead, which for a large job can take longer than the frontend proxy
+allows and holds the API worker meanwhile. After deploying a release that bumps
+the result schema, rebuild them ahead of time from inside the container:
+
+```bash
+docker exec -w / isotar python3.6 -m app_v1.result_indexes --dry-run   # list stale indexes
+docker exec -w / isotar python3.6 -m app_v1.result_indexes             # rebuild them, newest job first
+docker exec -w / isotar python3.6 -m app_v1.result_indexes --since 30  # only jobs finished in the last 30 days
+docker exec -w / isotar python3.6 -m app_v1.result_indexes --job <id>  # one job (repeatable)
+```
+
+It prints one line per index with the build time and ends with the slowest
+build, runs as its own process (the API keeps serving), and writes each database
+atomically, so it is safe while the server is up. Exit code 1 means at least one
+index failed; the line names the job and the error.
+
 `.env.template` lists every environment variable the server reads, with the
 defaults and a note on what each one changes. The two optional feature blocks
 are the NCBI E-utilities credentials and the Anthropic-compatible gateway
@@ -219,7 +241,7 @@ Common fields:
 |-------|------|----------|-------------|
 | `mirna_id` | string | yes | miRNA identifier (e.g. `hsa-miR-21-5p`), or a free-form label when `mirna_seq` is given |
 | `mirna_seq` | string | no | Raw custom sequence (17–30 nt, `ACGTU`). Bypasses the miRBase lookup; `modifications` / `shift` do not apply, and `mirna_id` is then restricted to `[A-Za-z0-9._-]` because it flows into output filenames |
-| `modifications` | string[] | no | Nucleotide substitutions, `"<pos>:<from>\|<to>"` — e.g. `"8:A\|G"` (1-based) |
+| `modifications` | string[] | no | Nucleotide substitutions, `"<pos>:<from>\|<to>"` — e.g. `"8:A\|G"` (1-based, counted on the mature sequence, or on the shifted one when `shift` is also given). `<from>` must be the base at that position: a variant that cannot be built (mismatched base, or outside 17–30 nt) is rejected with HTTP 400 giving the reason, for `variants` in network jobs too |
 | `shift` | string | no | Re-cut from the precursor, `"left\|right"` — e.g. `"-2\|-3"` |
 | `pre_id` | string | no | Precursor miRNA ID, for miRNAs with several precursors |
 | `targets` | string[] | no | Restrict prediction to these targets. Gene symbols/accessions resolve to RefSeq; lncRNA IDs are normalised. Any unresolved target rejects the job with HTTP 400 |
@@ -258,6 +280,15 @@ step is active. For `mir-network` jobs the two pools' progress files are merged
 into one view. A job that succeeded with some tools failing carries
 `tool_errors`.
 
+A succeeded job whose `mirna.fa` lacks a requested variant carries
+`warnings`: `[{code: "variant_not_applied", mirna_id, requested, missing,
+message}]`. Until submit-time validation and `mirna_processing.py --strict`,
+a modification whose base did not match was skipped with only a printed
+warning, so such a job ran the wild type alone (or the shift without its
+modifications) yet reported success. New jobs are rejected at submission
+instead, and a variant that still fails to build fails the job with the
+script's reason (`app_v1/variant_check.py`).
+
 ---
 
 ### Query results
@@ -266,8 +297,12 @@ into one view. A job that succeeded with some tools failing carries
 GET /api/v1/jobs/<job_id>/result
 ```
 
-Returns 409 unless the job succeeded. The result database is built lazily on the
-first call and cached as `result.db` in the output directory.
+Returns 409 unless the job succeeded. The result database (`result.db`, or
+`lncrna_result.db` for the lncRNA pool) is built by the worker as the job's last
+step, `indexing`, and cached in the output directory, so this call only reads
+it. A job that predates that step, or whose index could not be built, is still
+built lazily on the first call; see [Warming up result
+indexes](#warming-up-result-indexes) for refreshing existing jobs in bulk.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|

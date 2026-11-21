@@ -222,11 +222,15 @@ def validate_modification(mod, max_pos):
     except ValueError as e:
         raise ValueError("Invalid modification '{}': {}".format(mod, str(e)))
 
-def apply_modifications(sequence, modifications):
-    """Apply multiple nucleotide modifications to a sequence."""
+def apply_modifications(sequence, modifications, strict=False):
+    """Apply multiple nucleotide modifications to a sequence.
+
+    A modification that does not match the sequence is skipped with a warning,
+    or, with strict, raises: a skipped modification otherwise leaves the job
+    running the wild type alone while reporting success."""
     modified_seq = sequence
     successful_mods = []
-    
+
     for mod in modifications:
         try:
             pos, original, new = validate_modification(mod, len(sequence))
@@ -236,8 +240,10 @@ def apply_modifications(sequence, modifications):
             modified_seq = modified_seq[:pos] + new + modified_seq[pos + 1:]
             successful_mods.append(mod)
         except ValueError as e:
+            if strict:
+                raise ValueError("Modification '{}' cannot be applied to {}: {}".format(mod, sequence, str(e)))
             print("Warning: {}. Skipping modification.".format(str(e)))
-    
+
     return modified_seq, successful_mods
 
 def apply_shift(pre_seq, mature_seq, start, end, shift):
@@ -259,8 +265,11 @@ def apply_shift(pre_seq, mature_seq, start, end, shift):
     except ValueError as e:
         raise ValueError("Invalid shift '{}': {}".format(shift, str(e)))
 
-def handle_combined_operation(pre_seq, mature_seq, start, end, modifications, shift):
-    """Handle combined shift and modification with position adjustment."""
+def handle_combined_operation(pre_seq, mature_seq, start, end, modifications, shift, strict=False):
+    """Handle combined shift and modification with position adjustment.
+
+    Modification positions refer to the shifted sequence. With strict, a
+    modification that does not match it raises instead of being skipped."""
     # First apply shift
     shifted_seq, shift_info = apply_shift(pre_seq, mature_seq, start, end, shift)
     # left_shift = int(shift.split('|')[0])
@@ -288,8 +297,11 @@ def handle_combined_operation(pre_seq, mature_seq, start, end, modifications, sh
             modified_seq = modified_seq[:adjusted_pos] + new.upper() + modified_seq[adjusted_pos + 1:]
             successful_mods.append(mod)
         except ValueError as e:
+            if strict:
+                raise ValueError("Modification '{}' cannot be applied to shifted sequence {}: {}".format(
+                    mod, shifted_seq, str(e)))
             print("Warning: {}. Skipping modification: {}".format(str(e), mod))
-    
+
     if successful_mods:
         return modified_seq, "{},{}".format('&'.join(successful_mods), shift_info)
     return shifted_seq, shift_info
@@ -390,22 +402,34 @@ def main():
         # Prepare sequences
         sequences = [("{},WT".format(args.mirna_id), mature_seq)]
         
+        def variant_length_ok(seq, label):
+            # Without --strict an out-of-range variant is dropped with a
+            # warning; with it, a requested variant that would be dropped is
+            # an error, so the run never silently falls back to WT alone.
+            if validate_sequence_length(seq, label):
+                return True
+            if args.strict:
+                raise ValueError("{} sequence {} is {} nt, outside the allowed range ({}-{})".format(
+                    label, seq, len(seq), MIN_LENGTH, MAX_LENGTH))
+            return False
+
         # Handle operations based on arguments
         if args.both:
             mod_shift_seq, info = handle_combined_operation(
-                pre_seq, mature_seq, start, end, args.modification, args.shift
+                pre_seq, mature_seq, start, end, args.modification, args.shift,
+                strict=args.strict
             )
-            if validate_sequence_length(mod_shift_seq, "Modified-shifted"):
+            if variant_length_ok(mod_shift_seq, "Modified-shifted"):
                 sequences.append(("{},{},modified_shifted".format(args.mirna_id, info), mod_shift_seq))
         else:
             if args.modification:
-                mod_seq, mods = apply_modifications(mature_seq, args.modification)
-                if mods and validate_sequence_length(mod_seq, "Modified"):
+                mod_seq, mods = apply_modifications(mature_seq, args.modification, strict=args.strict)
+                if mods and variant_length_ok(mod_seq, "Modified"):
                     sequences.append(("{},{},modified".format(args.mirna_id, '&'.join(mods)), mod_seq))
-            
+
             if args.shift:
                 shifted_seq, shift_info = apply_shift(pre_seq, mature_seq, start, end, args.shift)
-                if validate_sequence_length(shifted_seq, "Shifted"):
+                if variant_length_ok(shifted_seq, "Shifted"):
                     sequences.append(("{},{},shifted".format(args.mirna_id, shift_info), shifted_seq))
         
         # Write output
