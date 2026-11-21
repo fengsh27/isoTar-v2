@@ -80,6 +80,21 @@ RUN python3.6 -m pip install --no-cache-dir -r /app_v1/requirements.txt \
 # else in app_v1/verification is standard-library Python 3.6.
 RUN python3.11 -m pip install --no-cache-dir -r /app_v1/verification/requirements-py311.txt
 
+# python3.11 is built against a private OpenSSL (isotar-base.Dockerfile) whose
+# openssldir holds no CA certificates, so every HTTPS call from python3.11
+# failed with CERTIFICATE_VERIFY_FAILED and the model review could fetch no
+# paper. Point that OpenSSL at the system bundle python3.6 and curl already use:
+# the symlinks cover OpenSSL's default lookup (urllib), the env vars cover
+# httpx/certifi in the Anthropic SDK and anything else that reads them. The
+# check fails the build if python3.11 still trusts no CA.
+RUN mkdir -p /usr/local/openssl-1.1.1 \
+    && rm -rf /usr/local/openssl-1.1.1/certs /usr/local/openssl-1.1.1/cert.pem \
+    && ln -s /etc/ssl/certs /usr/local/openssl-1.1.1/certs \
+    && ln -s /etc/ssl/certs/ca-certificates.crt /usr/local/openssl-1.1.1/cert.pem \
+    && python3.11 -c "import ssl; n = ssl.create_default_context().cert_store_stats()['x509_ca']; assert n > 0, 'python3.11 trusts no CA certificate'; print('python3.11 CA certificates:', n)"
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_DIR=/etc/ssl/certs
+
 # Setup Vienna-rna
 RUN cd /opt \
 	&& dpkg -i viennarna_2.4.11-1_amd64.deb
