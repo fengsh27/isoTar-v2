@@ -6,6 +6,10 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.35 - 2026-11-21
+
+- fix(verification): trust the system CA bundle in python3.11, report unread papers
+
 ## 0.3.34 - 2026-11-16
 
 - fix(variants): reject a variant that cannot be built instead of skipping it
