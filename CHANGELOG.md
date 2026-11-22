@@ -6,6 +6,11 @@ to a `frankfeng78/isotar-v2` Docker image tag and a `vX.Y.Z` git tag.
 
 New releases are cut with `scripts/release.sh <major|minor|patch>`.
 
+## 0.3.36 - 2026-11-22
+
+- docs: add self-hosting guide and canonical docker-compose.yml
+- fix(verification): get verdicts through a validated tool call, not structured outputs
+
 ## 0.3.35 - 2026-11-21
 
 - fix(verification): trust the system CA bundle in python3.11, report unread papers
