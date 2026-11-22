@@ -89,6 +89,72 @@ def failure_row(reason):
             "sentences": "", "note": reason}
 
 
+VERDICT_TOOL = "record_verdict"
+VERDICT_ATTEMPTS = 3
+TOOL_INSTRUCTION = """
+
+Record your verdict by calling the record_verdict tool exactly once, with every field filled and only the
+allowed values. Do not answer in plain text."""
+
+
+def verdict_tool(verdict_cls):
+    """The tool the model records its verdict with; its schema is the Verdict model's."""
+    return {"name": VERDICT_TOOL,
+            "description": "Record the verdict for this PubMed hit. Call exactly once, with every field.",
+            "input_schema": verdict_cls.model_json_schema()}
+
+
+def _validation_summary(err):
+    return "; ".join("{}: {}".format(".".join(str(p) for p in e.get("loc", ())) or "input", e.get("msg"))
+                     for e in err.errors())
+
+
+def ask_verdict(client, model, max_tokens, system, user_content, verdict_cls, attempts=VERDICT_ATTEMPTS):
+    """Ask the model for a verdict through a tool call and validate it.
+
+    Returns (verdict, None), or (None, reason) when no valid verdict came back.
+
+    Structured outputs (`messages.parse(output_format=...)`) would guarantee the
+    shape, but the institutional gateway runs Claude on Vertex AI under an
+    organization policy that rejects that feature with 400 FAILED_PRECONDITION
+    (constraints/vertexai.allowedPartnerModelFeatures), and a forced
+    tool_choice ("tool"/"any") is not supported for the model either. So the
+    tool is offered with tool_choice "auto" and the answer is checked here: a
+    missing call, a missing field or a value outside the allowed set is sent
+    back with the exact problem, up to `attempts` times."""
+    from pydantic import ValidationError
+
+    tool = verdict_tool(verdict_cls)
+    messages = [{"role": "user", "content": user_content}]
+    problem = "no response"
+    for _attempt in range(attempts):
+        response = client.messages.create(
+            model=model, max_tokens=max_tokens, system=system + TOOL_INSTRUCTION,
+            tools=[tool], tool_choice={"type": "auto"}, messages=messages)
+        if response.stop_reason == "refusal":
+            return None, "model refused (stop_reason=refusal)"
+        calls = [b for b in response.content
+                 if getattr(b, "type", None) == "tool_use" and getattr(b, "name", None) == VERDICT_TOOL]
+        if not calls:
+            problem = "the model answered without calling {} (stop_reason={})".format(
+                VERDICT_TOOL, response.stop_reason)
+            messages += [{"role": "assistant", "content": response.content},
+                         {"role": "user", "content": "Record the verdict by calling the {} tool, with every "
+                                                     "field.".format(VERDICT_TOOL)}]
+            continue
+        call = calls[0]
+        try:
+            return verdict_cls.model_validate(call.input), None
+        except ValidationError as e:
+            problem = "invalid verdict ({})".format(_validation_summary(e))
+            messages += [{"role": "assistant", "content": response.content},
+                         {"role": "user", "content": [{
+                             "type": "tool_result", "tool_use_id": call.id, "is_error": True,
+                             "content": "Rejected: {}. Call {} again with every required field and only the "
+                                        "allowed values.".format(_validation_summary(e), VERDICT_TOOL)}]}]
+    return None, "no valid verdict after {} attempt(s): {}".format(attempts, problem)
+
+
 def summarize(reviewed, cached, errors, skipped, fatal=None, first_error=None):
     """(summary dict for the last stdout line, exit code).
 
@@ -252,13 +318,8 @@ def main():
             found = papers.sentences_with(paper, _scope_members(scope, item))
             budget -= 1
             try:
-                response = client.messages.parse(
-                    model=a.model,
-                    max_tokens=a.max_tokens,
-                    system=SYSTEM_PROMPT,
-                    messages=[{"role": "user", "content": _user_message(item, scope, paper, found, a.tissue)}],
-                    output_format=Verdict,
-                )
+                v, problem = ask_verdict(client, a.model, a.max_tokens, SYSTEM_PROMPT,
+                                         _user_message(item, scope, paper, found, a.tissue), Verdict)
             except anthropic.AuthenticationError as e:
                 fatal = "gateway rejected the credentials: %s" % e
                 break
@@ -266,14 +327,19 @@ def main():
                 fatal = "model %s not found at the gateway: %s" % (a.model, e)
                 break
             except (anthropic.APIStatusError, anthropic.APIConnectionError) as e:
+                # 1000 chars: a gateway's 400 names the cause (e.g. an organization
+                # policy and the feature it blocks) well past the first 300.
                 record_failure(item, scope, pmid,
-                               "model call failed pmid=%s scope=%s: %s" % (pmid, scope, str(e)[:300]))
+                               "model call failed pmid=%s scope=%s: %s" % (pmid, scope, str(e)[:1000]))
                 continue
-            if response.stop_reason == "refusal" or response.parsed_output is None:
+            if v is None and problem.startswith("model refused"):
                 row = {"verdict": "not_accessible", "arm_match": "unstated", "tissue": "", "evidence_type": "none",
-                       "sentences": "", "note": "model returned no verdict (stop_reason=%s)" % response.stop_reason}
+                       "sentences": "", "note": "model returned no verdict (%s)" % problem}
+            elif v is None:
+                # Not cached: the next run asks again.
+                record_failure(item, scope, pmid, "no usable verdict pmid=%s scope=%s: %s" % (pmid, scope, problem))
+                continue
             else:
-                v = response.parsed_output
                 row = {"verdict": v.verdict, "arm_match": v.arm_match, "tissue": v.tissue,
                        "evidence_type": v.evidence_type, "sentences": v.sentences, "note": v.note}
             cache.put(key, row)

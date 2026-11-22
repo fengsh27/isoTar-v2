@@ -264,6 +264,11 @@ def _run_llm_review(job_dir, config, tissue_label, log):
     """Run llm_review.py under python3.11; never raises. Returns the review dict fields."""
     out = {"status": "failed", "verdicts": [], "reviewed": 0, "cached": 0, "errors": 0, "error": None}
     verdicts_path = _path(job_dir, "verdicts.tsv")
+    # llm_review.py appends, so a re-run would report the previous runs' rows
+    # (stale failures included) next to its own. Good verdicts live in the
+    # shared verdict cache, so starting clean costs no model call.
+    if os.path.exists(verdicts_path):
+        os.remove(verdicts_path)
     cmd = [config.get("python") or "python3.11", "-u", config.get("llm_script") or LLM_SCRIPT,
            _path(job_dir, "review_queue.json"), verdicts_path,
            "--model", str(config.get("model") or ""),
