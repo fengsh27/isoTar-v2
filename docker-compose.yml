@@ -1,0 +1,63 @@
+# isoTar, self-hosted: the backend (prediction tools + REST API) and the web
+# interface on one Docker network. See INSTALL.md for the walkthrough.
+#
+#   cp .env.template .env      # optional credentials and host settings
+#   docker compose up -d
+#   open http://localhost:9501
+#
+# Both images are published on Docker Hub:
+#   https://hub.docker.com/r/frankfeng78/isotar-v2
+#   https://hub.docker.com/r/frankfeng78/isotar-v2-frontend
+# Keep the two tags on a release pair (same date in each CHANGELOG).
+
+services:
+  backend:
+    image: frankfeng78/isotar-v2:0.3.35
+    container_name: isotar-v2-backend
+    # nginx (8080) inside the container fronts the API and routes
+    # /api/v1/* to the Flask app. The log directories are created in case an
+    # older image lacks them; supervisord refuses to start without them.
+    command: sh -c "mkdir -p /app/logs/gunicorn /app/logs/celery && exec /usr/bin/supervisord"
+    # Not published on the host: the frontend reaches it as http://backend:8080.
+    # To call the API directly from the host, add `ports: ["8080:8080"]`.
+    expose:
+      - "8080"
+    # How much of the machine isoTar may use. Each job runs its tools on
+    # ISOTAR_DEFAULT_CORES cores (a submission may ask for fewer or up to
+    # ISOTAR_MAX_CORES_PER_JOB); ISOTAR_MAX_CONCURRENT_JOBS jobs run at once.
+    # Keep jobs x cores <= the cpus limit under deploy.resources below.
+    environment:
+      - ISOTAR_MAX_CORES_PER_JOB=${ISOTAR_MAX_CORES_PER_JOB:-8}
+      - ISOTAR_DEFAULT_CORES=${ISOTAR_DEFAULT_CORES:-8}
+      - ISOTAR_MAX_CONCURRENT_JOBS=${ISOTAR_MAX_CONCURRENT_JOBS:-4}
+    # Credentials for the literature verification feature (NCBI_API_KEY,
+    # NCBI_EMAIL, ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, ...) are read from
+    # `.env` next to this file; start from `.env.template`. Without the file
+    # the stack runs and that feature is simply off. Keys under `environment:`
+    # above take precedence over the same keys in `.env`.
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      # Everything isoTar writes: jobs and their results, logs, and the
+      # literature caches. Survives restarts and image upgrades. Set
+      # ISOTAR_DATA_DIR in `.env` to put it somewhere else.
+      - ${ISOTAR_DATA_DIR:-./isotar-data}:/opt/out
+    deploy:
+      resources:
+        limits:
+          # Hard ceiling for all jobs combined, whatever the settings above.
+          cpus: "${ISOTAR_CPU_LIMIT:-32}"
+    restart: unless-stopped
+
+  frontend:
+    image: frankfeng78/isotar-v2-frontend:0.2.13
+    container_name: isotar-v2-frontend
+    ports:
+      # host:container. Change the left side if 9501 is taken.
+      - "${ISOTAR_PORT:-9501}:3000"
+    environment:
+      - API_BASE=http://backend:8080
+    depends_on:
+      - backend
+    restart: unless-stopped

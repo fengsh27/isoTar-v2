@@ -141,6 +141,11 @@ docker build -t frankfeng78/isotar-v2:"$(cat VERSION)" \
 
 ## Running
 
+For installing isoTar on your own server, with the web interface or the
+backend alone, see [INSTALL.md](INSTALL.md). `docker-compose.yml` in this
+repository pulls a matching pair of backend and frontend images. The
+developer shortcut for the backend alone:
+
 ```bash
 cp .env.template .env        # fill in NCBI and gateway credentials (optional)
 docker run -d \
